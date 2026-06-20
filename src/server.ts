@@ -20,6 +20,7 @@ import {
   discussDone,
   setLiar,
   nextRound,
+  rematch,
   viewFor,
   type Room,
   type Seat,
@@ -122,6 +123,8 @@ function dispatch(room: Room, seat: Seat, msg: Record<string, unknown>): { error
       return setLiar(room, seat, msg as { auto?: boolean; values?: string[] });
     case 'nextRound':
       return nextRound(room, seat);
+    case 'rematch':
+      return rematch(room, seat);
   }
 }
 

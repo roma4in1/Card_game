@@ -14,6 +14,7 @@ import {
   discussDone,
   setLiar,
   nextRound,
+  rematch,
   viewFor,
   type Room,
   type Seat,
@@ -260,6 +261,23 @@ test('fold-bot game terminates with the non-folder winning, chips conserved', ()
   assert.equal(room.phase, 'matchover');
   assert.equal(room.matchWinner, 0);
   assert.ok(room.players[0]!.chips >= 1);
+});
+
+test('rematch requires both players and resets the match', () => {
+  const room = newGame(7);
+  let guard = 0;
+  while (room.phase !== 'matchover' && guard++ < 100000) step(room, 1);
+  assert.equal(room.phase, 'matchover');
+
+  rematch(room, 0);
+  assert.equal(room.phase, 'matchover', 'one opt-in is not enough');
+  assert.equal((viewFor(room, 0) as any).rematch.youReady, true);
+
+  rematch(room, 1);
+  assert.equal(room.phase, 'bet1', 'both opted in → fresh match begins');
+  assert.equal(room.matchWinner, null);
+  assert.equal(room.players[0]!.chips + room.players[1]!.chips, 68); // 70 − 2 blinds
+  assert.equal(total(room), 70);
 });
 
 test('passive showdown game terminates with a valid winner, chips conserved', () => {

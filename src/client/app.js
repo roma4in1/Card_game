@@ -338,6 +338,15 @@ function renderActions(s) {
   if (s.matchWinner != null) {
     const win = s.matchWinner === s.seat;
     area.appendChild(banner(win ? '🏆 You win the match!' : 'You lost the match.', win ? 'win' : 'lose'));
+    const rm = s.rematch || { youReady: false, oppReady: false };
+    const btn = actBtn(
+      rm.youReady ? 'Waiting for opponent…' : 'Rematch',
+      'btn btn-primary btn-lg',
+      () => send({ type: 'rematch' }),
+    );
+    btn.disabled = rm.youReady;
+    area.appendChild(btn);
+    if (rm.oppReady && !rm.youReady) area.appendChild(prompt('Your opponent wants a rematch!'));
     return;
   }
 

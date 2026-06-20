@@ -75,6 +75,7 @@ export interface Room {
   carry: number; // pot carried forward from a draw
   log: string[];
   matchWinner: number | null;
+  rematchReady: [boolean, boolean]; // both must opt in to start a fresh match
   lastActivity: number;
 }
 
@@ -97,6 +98,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     carry: 0,
     log: [],
     matchWinner: null,
+    rematchReady: [false, false],
     lastActivity: Date.now(),
   };
 }
@@ -170,6 +172,7 @@ function startRound(room: Room) {
   }
 
   room.roundNo += 1;
+  room.rematchReady = [false, false];
   const deck = shuffle(buildDeck(), room.rng);
   const round: Round = {
     deck,
@@ -476,6 +479,23 @@ export function nextRound(room: Room, _seat: Seat): ActionResult {
   return ok;
 }
 
+/**
+ * Request a rematch after the match is over. Both players must opt in; once they
+ * do, chips reset to the starting stack and a fresh match begins.
+ */
+export function rematch(room: Room, seat: Seat): ActionResult {
+  if (room.phase !== 'matchover') return fail('No match to rematch.');
+  room.rematchReady[seat] = true;
+  log(room, `${room.players[seat]!.name} wants a rematch.`);
+  if (room.rematchReady[0] && room.rematchReady[1]) {
+    for (const p of room.players) if (p) p.chips = START_CHIPS;
+    room.carry = 0;
+    room.matchWinner = null;
+    startRound(room); // also clears rematchReady
+  }
+  return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Private per-seat view (the only data a client ever receives)
 // ---------------------------------------------------------------------------
@@ -563,6 +583,9 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
       view.liar = { needsYou: false, waitingOnOpponent: true };
     }
     if (r.result) view.result = r.result;
+  }
+  if (room.phase === 'matchover') {
+    view.rematch = { youReady: room.rematchReady[seat], oppReady: room.rematchReady[oppSeat] };
   }
   return view;
 }
