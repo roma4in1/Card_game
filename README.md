@@ -49,7 +49,9 @@ Two players, 35 chips each. A round runs in 10 steps:
 
 Suits use the physical game's colours and hand-signs: **rock** = red ✊,
 **paper** = yellow ✋, **scissor** = blue ✌️, **love** = green 🤟 (the ASL "I love
-you" sign), **liar** = pink.
+you" sign), **liar** = pink (crossed fingers). The in-game **Ranks** button opens
+this full hierarchy at any time, and each round opens with an animated dice roll
+for act order.
 
 **Love presence dominates structure.** Count loves first: 2 loves is always rank
 5; a single love only escapes to rank 4 if the other three are exactly

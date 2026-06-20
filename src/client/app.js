@@ -38,7 +38,10 @@ const SUIT_SVG = {
     <rect x="53" y="43" width="8" height="11" rx="4"/>
   </g></svg>`,
   liar: `<svg viewBox="0 0 100 100"><g fill="currentColor">
-    <text x="50" y="70" text-anchor="middle" font-size="64" font-weight="900">?</text>
+    <rect x="30" y="50" width="40" height="34" rx="14"/>
+    <rect x="20" y="52" width="15" height="13" rx="6.5"/>
+    <rect x="42" y="14" width="11" height="46" rx="5.5" transform="rotate(16 47 56)"/>
+    <rect x="42" y="12" width="11" height="48" rx="5.5" transform="rotate(-18 47 56)"/>
   </g></svg>`,
 };
 const SUIT_LABEL = {
@@ -64,6 +67,7 @@ let ws = null;
 let state = null;
 let mySeat = 0;
 let roomCode = null;
+let lastRoundNo = 0;
 
 // ---------------------------------------------------------------------------
 // Routing: landing vs game
@@ -215,6 +219,7 @@ function cardEl(card, opts = {}) {
 function render() {
   if (!state) return;
   const s = state;
+  maybeRollDice(s);
   $('roomCode').textContent = s.room;
   $('phaseChip').textContent = PHASE_LABEL[s.phase] || s.phase;
   $('copyLink2').onclick = copyInvite;
@@ -446,7 +451,13 @@ function renderLiarControls(liar) {
     : '🃏 You hold the LIAR — set your two hidden cards';
   box.appendChild(title);
 
-  const picks = liar.suggestion.slice(); // prefilled with the best auto-pick
+  // No auto-suggestion: the player decides each value themselves.
+  const picks = liar.wildSlots.map(() => null);
+  const lockBtn = actBtn('Lock in', 'btn btn-gold', () => {
+    if (picks.every((p) => p !== null)) send({ type: 'liar', values: picks });
+  });
+  const refreshLock = () => (lockBtn.disabled = !picks.every((p) => p !== null));
+
   liar.wildSlots.forEach((slot, idx) => {
     const seg = document.createElement('div');
     seg.className = 'seg';
@@ -455,22 +466,19 @@ function renderLiarControls(liar) {
       b.className = 'suit-' + suit;
       b.innerHTML = SUIT_SVG[suit];
       b.title = SUIT_LABEL[suit];
-      if (picks[idx] === suit) b.classList.add('sel');
       b.onclick = () => {
         picks[idx] = suit;
         [...seg.children].forEach((c) => c.classList.remove('sel'));
         b.classList.add('sel');
+        refreshLock();
       };
       seg.appendChild(b);
     });
     box.appendChild(seg);
   });
 
-  const row = document.createElement('div');
-  row.className = 'btn-row';
-  row.appendChild(actBtn('Use best hand', 'btn btn-neutral', () => send({ type: 'liar', auto: true })));
-  row.appendChild(actBtn('Lock in', 'btn btn-gold', () => send({ type: 'liar', values: picks })));
-  box.appendChild(row);
+  refreshLock();
+  box.appendChild(lockBtn);
   return box;
 }
 
@@ -640,6 +648,118 @@ function showOverlay(msg) {
 }
 function hideOverlay() {
   $('overlay').classList.add('hidden');
+}
+
+// ---------------------------------------------------------------------------
+// Hand rankings reference (open any time during a game)
+// ---------------------------------------------------------------------------
+
+const HAND_GUIDE = [
+  { rank: 1, name: 'Love Wins All', desc: 'Four loves', cards: ['love', 'love', 'love', 'love'] },
+  { rank: 2, name: 'Three Love', desc: 'Three loves + any card', cards: ['love', 'love', 'love', 'rock'] },
+  { rank: 3, name: 'Four Card', desc: 'Four of a kind (non-love)', cards: ['rock', 'rock', 'rock', 'rock'] },
+  { rank: 4, name: 'Mix', desc: 'One love + rock + paper + scissor', cards: ['love', 'rock', 'paper', 'scissor'] },
+  { rank: 5, name: 'Two Love', desc: 'Two loves + any two cards', cards: ['love', 'love', 'rock', 'scissor'] },
+  { rank: 6, name: 'Two Pair', desc: 'Two pairs (non-love)', cards: ['rock', 'rock', 'paper', 'paper'] },
+  { rank: 7, name: 'Triple', desc: 'Three of a kind (non-love)', cards: ['rock', 'rock', 'rock', 'paper'] },
+  { rank: 8, name: 'One Pair', desc: 'One pair (non-love)', cards: ['rock', 'rock', 'paper', 'scissor'] },
+  { rank: 9, name: 'One Love', desc: 'One love + three others (not one-of-each)', cards: ['love', 'rock', 'rock', 'scissor'] },
+];
+let ranksBuilt = false;
+
+function buildRanks() {
+  const list = $('ranksList');
+  HAND_GUIDE.forEach((h) => {
+    const row = document.createElement('div');
+    row.className = 'rank-row';
+    const badge = document.createElement('div');
+    badge.className = 'rank-badge';
+    badge.textContent = '#' + h.rank;
+    const info = document.createElement('div');
+    info.className = 'rank-info';
+    info.innerHTML = `<div class="rname">${h.name}</div><div class="rdesc">${h.desc}</div>`;
+    const ex = document.createElement('div');
+    ex.className = 'ex-cards';
+    h.cards.forEach((suit) => ex.appendChild(cardEl({ suit })));
+    row.append(badge, info, ex);
+    list.appendChild(row);
+  });
+  ranksBuilt = true;
+}
+
+function openRanks() {
+  if (!ranksBuilt) buildRanks();
+  $('ranksSheet').classList.remove('hidden');
+}
+function closeRanks() {
+  $('ranksSheet').classList.add('hidden');
+}
+$('ranksBtn').onclick = openRanks;
+$('ranksClose').onclick = closeRanks;
+$('ranksSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'ranksSheet') closeRanks(); // tap the backdrop to dismiss
+});
+
+// ---------------------------------------------------------------------------
+// Dice roll reveal (start of each round)
+// ---------------------------------------------------------------------------
+
+// Pip positions in a 3×3 grid (index 0..8) for each die face.
+const PIPS = {
+  1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8],
+};
+function setDie(el, v) {
+  el.innerHTML = '';
+  for (let i = 0; i < 9; i++) {
+    const dot = document.createElement('span');
+    dot.className = 'pip' + (PIPS[v].includes(i) ? ' on' : '');
+    el.appendChild(dot);
+  }
+}
+
+let diceTimer = null;
+let diceTimeouts = [];
+function clearDice() {
+  clearInterval(diceTimer);
+  diceTimeouts.forEach(clearTimeout);
+  diceTimeouts = [];
+}
+function maybeRollDice(s) {
+  if (!s.roundNo || s.roundNo === lastRoundNo) return;
+  lastRoundNo = s.roundNo;
+  if (!s.dice || !s.opp || s.phase === 'matchover') return;
+
+  const names = [];
+  names[s.seat] = s.you.name;
+  names[1 - s.seat] = s.opp.name;
+  const first = s.firstActor;
+
+  clearDice(); // cancel any in-flight roll before starting a new one
+  $('diceName0').textContent = names[0];
+  $('diceName1').textContent = names[1];
+  $('diceResult').innerHTML = '&nbsp;';
+  $('dicePlayer0').className = 'dice-player';
+  $('dicePlayer1').className = 'dice-player';
+  $('die0').classList.add('tumble');
+  $('die1').classList.add('tumble');
+  $('diceOverlay').classList.remove('hidden');
+
+  diceTimer = setInterval(() => {
+    setDie($('die0'), 1 + Math.floor(Math.random() * 6));
+    setDie($('die1'), 1 + Math.floor(Math.random() * 6));
+  }, 110);
+
+  diceTimeouts.push(setTimeout(() => {
+    clearInterval(diceTimer);
+    $('die0').classList.remove('tumble');
+    $('die1').classList.remove('tumble');
+    setDie($('die0'), s.dice[0]);
+    setDie($('die1'), s.dice[1]);
+    $('dicePlayer' + first).classList.add('won');
+    $('dicePlayer' + (1 - first)).classList.add('lost');
+    $('diceResult').textContent = `${names[first]} goes first`;
+    diceTimeouts.push(setTimeout(() => $('diceOverlay').classList.add('hidden'), 1500));
+  }, 1150));
 }
 
 init();

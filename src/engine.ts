@@ -57,6 +57,7 @@ interface Round {
   committed: [number, number]; // chips committed in the CURRENT betting round
   toAct: Seat;
   firstActor: Seat;
+  dice: [number, number]; // each player's d6 roll; higher acts first
   checked: Set<number>;
   revealIndex: [number | null, number | null];
   discussReady: [boolean, boolean];
@@ -70,6 +71,7 @@ export interface Room {
   players: [Player | null, Player | null];
   phase: Phase;
   round: Round | null;
+  roundNo: number; // increments each new round (lets the client detect round starts)
   carry: number; // pot carried forward from a draw
   log: string[];
   matchWinner: number | null;
@@ -91,6 +93,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     players: [null, null],
     phase: 'waiting',
     round: null,
+    roundNo: 0,
     carry: 0,
     log: [],
     matchWinner: null,
@@ -166,6 +169,7 @@ function startRound(room: Room) {
     return;
   }
 
+  room.roundNo += 1;
   const deck = shuffle(buildDeck(), room.rng);
   const round: Round = {
     deck,
@@ -175,6 +179,7 @@ function startRound(room: Room) {
     committed: [0, 0],
     toAct: 0,
     firstActor: 0,
+    dice: [0, 0],
     checked: new Set(),
     revealIndex: [null, null],
     discussReady: [false, false],
@@ -183,14 +188,22 @@ function startRound(room: Room) {
   };
   room.carry = 0;
 
-  // Step 1: blinds (antes) + dice roll for act order.
+  // Step 1: blinds (antes) + a dice roll for act order — each rolls a d6, higher
+  // acts first, re-rolling on a tie.
   p0.chips -= BLIND;
   p1.chips -= BLIND;
   round.pot += 2 * BLIND;
-  const first = randInt(room.rng, 2) as Seat;
+  let d0 = 1 + randInt(room.rng, 6);
+  let d1 = 1 + randInt(room.rng, 6);
+  while (d0 === d1) {
+    d0 = 1 + randInt(room.rng, 6);
+    d1 = 1 + randInt(room.rng, 6);
+  }
+  const first = (d0 > d1 ? 0 : 1) as Seat;
+  round.dice = [d0, d1];
   round.firstActor = first;
   round.toAct = first;
-  log(room, `New round. Blinds posted (pot ${round.pot}). 🎲 ${room.players[first]!.name} acts first.`);
+  log(room, `New round. 🎲 ${p0.name} ${d0}, ${p1.name} ${d1} — ${room.players[first]!.name} acts first (pot ${round.pot}).`);
 
   // Step 2: two hole cards each. Step 3: one shared community card.
   for (let i = 0; i < 2; i++) {
@@ -497,6 +510,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
     opp: opp ? { name: opp.name, chips: opp.chips, connected: opp.connected } : null,
     pot: r ? r.pot : 0,
     carry: room.carry,
+    roundNo: room.roundNo,
     log: room.log.slice(-15),
     matchWinner: room.matchWinner,
   };
@@ -504,6 +518,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
 
   view.shared = cardView(r.shared);
   view.firstActor = r.firstActor;
+  view.dice = r.dice;
 
   you.hole = r.holes[seat].map(cardView); // your own cards in full (liar shown to you)
   you.revealIndex = r.revealIndex[seat];
@@ -542,7 +557,6 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
       view.liar = {
         needsYou: true,
         wildSlots: liar.wildSlots[seat], // slot indices 0..3 (3 = shared)
-        suggestion: liar.suggestion[seat],
         sharedIsLiar: r.shared!.suit === 'liar',
       };
     } else if (liar && (liar.pending[0] || liar.pending[1])) {

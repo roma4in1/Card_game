@@ -17,7 +17,7 @@
         <div class="brand-mark" aria-hidden="true">
           <span class="chip chip-r"></span><span class="chip chip-b"></span><span class="chip chip-y"></span>
         </div>
-        <h1>Wind or Die</h1>
+        <h1>Win or Die</h1>
         <p class="tag">A two-player game of nerve &amp; deception.</p>
       </div>
       <div class="panel">
@@ -54,6 +54,7 @@
       <header class="topbar">
         <div class="room-pill">ROOM&nbsp;<b id="roomCode">····</b></div>
         <div class="phase-pill" id="phaseChip">—</div>
+        <button id="ranksBtn" class="rank-pill" title="Hand rankings">Ranks</button>
         <button id="copyLink2" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -118,6 +119,35 @@
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
       <p id="overlayMsg">Connecting…</p>
+    </div>
+
+    <!-- Hand rankings reference (available any time) -->
+    <div id="ranksSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Hand rankings</h3>
+          <button id="ranksClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Strongest to weakest. On a tie: <b>rock ▸ scissor ▸ paper ▸ rock</b> — a cycle, so no single suit is best.</p>
+        <div id="ranksList" class="ranks-list"></div>
+      </div>
+    </div>
+
+    <!-- Dice roll reveal at the start of each round -->
+    <div id="diceOverlay" class="dice-overlay hidden">
+      <div class="dice-title">Rolling for first move</div>
+      <div class="dice-stage">
+        <div class="dice-player" id="dicePlayer0">
+          <div class="dice-name" id="diceName0">P1</div>
+          <div class="die" id="die0"></div>
+        </div>
+        <div class="dice-vs">vs</div>
+        <div class="dice-player" id="dicePlayer1">
+          <div class="dice-name" id="diceName1">P2</div>
+          <div class="die" id="die1"></div>
+        </div>
+      </div>
+      <div class="dice-result" id="diceResult">&nbsp;</div>
     </div>
 
     <div id="toast" class="toast"></div>
