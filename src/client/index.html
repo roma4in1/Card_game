@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#1a1030" />
+    <title>Love &amp; Liar</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <!-- Landing: create or join a room -->
+    <section id="landing" class="screen">
+      <div class="brand">
+        <h1>Love <span>&amp;</span> Liar</h1>
+        <p class="tag">A two-player game of nerve and deception.</p>
+      </div>
+      <div class="card-panel">
+        <button id="createBtn" class="primary big">Create a game</button>
+        <div class="divider"><span>or</span></div>
+        <label class="field">
+          <span>Join with a code</span>
+          <input id="codeInput" inputmode="latin" autocapitalize="characters" maxlength="4" placeholder="ABCD" />
+        </label>
+        <button id="joinBtn" class="secondary big">Join</button>
+      </div>
+      <p class="hint">Share the link with one friend. First to open it takes seat 1.</p>
+    </section>
+
+    <!-- Name gate before entering a game -->
+    <section id="gate" class="screen hidden">
+      <div class="card-panel">
+        <h2>Room <span id="gateCode" class="code"></span></h2>
+        <label class="field">
+          <span>Your name</span>
+          <input id="nameInput" maxlength="16" placeholder="Your name" />
+        </label>
+        <button id="enterBtn" class="primary big">Enter game</button>
+        <button id="copyLinkBtn" class="ghost">Copy invite link</button>
+        <p id="gateMsg" class="hint"></p>
+      </div>
+    </section>
+
+    <!-- Game -->
+    <section id="game" class="screen hidden">
+      <header class="topbar">
+        <div class="room-chip">Room <b id="roomCode"></b></div>
+        <div class="phase-chip" id="phaseChip">—</div>
+        <button id="copyLink2" class="ghost small">invite</button>
+      </header>
+
+      <div class="players">
+        <div class="player opp" id="oppBox">
+          <div class="pname"><span id="oppName">Opponent</span><i id="oppConn" class="dot"></i></div>
+          <div class="chips">🪙 <b id="oppChips">0</b></div>
+          <div class="opp-cards" id="oppCards"></div>
+        </div>
+
+        <div class="middle">
+          <div class="pot">Pot <b id="pot">0</b><small id="carry"></small></div>
+          <div class="shared">
+            <span class="lbl">Shared</span>
+            <div id="sharedCard" class="card placeholder">?</div>
+          </div>
+          <div class="turn" id="turnFlag"></div>
+        </div>
+
+        <div class="player you" id="youBox">
+          <div class="pname"><span id="youName">You</span><i id="youConn" class="dot on"></i></div>
+          <div class="chips">🪙 <b id="youChips">0</b></div>
+          <div class="your-cards" id="yourCards"></div>
+        </div>
+      </div>
+
+      <div class="action-area" id="actionArea"></div>
+
+      <div class="chat" id="chatPanel">
+        <div class="chat-log" id="chatLog"></div>
+        <form class="chat-form" id="chatForm">
+          <input id="chatInput" maxlength="200" placeholder="Say something… (bluff freely)" autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+      </div>
+
+      <details class="feed">
+        <summary>Game log</summary>
+        <ul id="logList"></ul>
+      </details>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
