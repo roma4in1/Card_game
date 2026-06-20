@@ -244,6 +244,14 @@ function render() {
   animateNumber($('pot'), s.pot);
   $('carry').textContent = s.carry ? `+${s.carry} carried` : '';
 
+  // Cards remaining in the finite deck.
+  if (s.deckCount != null) {
+    $('deckBadge').style.display = '';
+    animateNumber($('deckCount'), s.deckCount);
+  } else {
+    $('deckBadge').style.display = 'none';
+  }
+
   // Highlight the whole table when it's your move.
   document.body.classList.toggle('your-turn', !!(s.betting && s.betting.yourTurn));
 
