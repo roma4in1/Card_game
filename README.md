@@ -71,7 +71,9 @@ globally strongest suit. Same-rank hands are broken by:
    singles. Higher structure wins.
 2. Otherwise cancel the cards both hands share, then compare the survivors by the
    cyclic rock-paper-scissor rule.
-3. If everything cancels, it's a draw (ranks 1 and 4 are always draws).
+3. If everything cancels, it's a draw. **Ranks 1 (Four Loves), 4 (Mix) and 9 (One
+   Love) are always draws** — any two such hands tie and the pot carries to the
+   next round.
 
 ### The liar card
 

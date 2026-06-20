@@ -242,15 +242,17 @@ test('the deck persists across rounds — cards already played are not returned'
   assert.equal(room.deck.length, 42);
   nextRound(room, 0); // plenty left, so NOT reshuffled; deals 5 more
   assert.equal(room.deck.length, 37);
+  assert.equal((viewFor(room, 0) as any).deckReshuffled, false, 'no reshuffle this round');
 });
 
-test('the deck reshuffles to a full 49 when it cannot deal a round', () => {
+test('the deck reshuffles to a full 49 when it cannot deal a round, and flags it', () => {
   const room = newGame(5);
   toShowdown(room);
   (room as any).deck = (room as any).deck.slice(0, 3); // starve it below 7
   nextRound(room, 0);
   assert.equal(room.phase, 'bet1');
   assert.equal(room.deck.length, 44); // reshuffled to 49, then dealt 5
+  assert.equal((viewFor(room, 0) as any).deckReshuffled, true, 'reshuffle flagged for the client');
 });
 
 // ---------------------------------------------------------------------------

@@ -672,7 +672,7 @@ const HAND_GUIDE = [
   { rank: 6, name: 'Two Pair', desc: 'Two pairs (non-love)', cards: ['rock', 'rock', 'paper', 'paper'] },
   { rank: 7, name: 'Triple', desc: 'Three of a kind (non-love)', cards: ['rock', 'rock', 'rock', 'paper'] },
   { rank: 8, name: 'One Pair', desc: 'One pair (non-love)', cards: ['rock', 'rock', 'paper', 'scissor'] },
-  { rank: 9, name: 'One Love', desc: 'One love + three others (not one-of-each)', cards: ['love', 'rock', 'rock', 'scissor'] },
+  { rank: 9, name: 'One Love', desc: 'One love + three others — two of these always draw', cards: ['love', 'rock', 'rock', 'scissor'] },
 ];
 let ranksBuilt = false;
 
@@ -737,6 +737,11 @@ function maybeRollDice(s) {
   if (!s.roundNo || s.roundNo === lastRoundNo) return;
   lastRoundNo = s.roundNo;
   if (!s.dice || !s.opp || s.phase === 'matchover') return;
+
+  // Notify when the finite deck was reshuffled at the start of this round.
+  if (s.deckReshuffled) {
+    setTimeout(() => toast('🔄 Deck ran out — reshuffled a fresh 49 cards', 'ok'), 1200);
+  }
 
   const names = [];
   names[s.seat] = s.you.name;

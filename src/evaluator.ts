@@ -197,6 +197,10 @@ export function compare(a: Suit[], b: Suit[]): 1 | -1 | 0 {
   const eb = evaluate(b);
   if (ea.rank !== eb.rank) return ea.rank < eb.rank ? 1 : -1;
 
+  // "One Love" (rank 9) hands are all equally weak: any two of them draw, like
+  // the other love-dominant always-draw ranks (Four Loves, Mix).
+  if (ea.rank === 9) return 0;
+
   const na = nonLoves(a); // loves are equal in count for same-rank hands; they cancel.
   const nb = nonLoves(b);
   const subA = subStructure(na);

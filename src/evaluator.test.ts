@@ -109,9 +109,11 @@ test('rank 5: pair beats no-pair (2love+2rock beats 2love+rock+scissor)', () => 
   assert.equal(compare([L, L, R, S], [L, L, R, R]), -1);
 });
 
-test('rank 9: triple-remainder beats pair-remainder', () => {
-  // love+triple vs love+pair, both rank 9; triple sub-structure wins.
-  assert.equal(compare([L, R, R, R], [L, R, R, S]), 1);
+test('rank 9: two One Love hands always draw', () => {
+  // Any two rank-9 (One Love) hands draw regardless of their non-love cards.
+  assert.equal(compare([L, R, R, R], [L, R, R, S]), 0);
+  assert.equal(compare([L, R, R, S], [L, S, S, P]), 0);
+  assert.equal(compare([L, S, S, P], [L, R, R, R]), 0);
 });
 
 // ---------------------------------------------------------------------------

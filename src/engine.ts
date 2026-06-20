@@ -59,6 +59,7 @@ interface Round {
   toAct: Seat;
   firstActor: Seat;
   dice: [number, number]; // each player's d6 roll; higher acts first
+  reshuffled: boolean; // true if the deck was reshuffled at the start of this round
   checked: Set<number>;
   revealIndex: [number | null, number | null];
   discussReady: [boolean, boolean];
@@ -178,7 +179,8 @@ function startRound(room: Room) {
   room.rematchReady = [false, false];
   // The deck is a finite set that persists across rounds (cards already played
   // stay out). Only when too few remain for a full round do we reshuffle a fresh 49.
-  if (room.deck.length < CARDS_PER_ROUND) {
+  const reshuffled = room.deck.length < CARDS_PER_ROUND;
+  if (reshuffled) {
     room.deck = shuffle(buildDeck(), room.rng);
     log(room, 'Deck ran low — reshuffled a fresh 49 cards.');
   }
@@ -190,6 +192,7 @@ function startRound(room: Room) {
     toAct: 0,
     firstActor: 0,
     dice: [0, 0],
+    reshuffled,
     checked: new Set(),
     revealIndex: [null, null],
     discussReady: [false, false],
@@ -547,6 +550,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
   view.shared = cardView(r.shared);
   view.firstActor = r.firstActor;
   view.dice = r.dice;
+  view.deckReshuffled = r.reshuffled;
 
   you.hole = r.holes[seat].map(cardView); // your own cards in full (liar shown to you)
   you.revealIndex = r.revealIndex[seat];
