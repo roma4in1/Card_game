@@ -33,6 +33,11 @@ Two players, 35 chips each. A round runs in 10 steps:
 
 18 scissor · 12 rock · 12 paper · 6 love · 1 liar.
 
+The deck is a **finite, persistent set**: each round deals 7 cards (4 hole + 1
+shared + 2 more hole) and those cards stay out — so what's already been played
+thins the deck and rewards paying attention. Only when fewer than 7 cards remain
+is a fresh, reshuffled 49-card deck dealt. The table shows the count remaining.
+
 ### Hand ranking (1 = strongest, 9 = weakest)
 
 | Rank | Name | Hand |

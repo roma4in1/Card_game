@@ -264,6 +264,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .carry { font-size: 0.66rem; color: var(--good); min-height: 0.9em; font-weight: 600; }
 .shared-wrap { text-align: center; }
 .shared-lbl { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.55); display: block; margin-bottom: 6px; }
+.deck-count { display: block; margin-top: 6px; font-size: 0.62rem; color: rgba(255, 255, 255, 0.5); letter-spacing: 0.04em; }
 .turn-banner { min-width: 70px; text-align: right; font-weight: 700; font-size: 0.85rem; }
 .turn-banner.you { color: var(--good); }
 .turn-banner.wait { color: var(--muted); }

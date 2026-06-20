@@ -16,6 +16,8 @@ import { buildDeck, shuffle, bestResolution, ALL_VALUES, type Card } from './car
 
 export const START_CHIPS = 35;
 export const BLIND = 1;
+// Cards consumed by a full round: 2+2 hole + 1 shared + 1+1 hole at step 5.
+export const CARDS_PER_ROUND = 7;
 
 export type Phase = 'waiting' | 'bet1' | 'reveal' | 'discuss' | 'bet2' | 'showdown' | 'matchover';
 export type Seat = 0 | 1;
@@ -50,7 +52,6 @@ interface LiarState {
 }
 
 interface Round {
-  deck: Card[];
   holes: [Card[], Card[]];
   shared: Card | null;
   pot: number;
@@ -70,6 +71,7 @@ export interface Room {
   rng: Rng;
   players: [Player | null, Player | null];
   phase: Phase;
+  deck: Card[]; // finite deck, persists across rounds; reshuffled only when too thin
   round: Round | null;
   roundNo: number; // increments each new round (lets the client detect round starts)
   carry: number; // pot carried forward from a draw
@@ -93,6 +95,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     rng,
     players: [null, null],
     phase: 'waiting',
+    deck: [],
     round: null,
     roundNo: 0,
     carry: 0,
@@ -173,9 +176,13 @@ function startRound(room: Room) {
 
   room.roundNo += 1;
   room.rematchReady = [false, false];
-  const deck = shuffle(buildDeck(), room.rng);
+  // The deck is a finite set that persists across rounds (cards already played
+  // stay out). Only when too few remain for a full round do we reshuffle a fresh 49.
+  if (room.deck.length < CARDS_PER_ROUND) {
+    room.deck = shuffle(buildDeck(), room.rng);
+    log(room, 'Deck ran low — reshuffled a fresh 49 cards.');
+  }
   const round: Round = {
-    deck,
     holes: [[], []],
     shared: null,
     pot: room.carry,
@@ -210,10 +217,10 @@ function startRound(room: Room) {
 
   // Step 2: two hole cards each. Step 3: one shared community card.
   for (let i = 0; i < 2; i++) {
-    round.holes[0].push(deck.pop()!);
-    round.holes[1].push(deck.pop()!);
+    round.holes[0].push(room.deck.pop()!);
+    round.holes[1].push(room.deck.pop()!);
   }
-  round.shared = deck.pop()!;
+  round.shared = room.deck.pop()!;
   log(room, `Shared card revealed: ${round.shared.suit === 'liar' ? '🃏 LIAR' : round.shared.suit}.`);
 
   room.round = round;
@@ -234,8 +241,8 @@ function closeBetting(room: Room) {
   if (room.phase === 'bet1') {
     const r = room.round!;
     // Step 5: deal the 3rd hole card to each.
-    r.holes[0].push(r.deck.pop()!);
-    r.holes[1].push(r.deck.pop()!);
+    r.holes[0].push(room.deck.pop()!);
+    r.holes[1].push(room.deck.pop()!);
     log(room, 'Third card dealt. Choose a card to reveal.');
     room.phase = 'reveal';
   } else if (room.phase === 'bet2') {
@@ -531,6 +538,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
     pot: r ? r.pot : 0,
     carry: room.carry,
     roundNo: room.roundNo,
+    deckCount: room.deck.length,
     log: room.log.slice(-15),
     matchWinner: room.matchWinner,
   };

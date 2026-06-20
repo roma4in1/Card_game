@@ -214,6 +214,46 @@ test('a draw carries the pot into the next round', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Finite persistent deck
+// ---------------------------------------------------------------------------
+
+// Drive a round to its showdown result without advancing to the next round.
+function toShowdown(room: Room) {
+  let guard = 0;
+  while (room.phase !== 'showdown' && room.phase !== 'matchover' && guard++ < 1000) {
+    if (room.phase === 'bet1' || room.phase === 'bet2') bet(room, toAct(room), 'check');
+    else if (room.phase === 'reveal') {
+      for (const s of [0, 1] as const) {
+        const v = viewFor(room, s) as any;
+        if (v.reveal && !v.reveal.youLocked) reveal(room, s, v.you.hole.findIndex((c: any) => c.suit !== 'liar'));
+      }
+    } else if (room.phase === 'discuss') {
+      discussDone(room, 0);
+      discussDone(room, 1);
+    }
+  }
+  for (const s of [0, 1] as const) if ((viewFor(room, s) as any).liar?.needsYou) setLiar(room, s, { auto: true });
+}
+
+test('the deck persists across rounds — cards already played are not returned', () => {
+  const room = newGame(5);
+  assert.equal((viewFor(room, 0) as any).deckCount, 44); // 49 − 5 dealt at round start
+  toShowdown(room); // step-5 deals 2 more → 42 remain
+  assert.equal(room.deck.length, 42);
+  nextRound(room, 0); // plenty left, so NOT reshuffled; deals 5 more
+  assert.equal(room.deck.length, 37);
+});
+
+test('the deck reshuffles to a full 49 when it cannot deal a round', () => {
+  const room = newGame(5);
+  toShowdown(room);
+  (room as any).deck = (room as any).deck.slice(0, 3); // starve it below 7
+  nextRound(room, 0);
+  assert.equal(room.phase, 'bet1');
+  assert.equal(room.deck.length, 44); // reshuffled to 49, then dealt 5
+});
+
+// ---------------------------------------------------------------------------
 // Whole-game autoplay invariants
 // ---------------------------------------------------------------------------
 
