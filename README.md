@@ -1,4 +1,4 @@
-# Love & Liar 🃏❤️
+# Win or die 🃏❤️
 
 A two-player online card game of betting and bluffing — poker's nerve with a
 rock-paper-scissors twist. Each player opens a link on their phone browser (no
