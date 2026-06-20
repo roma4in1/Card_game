@@ -1,13 +1,18 @@
 # Render blueprint — deploys the WebSocket game server as a free Web Service.
 # Render keeps the Node process alive and proxies WebSocket upgrades, so the
-# single long-lived `ws` server works without extra config.
+# single long-lived `ws` server works with no extra configuration.
+#
+# Deploy: push to GitHub, then Render dashboard → New → Blueprint → pick this repo.
 services:
   - type: web
     name: love-and-liar
     runtime: node
     plan: free
-    nodeVersion: 24
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
     autoDeploy: true
+    envVars:
+      # Node 24 runs the .ts server directly via native type stripping (no build).
+      - key: NODE_VERSION
+        value: "24"

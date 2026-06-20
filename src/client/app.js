@@ -74,6 +74,12 @@ function roomFromPath() {
   return m ? m[1].toUpperCase() : null;
 }
 
+// Only one .screen is ever visible at a time.
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach((el) => el.classList.add('hidden'));
+  $(id).classList.remove('hidden');
+}
+
 function init() {
   const code = roomFromPath();
   if (code) {
@@ -84,7 +90,7 @@ function init() {
 }
 
 function showLanding() {
-  $('landing').classList.remove('hidden');
+  showScreen('landing');
   $('createBtn').onclick = () => {
     const newCode = randomCode();
     location.href = `/r/${newCode}`;
@@ -107,7 +113,7 @@ function randomCode() {
 
 function showGate(code) {
   roomCode = code;
-  $('gate').classList.remove('hidden');
+  showScreen('gate');
   $('gateCode').textContent = code;
   const savedName = localStorage.getItem('ll_name') || '';
   $('nameInput').value = savedName;
@@ -115,8 +121,7 @@ function showGate(code) {
   $('enterBtn').onclick = () => {
     const name = $('nameInput').value.trim() || 'Player';
     localStorage.setItem('ll_name', name);
-    $('gate').classList.add('hidden');
-    $('game').classList.remove('hidden');
+    showScreen('game');
     connect(code, name);
   };
   // If we already hold a token for this room, fast-path straight in.
@@ -132,8 +137,8 @@ function tokenKey(code) {
 function copyInvite() {
   const url = `${location.origin}/r/${roomCode}`;
   navigator.clipboard?.writeText(url).then(
-    () => toast('Invite link copied', true),
-    () => toast(url, true),
+    () => toast('Invite link copied', 'ok'),
+    () => toast(url, 'ok'),
   );
 }
 
@@ -142,6 +147,7 @@ function copyInvite() {
 // ---------------------------------------------------------------------------
 
 function connect(code, name) {
+  showOverlay('Connecting…');
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
@@ -149,7 +155,7 @@ function connect(code, name) {
   };
   ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
   ws.onclose = () => {
-    toast('Disconnected — reconnecting…');
+    showOverlay('Reconnecting…');
     setTimeout(() => connect(code, name), 1500);
   };
   ws.onerror = () => {};
@@ -168,6 +174,7 @@ function onMessage(msg) {
       $('roomCode').textContent = msg.room;
       break;
     case 'state':
+      hideOverlay();
       state = msg;
       render();
       break;
@@ -175,11 +182,11 @@ function onMessage(msg) {
       addChat(msg);
       break;
     case 'error':
-      toast(msg.message);
+      toast(msg.message, 'err');
       break;
     case 'full':
-      $('game').classList.add('hidden');
-      $('gate').classList.remove('hidden');
+      hideOverlay();
+      showScreen('gate');
       $('gateMsg').textContent = msg.message;
       break;
   }
@@ -212,27 +219,30 @@ function render() {
   $('phaseChip').textContent = PHASE_LABEL[s.phase] || s.phase;
   $('copyLink2').onclick = copyInvite;
 
-  // Names / chips / connection
+  // Names / chips / connection / avatars
   $('youName').textContent = s.you.name + (s.seat === mySeat ? ' (you)' : '');
-  $('youChips').textContent = s.you.chips;
+  $('youAvatar').textContent = initial(s.you.name);
+  animateNumber($('youChips'), s.you.chips);
   $('youConn').className = 'dot ' + (s.you.connected ? 'on' : '');
   if (s.opp) {
     $('oppName').textContent = s.opp.name;
-    $('oppChips').textContent = s.opp.chips;
+    $('oppAvatar').textContent = initial(s.opp.name);
+    animateNumber($('oppChips'), s.opp.chips);
     $('oppConn').className = 'dot ' + (s.opp.connected ? 'on' : '');
   } else {
     $('oppName').textContent = 'Waiting…';
-    $('oppChips').textContent = '0';
+    $('oppAvatar').textContent = '·';
+    animateNumber($('oppChips'), 0);
     $('oppConn').className = 'dot';
   }
 
-  $('pot').textContent = s.pot;
-  $('carry').textContent = s.carry ? `(+${s.carry} carried)` : '';
+  animateNumber($('pot'), s.pot);
+  $('carry').textContent = s.carry ? `+${s.carry} carried` : '';
 
-  // Shared card
-  const sharedSlot = $('sharedCard');
-  sharedSlot.replaceWith(buildShared(s));
+  // Highlight the whole table when it's your move.
+  document.body.classList.toggle('your-turn', !!(s.betting && s.betting.yourTurn));
 
+  renderShared(s);
   renderOppCards(s);
   renderYourCards(s);
   renderTurnFlag(s);
@@ -240,7 +250,14 @@ function render() {
   renderLog(s);
 }
 
-function buildShared(s) {
+// Card containers are only rebuilt (and re-animated) when their contents change,
+// so chip/chat updates don't make every card flicker.
+const cardSig = { you: '', opp: '', shared: '' };
+
+function renderShared(s) {
+  const sig = s.shared ? `${s.shared.suit}${s.shared.id}` : 'none';
+  if (sig === cardSig.shared) return;
+  cardSig.shared = sig;
   let el;
   if (s.shared) {
     el = cardEl(s.shared);
@@ -250,29 +267,35 @@ function buildShared(s) {
     el.textContent = '?';
   }
   el.id = 'sharedCard';
-  return el;
+  $('sharedCard').replaceWith(el);
 }
 
 function renderOppCards(s) {
+  const count = s.opp && s.opp.holeCount != null ? s.opp.holeCount : 0;
+  const rev = s.opp && s.opp.revealedCard ? `${s.opp.revealIndex}:${s.opp.revealedCard.suit}` : '-';
+  const sig = `${count}|${rev}`;
+  if (sig === cardSig.opp) return;
+  cardSig.opp = sig;
+
   const box = $('oppCards');
   box.innerHTML = '';
-  if (!s.opp || s.opp.holeCount == null) return;
-  for (let i = 0; i < s.opp.holeCount; i++) {
-    // Show the opponent's one revealed card face-up; the rest face-down.
-    if (s.opp.revealedCard && s.opp.revealIndex === i) {
-      box.appendChild(cardEl(s.opp.revealedCard));
-    } else {
-      box.appendChild(cardEl(null)); // back
-    }
+  for (let i = 0; i < count; i++) {
+    // The opponent's one revealed card shows face-up; the rest stay face-down.
+    if (s.opp.revealedCard && s.opp.revealIndex === i) box.appendChild(cardEl(s.opp.revealedCard));
+    else box.appendChild(cardEl(null));
   }
 }
 
 function renderYourCards(s) {
+  const hole = s.you.hole || [];
+  const revealing = s.phase === 'reveal' && s.reveal && !s.reveal.youLocked;
+  const sig = `${hole.map((c) => c.suit).join(',')}|${s.you.revealIndex}|${revealing}`;
+  if (sig === cardSig.you) return;
+  cardSig.you = sig;
+
   const box = $('yourCards');
   box.innerHTML = '';
-  if (!s.you.hole) return;
-  const revealing = s.phase === 'reveal' && s.reveal && !s.reveal.youLocked;
-  s.you.hole.forEach((card, i) => {
+  hole.forEach((card, i) => {
     const el = cardEl(card);
     if (s.you.revealIndex === i) el.classList.add('revealed');
     if (revealing) {
@@ -290,15 +313,10 @@ function renderYourCards(s) {
 
 function renderTurnFlag(s) {
   const f = $('turnFlag');
-  f.className = 'turn';
+  f.className = 'turn-banner';
   if (s.betting) {
-    if (s.betting.yourTurn) {
-      f.textContent = 'Your turn';
-      f.classList.add('you');
-    } else {
-      f.textContent = 'Their turn';
-      f.classList.add('wait');
-    }
+    f.textContent = s.betting.yourTurn ? 'Your turn' : 'Their turn';
+    f.classList.add(s.betting.yourTurn ? 'you' : 'wait');
   } else {
     f.textContent = '';
   }
@@ -314,12 +332,15 @@ function renderActions(s) {
 
   if (s.matchWinner != null) {
     const win = s.matchWinner === s.seat;
-    area.appendChild(banner(win ? '🏆 You win the match!' : 'You lost the match.'));
+    area.appendChild(banner(win ? '🏆 You win the match!' : 'You lost the match.', win ? 'win' : 'lose'));
     return;
   }
 
   if (s.phase === 'waiting') {
-    area.appendChild(prompt('Share the invite link and wait for your opponent.'));
+    const c = callout('Waiting for your opponent to join', true);
+    const invite = actBtn('Copy invite link', 'btn btn-ghost btn-lg', copyInvite);
+    area.appendChild(c);
+    area.appendChild(invite);
     return;
   }
 
@@ -330,20 +351,21 @@ function renderActions(s) {
 
   if (s.phase === 'reveal') {
     if (s.reveal.youLocked) {
-      area.appendChild(prompt(s.reveal.oppLocked ? 'Revealing…' : 'Locked. Waiting for opponent to reveal…'));
+      area.appendChild(callout(s.reveal.oppLocked ? 'Revealing' : 'Locked in — waiting for opponent', true));
     } else {
-      area.appendChild(prompt('Pick one card to reveal (not the liar). Tap a card above.'));
+      area.appendChild(prompt('Pick one card to reveal <b>(not the liar)</b> — tap a card.'));
     }
     return;
   }
 
   if (s.phase === 'discuss') {
-    area.appendChild(prompt('Talk it out — bluff or be honest. Ready to bet?'));
-    const btn = document.createElement('button');
-    btn.className = 'primary big';
-    btn.textContent = s.discuss.youReady ? 'Waiting for opponent…' : "I'm ready to bet";
+    area.appendChild(prompt('Discuss freely — <b>bluff or be honest</b>.'));
+    const btn = actBtn(
+      s.discuss.youReady ? 'Waiting for opponent…' : "I'm ready to bet",
+      'btn btn-primary btn-lg',
+      () => send({ type: 'discussDone' }),
+    );
     btn.disabled = s.discuss.youReady;
-    btn.onclick = () => send({ type: 'discussDone' });
     area.appendChild(btn);
     return;
   }
@@ -352,7 +374,7 @@ function renderActions(s) {
     if (s.liar && s.liar.needsYou) {
       area.appendChild(renderLiarControls(s.liar));
     } else if (s.liar && s.liar.waitingOnOpponent) {
-      area.appendChild(prompt('Waiting on opponent to resolve their liar…'));
+      area.appendChild(callout('Waiting on opponent to resolve their liar', true));
     }
     if (s.result) area.appendChild(renderResult(s));
     return;
@@ -362,29 +384,34 @@ function renderActions(s) {
 function renderBetting(area, s) {
   const b = s.betting;
   if (!b.yourTurn) {
-    area.appendChild(prompt('Waiting for opponent to act…'));
+    area.appendChild(callout('Waiting for opponent to act', true));
     return;
   }
-  area.appendChild(prompt(b.toCall > 0 ? `To call: ${b.toCall}` : 'No bet to you — check or bet.'));
+  area.appendChild(
+    prompt(b.toCall > 0 ? `To call: <b>${b.toCall}</b>` : 'No bet to you — <b>check or bet</b>.'),
+  );
 
   const row = document.createElement('div');
   row.className = 'btn-row';
   if (b.canCheck) {
-    row.appendChild(actBtn('Check', 'act-check', () => send({ type: 'action', action: 'check' })));
+    row.appendChild(actBtn('Check', 'btn btn-neutral', () => send({ type: 'action', action: 'check' })));
   } else {
     const callAmt = Math.min(b.toCall, b.yourChips);
     row.appendChild(
-      actBtn(callAmt < b.toCall ? `Call ${callAmt} (all-in)` : `Call ${b.toCall}`, 'act-call', () =>
+      actBtn(callAmt < b.toCall ? `Call ${callAmt} · all-in` : `Call ${b.toCall}`, 'btn btn-good', () =>
         send({ type: 'action', action: 'call' }),
       ),
     );
   }
-  row.appendChild(actBtn('Fold', 'act-fold', () => send({ type: 'action', action: 'fold' })));
+  row.appendChild(actBtn('Fold', 'btn btn-bad', () => send({ type: 'action', action: 'fold' })));
   area.appendChild(row);
 
   // Raise slider (amount = chips on top of the call).
   const maxRaise = b.yourChips - b.toCall;
   if (maxRaise >= 1) {
+    const controls = document.createElement('div');
+    controls.className = 'bet-controls';
+
     const wrap = document.createElement('div');
     wrap.className = 'slider-row';
     const range = document.createElement('input');
@@ -396,17 +423,16 @@ function renderBetting(area, s) {
     badge.className = 'amount-badge';
     badge.textContent = '+1';
     range.oninput = () => (badge.textContent = '+' + range.value);
-    const go = actBtn('Raise', 'act-raise', () =>
+    const go = actBtn('Raise', 'btn btn-gold', () =>
       send({ type: 'action', action: 'raise', amount: Number(range.value) }),
     );
-    wrap.appendChild(range);
-    wrap.appendChild(badge);
-    wrap.appendChild(go);
-    area.appendChild(wrap);
-    const allIn = actBtn(`All-in (${b.yourChips})`, 'act-raise', () =>
+    wrap.append(range, badge, go);
+
+    const allIn = actBtn(`All-in · ${b.yourChips}`, 'btn btn-gold', () =>
       send({ type: 'action', action: 'raise', amount: maxRaise }),
     );
-    area.appendChild(allIn);
+    controls.append(wrap, allIn);
+    area.appendChild(controls);
   }
 }
 
@@ -414,10 +440,10 @@ function renderLiarControls(liar) {
   const box = document.createElement('div');
   box.className = 'liar-controls';
   const title = document.createElement('div');
-  title.className = 'prompt';
+  title.className = 'l-title';
   title.textContent = liar.sharedIsLiar
-    ? '🃏 The shared card is the LIAR — set its value for your hand:'
-    : '🃏 You hold the LIAR — set your two hidden cards:';
+    ? '🃏 The shared card is the LIAR — set its value'
+    : '🃏 You hold the LIAR — set your two hidden cards';
   box.appendChild(title);
 
   const picks = liar.suggestion.slice(); // prefilled with the best auto-pick
@@ -442,8 +468,8 @@ function renderLiarControls(liar) {
 
   const row = document.createElement('div');
   row.className = 'btn-row';
-  row.appendChild(actBtn('Use best hand', 'act-call', () => send({ type: 'liar', auto: true })));
-  row.appendChild(actBtn('Lock in', 'act-raise', () => send({ type: 'liar', values: picks })));
+  row.appendChild(actBtn('Use best hand', 'btn btn-neutral', () => send({ type: 'liar', auto: true })));
+  row.appendChild(actBtn('Lock in', 'btn btn-gold', () => send({ type: 'liar', values: picks })));
   box.appendChild(row);
   return box;
 }
@@ -453,9 +479,16 @@ function renderResult(s) {
   const box = document.createElement('div');
   box.className = 'result';
   const h = document.createElement('h3');
-  if (r.kind === 'draw') h.textContent = '🤝 Draw — pot carries over';
-  else if (r.winner === s.seat) h.textContent = `🎉 You win ${r.potAwarded}!`;
-  else h.textContent = `${r.names[r.winner]} wins ${r.potAwarded}`;
+  if (r.kind === 'draw') {
+    h.textContent = '🤝 Draw — pot carries over';
+    h.className = 'verdict-draw';
+  } else if (r.winner === s.seat) {
+    h.textContent = `🎉 You win ${r.potAwarded}`;
+    h.className = 'verdict-win';
+  } else {
+    h.textContent = `${r.names[r.winner]} wins ${r.potAwarded}`;
+    h.className = 'verdict-lose';
+  }
   box.appendChild(h);
 
   if (r.hands) {
@@ -464,33 +497,24 @@ function renderResult(s) {
     [0, 1].forEach((seat) => {
       const col = document.createElement('div');
       col.className = 'hand';
-      const nm = document.createElement('div');
-      nm.textContent = seat === s.seat ? 'You' : r.names[seat];
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = seat === s.seat ? 'You' : r.names[seat];
       const cards = document.createElement('div');
       cards.className = 'cards';
-      r.hands[seat].forEach((suit) =>
-        cards.appendChild(cardEl({ suit }, { win: r.winner === seat })),
-      );
+      r.hands[seat].forEach((suit) => cards.appendChild(cardEl({ suit }, { win: r.winner === seat })));
       const rn = document.createElement('div');
       rn.className = 'rankname';
       rn.textContent = rankName(r.ranks[seat]);
-      col.appendChild(nm);
-      col.appendChild(cards);
-      col.appendChild(rn);
+      col.append(who, cards, rn);
       hands.appendChild(col);
     });
     box.appendChild(hands);
   } else if (r.kind === 'fold') {
-    const p = document.createElement('p');
-    p.textContent = r.winner === s.seat ? 'Opponent folded.' : 'You folded.';
-    box.appendChild(p);
+    box.appendChild(prompt(r.winner === s.seat ? 'Opponent folded.' : 'You folded.'));
   }
 
-  const next = document.createElement('button');
-  next.className = 'primary big';
-  next.textContent = 'Next round →';
-  next.onclick = () => send({ type: 'nextRound' });
-  box.appendChild(next);
+  box.appendChild(actBtn('Next round →', 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
   return box;
 }
 
@@ -509,12 +533,18 @@ function rankName(rank) {
 function prompt(text) {
   const p = document.createElement('div');
   p.className = 'prompt';
-  p.textContent = text;
+  p.innerHTML = text;
   return p;
 }
-function banner(text) {
+function callout(text, pulse = false) {
+  const c = document.createElement('div');
+  c.className = 'callout';
+  c.innerHTML = pulse ? `${text}<span class="pulse-dots"></span>` : text;
+  return c;
+}
+function banner(text, variant) {
   const b = document.createElement('div');
-  b.className = 'banner';
+  b.className = 'banner ' + (variant || '');
   b.textContent = text;
   return b;
 }
@@ -565,13 +595,51 @@ function addChat(msg) {
 // ---------------------------------------------------------------------------
 
 let toastTimer = null;
-function toast(text, ok = false) {
+function toast(text, kind = '') {
   const t = $('toast');
   t.textContent = text;
-  t.style.background = ok ? 'var(--ok)' : 'var(--danger)';
-  t.classList.remove('hidden');
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), 2200);
+  toastTimer = setTimeout(() => (t.className = 'toast'), 2400);
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+function initial(name) {
+  return ((name || '?').trim()[0] || '?').toUpperCase();
+}
+
+// Tween a numeric readout and flash it green (up) or red (down) on change.
+function animateNumber(el, to) {
+  const from = el.__val ?? to;
+  el.__val = to;
+  if (from === to) {
+    el.textContent = String(to);
+    return;
+  }
+  const start = performance.now();
+  const dur = 450;
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = String(Math.round(from + (to - from) * eased));
+    if (t < 1) requestAnimationFrame(step);
+    else el.textContent = String(to);
+  };
+  requestAnimationFrame(step);
+  el.classList.remove('flash-up', 'flash-down');
+  void el.offsetWidth; // restart the animation
+  el.classList.add(to > from ? 'flash-up' : 'flash-down');
+}
+
+function showOverlay(msg) {
+  $('overlayMsg').textContent = msg;
+  $('overlay').classList.remove('hidden');
+}
+function hideOverlay() {
+  $('overlay').classList.add('hidden');
 }
 
 init();

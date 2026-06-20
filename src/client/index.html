@@ -2,92 +2,125 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <meta name="theme-color" content="#1a1030" />
-    <title>Love &amp; Liar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0f15" />
+    <title>Win or Die</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <!-- Landing: create or join a room -->
-    <section id="landing" class="screen">
+    <section id="landing" class="screen center">
       <div class="brand">
-        <h1>Love <span>&amp;</span> Liar</h1>
-        <p class="tag">A two-player game of nerve and deception.</p>
+        <div class="brand-mark" aria-hidden="true">
+          <span class="chip chip-r"></span><span class="chip chip-b"></span><span class="chip chip-y"></span>
+        </div>
+        <h1>Wind or Die</h1>
+        <p class="tag">A two-player game of nerve &amp; deception.</p>
       </div>
-      <div class="card-panel">
-        <button id="createBtn" class="primary big">Create a game</button>
-        <div class="divider"><span>or</span></div>
+      <div class="panel">
+        <button id="createBtn" class="btn btn-primary btn-lg">Create a game</button>
+        <div class="divider"><span>or join one</span></div>
         <label class="field">
-          <span>Join with a code</span>
+          <span class="field-lbl">Room code</span>
           <input id="codeInput" inputmode="latin" autocapitalize="characters" maxlength="4" placeholder="ABCD" />
         </label>
-        <button id="joinBtn" class="secondary big">Join</button>
+        <button id="joinBtn" class="btn btn-ghost btn-lg">Join game</button>
       </div>
-      <p class="hint">Share the link with one friend. First to open it takes seat 1.</p>
+      <p class="footnote">Share the link with one friend. First to open it takes seat&nbsp;1.</p>
     </section>
 
     <!-- Name gate before entering a game -->
-    <section id="gate" class="screen hidden">
-      <div class="card-panel">
-        <h2>Room <span id="gateCode" class="code"></span></h2>
+    <section id="gate" class="screen center hidden">
+      <div class="panel">
+        <div class="gate-head">
+          <span class="gate-room-lbl">Room</span>
+          <span id="gateCode" class="gate-code"></span>
+        </div>
         <label class="field">
-          <span>Your name</span>
-          <input id="nameInput" maxlength="16" placeholder="Your name" />
+          <span class="field-lbl">Your name</span>
+          <input id="nameInput" maxlength="16" placeholder="e.g. Robin" />
         </label>
-        <button id="enterBtn" class="primary big">Enter game</button>
-        <button id="copyLinkBtn" class="ghost">Copy invite link</button>
-        <p id="gateMsg" class="hint"></p>
+        <button id="enterBtn" class="btn btn-primary btn-lg">Enter game</button>
+        <button id="copyLinkBtn" class="btn btn-quiet">Copy invite link</button>
+        <p id="gateMsg" class="footnote err"></p>
       </div>
     </section>
 
     <!-- Game -->
-    <section id="game" class="screen hidden">
+    <section id="game" class="screen game hidden">
       <header class="topbar">
-        <div class="room-chip">Room <b id="roomCode"></b></div>
-        <div class="phase-chip" id="phaseChip">—</div>
-        <button id="copyLink2" class="ghost small">invite</button>
+        <div class="room-pill">ROOM&nbsp;<b id="roomCode">····</b></div>
+        <div class="phase-pill" id="phaseChip">—</div>
+        <button id="copyLink2" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
-      <div class="players">
-        <div class="player opp" id="oppBox">
-          <div class="pname"><span id="oppName">Opponent</span><i id="oppConn" class="dot"></i></div>
-          <div class="chips">🪙 <b id="oppChips">0</b></div>
-          <div class="opp-cards" id="oppCards"></div>
+      <main class="table">
+        <!-- Opponent -->
+        <div class="seat seat-opp" id="oppBox">
+          <div class="seat-id">
+            <div class="avatar" id="oppAvatar">?</div>
+            <div class="seat-meta">
+              <div class="seat-name"><span id="oppName">Opponent</span><i id="oppConn" class="dot"></i></div>
+              <div class="stack"><span class="coin">🪙</span><b id="oppChips">0</b><span class="stack-lbl">chips</span></div>
+            </div>
+          </div>
+          <div class="hand opp-cards" id="oppCards"></div>
         </div>
 
-        <div class="middle">
-          <div class="pot">Pot <b id="pot">0</b><small id="carry"></small></div>
-          <div class="shared">
-            <span class="lbl">Shared</span>
+        <!-- Felt centre -->
+        <div class="felt">
+          <div class="pot-wrap">
+            <div class="pot-label">POT</div>
+            <div class="pot-amount" id="pot">0</div>
+            <div class="carry" id="carry"></div>
+          </div>
+          <div class="shared-wrap">
+            <span class="shared-lbl">Community</span>
             <div id="sharedCard" class="card placeholder">?</div>
           </div>
-          <div class="turn" id="turnFlag"></div>
+          <div class="turn-banner" id="turnFlag"></div>
         </div>
 
-        <div class="player you" id="youBox">
-          <div class="pname"><span id="youName">You</span><i id="youConn" class="dot on"></i></div>
-          <div class="chips">🪙 <b id="youChips">0</b></div>
-          <div class="your-cards" id="yourCards"></div>
+        <!-- You -->
+        <div class="seat seat-you" id="youBox">
+          <div class="hand your-cards" id="yourCards"></div>
+          <div class="seat-id">
+            <div class="avatar you" id="youAvatar">?</div>
+            <div class="seat-meta">
+              <div class="seat-name"><span id="youName">You</span><i id="youConn" class="dot on"></i></div>
+              <div class="stack"><span class="coin">🪙</span><b id="youChips">0</b><span class="stack-lbl">chips</span></div>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
 
       <div class="action-area" id="actionArea"></div>
 
-      <div class="chat" id="chatPanel">
-        <div class="chat-log" id="chatLog"></div>
-        <form class="chat-form" id="chatForm">
-          <input id="chatInput" maxlength="200" placeholder="Say something… (bluff freely)" autocomplete="off" />
-          <button type="submit">Send</button>
-        </form>
+      <div class="dock">
+        <div class="chat" id="chatPanel">
+          <div class="chat-log" id="chatLog"></div>
+          <form class="chat-form" id="chatForm">
+            <input id="chatInput" maxlength="200" placeholder="Say something… (bluff freely)" autocomplete="off" />
+            <button type="submit" class="send-btn" aria-label="Send">➤</button>
+          </form>
+        </div>
+        <details class="feed">
+          <summary>Game log</summary>
+          <ul id="logList"></ul>
+        </details>
       </div>
-
-      <details class="feed">
-        <summary>Game log</summary>
-        <ul id="logList"></ul>
-      </details>
     </section>
 
-    <div id="toast" class="toast hidden"></div>
+    <!-- Connection overlay -->
+    <div id="overlay" class="overlay hidden">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="overlayMsg">Connecting…</p>
+    </div>
+
+    <div id="toast" class="toast"></div>
 
     <script type="module" src="/app.js"></script>
   </body>

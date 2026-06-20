@@ -84,15 +84,23 @@ globally strongest suit. Same-rank hands are broken by:
 src/
   evaluator.ts        Pure hand evaluation: evaluate(cards) + compare(a, b). No I/O.
   evaluator.test.ts   Unit tests for every rank transition and tiebreak case.
-  cards.ts            Deck construction, shuffling, liar resolution.
-  server.ts           Authoritative server: rooms, phase machine, betting,
-                      simultaneous reveal, liar resolution, reconnection.
+  cards.ts            Deck construction, shuffling (injectable RNG), liar resolution.
+  liar.test.ts        Liar-resolution strategy (win-max) over every configuration.
+  engine.ts           Pure game engine: rooms, phase machine, betting, simultaneous
+                      reveal, liar resolution, chip accounting. No network I/O;
+                      deterministic via an injectable RNG.
+  engine.test.ts      Deterministic unit tests: betting, all-in refunds, draw
+                      carry, reveal buffering, elimination, chip conservation.
+  server.ts           Thin transport: static files, WebSocket plumbing, dispatch.
   server.test.ts      End-to-end test: two ws clients play a full round.
   client/
     index.html        Mobile-first single page.
     style.css
     app.js            Thin renderer — shows only the server's private view.
 ```
+
+The game rules live entirely in `engine.ts` and are pure (no sockets), so they
+can be unit-tested deterministically; `server.ts` only moves bytes.
 
 ### Anti-cheat guarantees
 
