@@ -144,7 +144,10 @@ export function join(room: Room, token: string | undefined, name: string | undef
   room.players[free] = { token: newToken, name: cleanName, chips: START_CHIPS, connected: true };
   log(room, `${cleanName} joined as seat ${free + 1}.`);
 
-  if (room.players[0] && room.players[1] && room.phase === 'waiting') startRound(room);
+  if (room.players[0] && room.players[1] && room.phase === 'waiting') {
+    room.deck = shuffle(buildDeck(), room.rng); // fresh deck to open the match
+    startRound(room);
+  }
   return { ok: true, seat: free, token: newToken, reconnected: false };
 }
 
@@ -165,10 +168,13 @@ function startRound(room: Room) {
   const [p0, p1] = room.players;
   if (!p0 || !p1) return;
 
-  // Elimination is decided only at the start of a round: a player who cannot
-  // post the blind genuinely cannot continue (spending the last chip on a blind
-  // or an all-in mid-round is not, by itself, elimination).
-  if (p0.chips < BLIND || p1.chips < BLIND) {
+  // Elimination is decided only at the start of a round. A player who cannot
+  // post the blind is out — UNLESS there's a carried-over pot still to settle
+  // (an all-in that drew). In that case the round is played for the carry, with
+  // no new blinds, so the all-in player keeps their shot at it.
+  const p0Broke = p0.chips < BLIND;
+  const p1Broke = p1.chips < BLIND;
+  if ((p0Broke || p1Broke) && room.carry === 0) {
     room.phase = 'matchover';
     room.matchWinner = p0.chips >= p1.chips ? 0 : 1;
     log(room, `Match over — ${room.players[room.matchWinner]!.name} wins!`);
@@ -201,11 +207,15 @@ function startRound(room: Room) {
   };
   room.carry = 0;
 
-  // Step 1: blinds (antes) + a dice roll for act order — each rolls a d6, higher
-  // acts first, re-rolling on a tie.
-  p0.chips -= BLIND;
-  p1.chips -= BLIND;
-  round.pot += 2 * BLIND;
+  // Step 1: blinds (antes) — posted only when BOTH players can afford them. When
+  // a player is all-in (0 chips) we skip blinds entirely and the round is played
+  // for the carried pot. Then a dice roll for act order (each d6, higher first).
+  const postBlinds = !p0Broke && !p1Broke;
+  if (postBlinds) {
+    p0.chips -= BLIND;
+    p1.chips -= BLIND;
+    round.pot += 2 * BLIND;
+  }
   let d0 = 1 + randInt(room.rng, 6);
   let d1 = 1 + randInt(room.rng, 6);
   while (d0 === d1) {
@@ -216,7 +226,8 @@ function startRound(room: Room) {
   round.dice = [d0, d1];
   round.firstActor = first;
   round.toAct = first;
-  log(room, `New round. 🎲 ${p0.name} ${d0}, ${p1.name} ${d1} — ${room.players[first]!.name} acts first (pot ${round.pot}).`);
+  const potNote = postBlinds ? `pot ${round.pot}` : `all-in for carried pot ${round.pot}`;
+  log(room, `New round. 🎲 ${p0.name} ${d0}, ${p1.name} ${d1} — ${room.players[first]!.name} acts first (${potNote}).`);
 
   // Step 2: two hole cards each. Step 3: one shared community card.
   for (let i = 0; i < 2; i++) {
@@ -501,6 +512,7 @@ export function rematch(room: Room, seat: Seat): ActionResult {
     for (const p of room.players) if (p) p.chips = START_CHIPS;
     room.carry = 0;
     room.matchWinner = null;
+    room.deck = shuffle(buildDeck(), room.rng); // fresh deck for the new match
     startRound(room); // also clears rematchReady
   }
   return ok;

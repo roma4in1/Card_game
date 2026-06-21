@@ -255,6 +255,43 @@ test('the deck reshuffles to a full 49 when it cannot deal a round, and flags it
   assert.equal((viewFor(room, 0) as any).deckReshuffled, true, 'reshuffle flagged for the client');
 });
 
+test('an all-in that draws keeps the match alive to play for the carried pot', () => {
+  const room = newGame(11);
+  toShowdown(room); // reach a showdown so nextRound is legal
+  // Simulate the aftermath of a drawn all-in: both stacks empty, whole pot carried.
+  room.players[0]!.chips = 0;
+  room.players[1]!.chips = 0;
+  room.carry = 70;
+
+  nextRound(room, 0);
+  assert.notEqual(room.phase, 'matchover', 'a carried pot must still be played for');
+  assert.equal(room.carry, 0);
+  assert.equal((viewFor(room, 0) as any).pot, 70); // no new blinds; the carry is the prize
+
+  toShowdown(room); // resolve the all-in round
+  const totalChips =
+    room.players[0]!.chips + room.players[1]!.chips + (room as any).round.pot + room.carry;
+  assert.equal(totalChips, 70); // the 70 is awarded or carried again — never lost
+});
+
+test('rematch resets the deck to a fresh 49', () => {
+  const room = newGame(11);
+  toShowdown(room); // deplete the deck a little
+  assert.ok(room.deck.length < 49);
+  // Force a match-ending elimination, then rematch.
+  room.players[0]!.chips = 0;
+  room.players[1]!.chips = 70;
+  room.carry = 0;
+  nextRound(room, 0);
+  assert.equal(room.phase, 'matchover');
+
+  rematch(room, 0);
+  rematch(room, 1);
+  assert.equal(room.phase, 'bet1');
+  assert.equal(room.deck.length, 44); // fresh 49 minus the 5 dealt at round start
+  assert.equal((viewFor(room, 0) as any).deckReshuffled, false); // a fresh deck, not a mid-game "ran out"
+});
+
 // ---------------------------------------------------------------------------
 // Whole-game autoplay invariants
 // ---------------------------------------------------------------------------
