@@ -241,17 +241,8 @@ function render() {
   $('phaseChip').textContent = PHASE_LABEL[s.phase] || s.phase;
   $('copyLink2').onclick = copyInvite;
 
-  // You
-  $('youName').textContent = s.you.name + ' (you)';
-  $('youAvatar').textContent = initial(s.you.name);
-  $('youAvatar').style.background = seatColor(s.seat);
-  animateNumber($('youChips'), s.you.chips);
-  $('youConn').className = 'dot ' + (s.you.connected ? 'on' : '');
-  $('youBadges').innerHTML = seatBadges(s.you, s, s.seat);
-  $('youBet').textContent = s.you.committed ? `bet ${s.you.committed}` : '';
-
   animateNumber($('pot'), s.pot);
-  $('carry').textContent = s.carry ? `+${s.carry} carried` : '';
+  $('carry').textContent = s.carry ? `+${s.carry}` : '';
   if (s.deckCount != null) {
     $('deckBadge').style.display = '';
     animateNumber($('deckCount'), s.deckCount);
@@ -261,20 +252,11 @@ function render() {
   document.body.classList.toggle('your-turn', !!(s.betting && s.betting.yourTurn));
 
   renderShared(s);
-  renderOpponents(s);
-  renderYourCards(s);
+  renderSeats(s);
+  renderYourHand(s);
   renderTurnFlag(s);
   renderActions(s);
   renderLog(s);
-}
-
-function seatBadges(p, s, seat) {
-  const b = [];
-  if (s.dealer === seat) b.push('<span class="badge b-dealer" title="Dealer">D</span>');
-  if (p.folded) b.push('<span class="badge b-fold">folded</span>');
-  else if (p.allIn) b.push('<span class="badge b-allin">all-in</span>');
-  if (p.eliminated) b.push('<span class="badge b-out">out</span>');
-  return b.join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -338,45 +320,111 @@ function renderShared(s) {
   $('sharedCard').replaceWith(el);
 }
 
-function renderOpponents(s) {
-  const others = s.others || [];
-  // Signature so we only rebuild when something visible changes.
-  const sig = others
-    .map((o) => `${o.seat}:${o.chips}:${o.holeCount}:${o.folded}:${o.allIn}:${o.eliminated}:${o.isTurn}:${o.isDealer}:${o.connected}:${o.committed}:${o.revealedCard ? o.revealedCard.suit : '-'}`)
-    .join('|');
-  if (sig === cardSig.opp) return;
-  cardSig.opp = sig;
+// Players seated around the oval, with "you" anchored at the bottom.
+const SEAT_RX = 47;
+const SEAT_RY = 46;
+let seatsSig = '';
 
-  const box = $('opponents');
+function buildSeatList(s) {
+  const bySeat = {};
+  bySeat[s.seat] = { ...s.you, seat: s.seat, isYou: true };
+  for (const o of s.others || []) bySeat[o.seat] = { ...o, isYou: false };
+  const all = (s.roster || [])
+    .map((p) => bySeat[p.seat])
+    .filter((p) => p && (p.isYou || !p.eliminated));
+  all.sort((a, b) => a.seat - b.seat);
+  const yi = all.findIndex((p) => p.isYou);
+  return yi < 0 ? all : [...all.slice(yi), ...all.slice(0, yi)];
+}
+
+const seatAngle = (i, n) => ((90 + (i * 360) / n) * Math.PI) / 180; // i=0 → bottom (you)
+const posAt = (theta, rx, ry) => ({ left: 50 + rx * Math.cos(theta), top: 50 + ry * Math.sin(theta) });
+
+function renderSeats(s) {
+  const list = buildSeatList(s);
+  const sig =
+    list
+      .map((p) => {
+        const turn = p.isYou ? !!(s.betting && s.betting.yourTurn) : !!p.isTurn;
+        return `${p.seat}:${p.chips}:${p.committed || 0}:${p.folded}:${p.allIn}:${turn}:${s.dealer === p.seat}:${p.connected}:${p.isYou ? 'Y' : p.holeCount}:${p.revealedCard ? p.revealedCard.suit + p.revealIndex : '-'}`;
+      })
+      .join('|') + `|${list.length}`;
+  if (sig === seatsSig) return;
+  seatsSig = sig;
+
+  const box = $('seats');
   box.innerHTML = '';
-  box.style.setProperty('--cols', Math.min(others.length || 1, others.length > 4 ? 4 : others.length));
-  others.forEach((o) => {
+  const n = list.length;
+  list.forEach((p, i) => {
+    const theta = seatAngle(i, n);
+    const pos = posAt(theta, SEAT_RX, SEAT_RY);
+    const turn = p.isYou ? !!(s.betting && s.betting.yourTurn) : !!p.isTurn;
     const tile = document.createElement('div');
-    tile.className = 'opp-tile';
-    if (o.isTurn) tile.classList.add('turn');
-    if (o.folded || o.eliminated) tile.classList.add('dim');
+    tile.className = 'pseat' + (p.isYou ? ' is-you' : '');
+    if (turn) tile.classList.add('acting');
+    if (p.folded || p.eliminated) tile.classList.add('dim');
+    tile.style.left = `${pos.left}%`;
+    tile.style.top = `${pos.top}%`;
 
-    const head = document.createElement('div');
-    head.className = 'opp-head';
-    head.innerHTML =
-      `<span class="avatar sm" style="background:${seatColor(o.seat)}">${initial(o.name)}</span>` +
-      `<span class="opp-meta"><span class="opp-name">${escapeHtml(o.name)}<i class="dot ${o.connected ? 'on' : ''}"></i></span>` +
-      `<span class="opp-stack">🪙 ${o.chips}${o.committed ? ` · bet ${o.committed}` : ''}</span></span>` +
-      `<span class="badges">${seatBadges(o, s, o.seat)}</span>`;
-
-    const cards = document.createElement('div');
-    cards.className = 'opp-cards';
-    for (let i = 0; i < o.holeCount; i++) {
-      if (o.revealedCard && o.revealIndex === i) cards.appendChild(cardEl(o.revealedCard));
-      else cards.appendChild(cardEl(null));
+    // Opponents' cards sit toward the centre; your big readable hand is below the table.
+    if (!p.isYou) {
+      const cards = document.createElement('div');
+      cards.className = 'pseat-cards';
+      for (let k = 0; k < (p.holeCount || 0); k++) {
+        if (p.revealedCard && p.revealIndex === k) {
+          const c = cardEl(p.revealedCard);
+          c.classList.add('shown'); // revealed cards render larger
+          cards.appendChild(c);
+        } else {
+          cards.appendChild(cardEl(null));
+        }
+      }
+      tile.appendChild(cards);
     }
-    tile.append(head, cards);
+
+    const body = document.createElement('div');
+    body.className = 'pseat-body';
+    body.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="pseat-meta"><span class="pseat-name">${escapeHtml(p.name)}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
+      `<span class="pseat-chips">🪙 ${p.chips}</span></span>`;
+    tile.appendChild(body);
+
+    const badges = [];
+    if (p.allIn) badges.push('<span class="badge b-allin">all-in</span>');
+    if (p.folded) badges.push('<span class="badge b-fold">fold</span>');
+    if (badges.length) {
+      const bd = document.createElement('div');
+      bd.className = 'pseat-badges';
+      bd.innerHTML = badges.join('');
+      tile.appendChild(bd);
+    }
     box.appendChild(tile);
+
+    // Dealer button + bet chip sit on the felt, along the seat's angle toward the pot.
+    if (s.dealer === p.seat) {
+      const dpos = posAt(theta, SEAT_RX * 0.74, SEAT_RY * 0.72);
+      const d = document.createElement('span');
+      d.className = 'felt-dealer';
+      d.textContent = 'D';
+      d.style.left = `${dpos.left}%`;
+      d.style.top = `${dpos.top}%`;
+      box.appendChild(d);
+    }
+    if (p.committed) {
+      const bpos = posAt(theta, SEAT_RX * 0.6, SEAT_RY * 0.58);
+      const bet = document.createElement('div');
+      bet.className = 'felt-bet';
+      bet.innerHTML = `<span class="chip-dot"></span>${p.committed}`;
+      bet.style.left = `${bpos.left}%`;
+      bet.style.top = `${bpos.top}%`;
+      box.appendChild(bet);
+    }
   });
 }
 
-function renderYourCards(s) {
-  const hole = s.you.hole || [];
+function renderYourHand(s) {
+  const hole = (s.you && s.you.hole) || [];
   const revealing = s.phase === 'reveal' && s.reveal && !s.reveal.youLocked && s.you.inHand;
   const sig = `${hole.map((c) => c.suit).join(',')}|${s.you.revealIndex}|${revealing}|${s.you.folded}`;
   if (sig === cardSig.you) return;
@@ -384,6 +432,7 @@ function renderYourCards(s) {
 
   const box = $('yourCards');
   box.innerHTML = '';
+  if (!s.you.hole) return; // spectating / not dealt in
   if (s.you.folded) {
     box.innerHTML = '<span class="folded-note">You folded this round</span>';
     return;
