@@ -78,6 +78,7 @@ interface Round {
   reshuffled: boolean;
   dealer: number;
   toAct: number; // seat to act, or -1
+  firstActor: number; // seat that acted first this round (-1 if betting was skipped)
   pot: number;
   carryIn: number; // carried-over chips that seeded this round's pot (dead money)
   currentBet: number;
@@ -280,6 +281,7 @@ function startRound(room: Room) {
     reshuffled,
     dealer: room.dealer,
     toAct: -1,
+    firstActor: -1,
     pot: room.carry,
     carryIn: room.carry,
     currentBet: 0,
@@ -345,6 +347,7 @@ function enterBetting(room: Room) {
     room.players[s]!.acted = false;
   }
   r.toAct = nextToAct(room, r.dealer);
+  if (room.phase === 'bet1' && r.firstActor === -1) r.firstActor = r.toAct; // first to act this round
   if (r.toAct === -1) closeBetting(room); // everyone folded or all-in
 }
 
@@ -695,6 +698,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
   if (!r) return view;
 
   view.dealer = r.dealer;
+  view.firstActor = r.firstActor;
   view.currentBet = r.currentBet;
   view.shared = cardView(r.shared);
 
