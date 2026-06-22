@@ -237,6 +237,38 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.18); }
 .dot.on { background: var(--good); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2); }
 
+/* lobby */
+.lobby-title { font-size: 2.4rem; font-weight: 900; }
+.lobby-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lobby-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.lobby-name { flex: 1; font-weight: 600; }
+.avatar.sm { width: 30px; height: 30px; border-radius: 9px; font-size: 0.85rem; }
+
+/* opponents row */
+.opponents { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 8px; }
+.opp-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 8px; display: flex; flex-direction: column; gap: 6px; transition: box-shadow 0.25s, border-color 0.25s; }
+.opp-tile.turn { border-color: var(--good); box-shadow: 0 0 0 1px var(--good), 0 0 18px rgba(52, 211, 153, 0.18); }
+.opp-tile.dim { opacity: 0.5; }
+.opp-head { display: flex; align-items: center; gap: 7px; }
+.opp-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.opp-name { font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp-stack { font-size: 0.72rem; color: var(--gold); }
+.opp-cards { display: flex; gap: 4px; flex-wrap: wrap; }
+.opp-cards .card { width: 30px; height: 43px; border-width: 2px; }
+.opp-cards .card .brand { display: none; }
+
+/* status badges */
+.badges { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.badge { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 5px; border-radius: 6px; }
+.b-dealer { background: var(--gold); color: #4a3500; }
+.b-fold { background: rgba(255, 255, 255, 0.12); color: var(--muted); }
+.b-allin { background: var(--bad); color: #fff; }
+.b-out { background: #333; color: var(--muted); }
+.b-host { background: var(--scissor); color: #fff; }
+.bet-chip { font-size: 0.7rem; color: var(--accent2, var(--good)); margin-left: 6px; }
+.folded-note { color: var(--muted); font-size: 0.82rem; font-style: italic; align-self: center; }
+.result .hand.winner .who { color: var(--gold); }
+
 /* felt centre */
 .felt {
   position: relative;
@@ -402,12 +434,11 @@ body.your-turn .seat-you { border-color: var(--good); box-shadow: 0 0 0 1px var(
    =========================================================================== */
 .dock { display: flex; flex-direction: column; gap: 8px; }
 .chat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
-.chat-log { height: 96px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 4px; }
+.chat-log { height: 118px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 4px; }
 .chat-log:empty::before { content: 'Trash talk, bluff, or stay silent.'; color: var(--faint); font-size: 0.85rem; }
-.chat-log .msg { font-size: 0.9rem; line-height: 1.35; max-width: 85%; padding: 6px 11px; border-radius: 13px; background: var(--surface-2); align-self: flex-start; }
-.chat-log .msg.me { align-self: flex-end; background: rgba(255, 93, 143, 0.16); }
-.chat-log .msg b { color: var(--love-soft); font-weight: 700; margin-right: 4px; }
-.chat-log .msg.me b { color: var(--love); }
+.chat-log .msg { font-size: 0.9rem; line-height: 1.35; max-width: 88%; padding: 5px 10px; border-radius: 11px; background: var(--surface-2); align-self: flex-start; }
+.chat-log .msg.me { align-self: flex-end; background: rgba(255, 93, 143, 0.16); border-left: none !important; }
+.chat-log .msg b { font-weight: 700; margin-right: 4px; }
 .chat-form { display: flex; gap: 8px; margin-top: 8px; }
 .chat-form input { flex: 1; min-width: 0; padding: 11px 13px; }
 .send-btn { flex: none; width: 44px; border-radius: 12px; border: none; background: linear-gradient(135deg, var(--love), #ff7aa3); color: #fff; font-size: 1rem; cursor: pointer; }
@@ -439,32 +470,6 @@ body.your-turn .seat-you { border-color: var(--good); box-shadow: 0 0 0 1px var(
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* dice roll */
-.dice-overlay {
-  position: fixed; inset: 0; z-index: 105;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
-  background: rgba(8, 10, 14, 0.9); backdrop-filter: blur(8px);
-  animation: screen-in 0.3s var(--ease);
-}
-.dice-title { font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.82rem; }
-.dice-stage { display: flex; align-items: center; gap: 22px; }
-.dice-player { display: flex; flex-direction: column; align-items: center; gap: 12px; transition: opacity 0.3s, transform 0.3s var(--ease); }
-.dice-name { font-weight: 700; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dice-vs { color: var(--faint); font-family: 'Outfit', sans-serif; font-weight: 800; }
-.dice-player.lost { opacity: 0.4; transform: scale(0.9); }
-.dice-player.won .die { box-shadow: 0 0 0 3px var(--gold), 0 10px 30px rgba(245, 196, 81, 0.4); }
-
-.die {
-  width: 72px; height: 72px; border-radius: 16px;
-  background: linear-gradient(150deg, #ffffff, #e7e9f0);
-  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
-  padding: 11px; gap: 4px; box-shadow: var(--shadow-lg);
-}
-.die.tumble { animation: tumble 0.42s var(--ease) infinite; }
-@keyframes tumble { 0% { transform: rotate(-12deg) translateY(0); } 50% { transform: rotate(10deg) translateY(-6px); } 100% { transform: rotate(-12deg) translateY(0); } }
-.die .pip { border-radius: 50%; background: transparent; }
-.die .pip.on { background: #20242e; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.4); }
-.dice-result { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.15rem; color: var(--gold); min-height: 1.4em; }
 
 /* rankings sheet */
 .sheet {

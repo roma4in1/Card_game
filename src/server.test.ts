@@ -1,7 +1,7 @@
 // server.test.ts — end-to-end smoke test: spins up the real server, connects
-// two WebSocket clients, and drives a full round to completion. Verifies the
-// phase machine advances, chips are conserved (total stays 70), and the
-// opponent's hidden cards are NEVER leaked to a client.
+// three WebSocket clients through the lobby, starts the match, and drives a full
+// round. Verifies the phase machine advances, chips are conserved, and no
+// opponent's hidden cards are ever leaked to a client.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -32,10 +32,9 @@ interface Bot {
   ws: WebSocket;
   seat: number;
   token?: string;
-  lastState?: any;
 }
 
-function makeBot(room: string, name: string, onResult: (s: any) => void): Promise<Bot> {
+function makeBot(room: string, name: string, onState: (b: Bot, s: any) => void): Promise<Bot> {
   return new Promise((resolve) => {
     const ws = new WebSocket(URL);
     const bot: Bot = { ws, seat: -1 };
@@ -47,77 +46,77 @@ function makeBot(room: string, name: string, onResult: (s: any) => void): Promis
         bot.token = msg.token;
         resolve(bot);
       } else if (msg.type === 'state') {
-        bot.lastState = msg;
-        // Anti-cheat invariant: opponent hidden cards must never be sent.
-        if (msg.opp) {
-          assert.equal(msg.opp.hole, undefined, 'opponent hole cards leaked!');
-        }
-        driveBot(bot, msg);
-        if (msg.phase === 'showdown' && msg.result) onResult(msg);
+        // Anti-cheat: opponents' hidden cards must never be sent.
+        for (const o of msg.others ?? []) assert.equal(o.hole, undefined, 'opponent hole leaked!');
+        onState(bot, msg);
       }
     });
   });
 }
 
-// A passive bot: always checks/calls, reveals the first non-liar card, auto-
-// resolves liar, and readies up. Enough to push a round to showdown.
+// Passive bot: checks/calls, reveals first non-liar, readies up, resolves liar.
 function driveBot(bot: Bot, s: any) {
   const send = (o: any) => bot.ws.send(JSON.stringify(o));
   if ((s.phase === 'bet1' || s.phase === 'bet2') && s.betting?.yourTurn) {
-    if (s.betting.canCheck) send({ type: 'action', action: 'check' });
-    else send({ type: 'action', action: 'call' });
-  } else if (s.phase === 'reveal' && s.reveal && !s.reveal.youLocked) {
-    const idx = s.you.hole.findIndex((c: any) => c.suit !== 'liar');
-    send({ type: 'reveal', cardIndex: idx });
-  } else if (s.phase === 'discuss' && s.discuss && !s.discuss.youReady) {
+    send({ type: 'action', action: s.betting.canCheck ? 'check' : 'call' });
+  } else if (s.phase === 'reveal' && s.reveal && !s.reveal.youLocked && s.you.inHand) {
+    send({ type: 'reveal', cardIndex: s.you.hole.findIndex((c: any) => c.suit !== 'liar') });
+  } else if (s.phase === 'discuss' && s.discuss && !s.discuss.youReady && s.you.inHand) {
     send({ type: 'discussDone' });
   } else if (s.phase === 'showdown' && s.liar?.needsYou) {
-    send({ type: 'liar', auto: true });
+    send({ type: 'liar', values: s.liar.wildSlots.map(() => 'rock') });
   }
 }
 
-test('full round plays to showdown with conserved chips and no card leaks', async () => {
+test('a 3-player match plays a round to showdown with conserved chips and no leaks', async () => {
   const server = await startServer();
   try {
     let resolveRound: (s: any) => void;
     const roundDone = new Promise<any>((r) => (resolveRound = r));
     let fired = false;
-    const onResult = (s: any) => {
-      if (!fired) {
+    const onState = (bot: Bot, s: any) => {
+      if (s.phase === 'lobby' && s.youAreHost && s.roster.length === 3) {
+        bot.ws.send(JSON.stringify({ type: 'start' }));
+        return;
+      }
+      driveBot(bot, s);
+      if (s.phase === 'showdown' && s.result && !fired) {
         fired = true;
         resolveRound(s);
       }
     };
 
     const room = 'TEST';
-    const a = await makeBot(room, 'Alice', onResult);
-    const b = await makeBot(room, 'Bob', onResult);
-    assert.notEqual(a.seat, b.seat);
+    await makeBot(room, 'Alice', onState);
+    await makeBot(room, 'Bob', onState);
+    await makeBot(room, 'Carol', onState);
 
-    const result = await Promise.race([
+    const s: any = await Promise.race([
       roundDone,
       new Promise((_, rej) => setTimeout(() => rej(new Error('round timeout')), 8000).unref()),
     ]);
 
-    const s: any = result;
-    // Chip conservation: chips of both seats + carried pot == 70 total.
-    const total = s.you.chips + s.opp.chips + (s.carry || 0);
-    assert.equal(total, 70, `chips should be conserved (got ${total})`);
-    assert.ok(['fold', 'showdown', 'draw'].includes(s.result.kind));
-
-    a.ws.close();
-    b.ws.close();
+    const total = s.roster.reduce((sum: number, p: any) => sum + p.chips, 0) + s.pot + (s.carry || 0);
+    assert.equal(total, 3 * 35, `chips should be conserved (got ${total})`);
+    assert.ok(['fold', 'showdown'].includes(s.result.kind));
   } finally {
     server.kill('SIGKILL');
   }
 });
 
-test('third player is rejected as room full', async () => {
+test('joining a match that has already started is rejected', async () => {
   const server = await startServer();
   try {
-    const room = 'FULL';
-    await makeBot(room, 'A', () => {});
+    const room = 'BUSY';
+    const host = await makeBot(room, 'A', (bot, s) => {
+      if (s.phase === 'lobby' && s.youAreHost && s.roster.length === 2) {
+        bot.ws.send(JSON.stringify({ type: 'start' }));
+      }
+    });
     await makeBot(room, 'B', () => {});
+    // give the match a moment to start
+    await new Promise((r) => setTimeout(r, 300));
+
     const rejected = await new Promise<boolean>((resolve) => {
       const ws = new WebSocket(URL);
       ws.on('open', () => ws.send(JSON.stringify({ type: 'join', room, name: 'C' })));
@@ -127,7 +126,8 @@ test('third player is rejected as room full', async () => {
         if (msg.type === 'joined') resolve(false);
       });
     });
-    assert.equal(rejected, true, 'third player should be rejected');
+    assert.equal(rejected, true, 'a late joiner should be rejected once started');
+    host.ws.close();
   } finally {
     server.kill('SIGKILL');
   }
