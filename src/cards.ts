@@ -8,22 +8,36 @@ export interface Card {
   suit: FullSuit;
 }
 
-// Deck of 49: 18 scissor, 12 rock, 12 paper, 6 love, 1 liar.
-const DECK_SPEC: [FullSuit, number][] = [
+// One standard set is 48 suit cards (18 scissor, 12 rock, 12 paper, 6 love).
+// The liar is added separately and stays SINGULAR no matter how many sets are
+// dealt — a deck is always `48 × copies + 1` cards.
+const SUIT_SPEC: [FullSuit, number][] = [
   ['scissor', 18],
   ['rock', 12],
   ['paper', 12],
   ['love', 6],
-  ['liar', 1],
 ];
 
-export function buildDeck(): Card[] {
+/**
+ * Build a deck of `copies` standard sets plus exactly one liar. Scaling the
+ * whole deck with the player count (≈ one set per two players) preserves the
+ * suit ratios and keeps the finite deck lasting ~7 rounds at any table size.
+ */
+export function buildDeck(copies = 1): Card[] {
   const deck: Card[] = [];
   let id = 0;
-  for (const [suit, n] of DECK_SPEC) {
-    for (let i = 0; i < n; i++) deck.push({ id: id++, suit });
+  for (let c = 0; c < copies; c++) {
+    for (const [suit, n] of SUIT_SPEC) {
+      for (let i = 0; i < n; i++) deck.push({ id: id++, suit });
+    }
   }
+  deck.push({ id: id++, suit: 'liar' }); // exactly one liar, always
   return deck;
+}
+
+/** Standard sets to deal for a table of `players` — one set per two players. */
+export function deckCopies(players: number): number {
+  return Math.max(1, Math.ceil(players / 2));
 }
 
 import { randomInt } from 'node:crypto';

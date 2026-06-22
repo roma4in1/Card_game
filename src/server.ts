@@ -14,6 +14,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   createRoom,
   join as joinRoom,
+  startMatch,
   setConnected,
   bet,
   reveal,
@@ -22,6 +23,7 @@ import {
   nextRound,
   rematch,
   viewFor,
+  MAX_SEATS,
   type Room,
   type Seat,
 } from './engine.ts';
@@ -33,7 +35,7 @@ const ROOM_TTL_MS = 60 * 60 * 1000;
 
 const rooms = new Map<string, Room>();
 // Sockets are transport state, kept out of the engine. One slot per seat.
-const sockets = new Map<string, [WebSocket | null, WebSocket | null]>();
+const sockets = new Map<string, (WebSocket | null)[]>();
 
 function send(ws: WebSocket | null, obj: unknown) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -43,7 +45,7 @@ function broadcast(room: Room) {
   room.lastActivity = Date.now();
   const ws = sockets.get(room.code);
   if (!ws) return;
-  for (const seat of [0, 1] as const) {
+  for (let seat = 0; seat < MAX_SEATS; seat++) {
     if (room.players[seat]) send(ws[seat], viewFor(room, seat));
   }
 }
@@ -65,13 +67,18 @@ function handleJoin(ws: WebSocket, conn: Conn, msg: Record<string, unknown>) {
   if (!room) {
     room = createRoom(code);
     rooms.set(code, room);
-    sockets.set(code, [null, null]);
+    sockets.set(code, new Array(MAX_SEATS).fill(null));
   }
 
   const token = typeof msg.token === 'string' ? msg.token : undefined;
   const name = typeof msg.name === 'string' ? msg.name : undefined;
   const result = joinRoom(room, token, name);
-  if (!result.ok) return send(ws, { type: 'full', message: 'Room is full (2 players max).' });
+  if (!result.ok) {
+    const message = result.reason === 'in-progress'
+      ? 'That game has already started.'
+      : `Room is full (${MAX_SEATS} players max).`;
+    return send(ws, { type: 'full', message });
+  }
 
   conn.code = code;
   conn.seat = result.seat;
@@ -113,6 +120,8 @@ function handleMessage(ws: WebSocket, conn: Conn, raw: string) {
 
 function dispatch(room: Room, seat: Seat, msg: Record<string, unknown>): { error?: string } | void {
   switch (msg.type) {
+    case 'start':
+      return startMatch(room, seat);
     case 'action':
       return bet(room, seat, String(msg.action ?? ''), Number(msg.amount) || 0);
     case 'reveal':
@@ -120,7 +129,7 @@ function dispatch(room: Room, seat: Seat, msg: Record<string, unknown>): { error
     case 'discussDone':
       return discussDone(room, seat);
     case 'liar':
-      return setLiar(room, seat, msg as { auto?: boolean; values?: string[] });
+      return setLiar(room, seat, msg as { values?: string[] });
     case 'nextRound':
       return nextRound(room, seat);
     case 'rematch':

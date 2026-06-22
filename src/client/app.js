@@ -51,8 +51,11 @@ const SUIT_LABEL = {
   love: 'Love',
   liar: 'Liar',
 };
+// A stable colour per seat so players are recognisable across the table and chat.
+const SEAT_COLORS = ['#e8536b', '#2f86d6', '#5bbf3a', '#e0a01e', '#9a6cff', '#1fb6a8', '#ff7a3d', '#d65bb0'];
+const seatColor = (seat) => SEAT_COLORS[seat % SEAT_COLORS.length] || '#888';
 const PHASE_LABEL = {
-  waiting: 'Waiting for opponent',
+  lobby: 'Lobby',
   bet1: 'Betting · round 1',
   reveal: 'Reveal a card',
   discuss: 'Discussion',
@@ -125,8 +128,7 @@ function showGate(code) {
   $('enterBtn').onclick = () => {
     const name = $('nameInput').value.trim() || 'Player';
     localStorage.setItem('ll_name', name);
-    showScreen('game');
-    connect(code, name);
+    connect(code, name); // render() picks the lobby/game screen from the first state
   };
   // If we already hold a token for this room, fast-path straight in.
   if (localStorage.getItem(tokenKey(code)) && savedName) {
@@ -216,55 +218,108 @@ function cardEl(card, opts = {}) {
   return el;
 }
 
+let shownScreen = null;
+function ensureScreen(id) {
+  if (shownScreen !== id) {
+    showScreen(id);
+    shownScreen = id;
+  }
+}
+
 function render() {
   if (!state) return;
   const s = state;
-  maybeRollDice(s);
+  if (s.phase === 'lobby') {
+    ensureScreen('lobby');
+    renderLobby(s);
+    return;
+  }
+  ensureScreen('game');
+  maybeNotify(s);
+
   $('roomCode').textContent = s.room;
   $('phaseChip').textContent = PHASE_LABEL[s.phase] || s.phase;
   $('copyLink2').onclick = copyInvite;
 
-  // Names / chips / connection / avatars
-  $('youName').textContent = s.you.name + (s.seat === mySeat ? ' (you)' : '');
+  // You
+  $('youName').textContent = s.you.name + ' (you)';
   $('youAvatar').textContent = initial(s.you.name);
+  $('youAvatar').style.background = seatColor(s.seat);
   animateNumber($('youChips'), s.you.chips);
   $('youConn').className = 'dot ' + (s.you.connected ? 'on' : '');
-  if (s.opp) {
-    $('oppName').textContent = s.opp.name;
-    $('oppAvatar').textContent = initial(s.opp.name);
-    animateNumber($('oppChips'), s.opp.chips);
-    $('oppConn').className = 'dot ' + (s.opp.connected ? 'on' : '');
-  } else {
-    $('oppName').textContent = 'Waiting…';
-    $('oppAvatar').textContent = '·';
-    animateNumber($('oppChips'), 0);
-    $('oppConn').className = 'dot';
-  }
+  $('youBadges').innerHTML = seatBadges(s.you, s, s.seat);
+  $('youBet').textContent = s.you.committed ? `bet ${s.you.committed}` : '';
 
   animateNumber($('pot'), s.pot);
   $('carry').textContent = s.carry ? `+${s.carry} carried` : '';
-
-  // Cards remaining in the finite deck.
   if (s.deckCount != null) {
     $('deckBadge').style.display = '';
     animateNumber($('deckCount'), s.deckCount);
   } else {
     $('deckBadge').style.display = 'none';
   }
-
-  // Highlight the whole table when it's your move.
   document.body.classList.toggle('your-turn', !!(s.betting && s.betting.yourTurn));
 
   renderShared(s);
-  renderOppCards(s);
+  renderOpponents(s);
   renderYourCards(s);
   renderTurnFlag(s);
   renderActions(s);
   renderLog(s);
 }
 
-// Card containers are only rebuilt (and re-animated) when their contents change,
-// so chip/chat updates don't make every card flicker.
+function seatBadges(p, s, seat) {
+  const b = [];
+  if (s.dealer === seat) b.push('<span class="badge b-dealer" title="Dealer">D</span>');
+  if (p.folded) b.push('<span class="badge b-fold">folded</span>');
+  else if (p.allIn) b.push('<span class="badge b-allin">all-in</span>');
+  if (p.eliminated) b.push('<span class="badge b-out">out</span>');
+  return b.join('');
+}
+
+// ---------------------------------------------------------------------------
+// Lobby
+// ---------------------------------------------------------------------------
+
+function renderLobby(s) {
+  $('lobbyCode').textContent = s.room;
+  $('lobbyInvite').onclick = copyInvite;
+  const list = $('lobbyList');
+  list.innerHTML = '';
+  s.roster.forEach((p) => {
+    const li = document.createElement('li');
+    li.className = 'lobby-row';
+    li.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="lobby-name">${escapeHtml(p.name)}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      (p.host ? '<span class="badge b-host">host</span>' : '') +
+      `<i class="dot ${p.connected ? 'on' : ''}"></i>`;
+    list.appendChild(li);
+  });
+  const start = $('startBtn');
+  if (s.youAreHost) {
+    start.style.display = '';
+    start.disabled = s.roster.length < 2;
+    start.textContent = s.roster.length < 2 ? 'Waiting for players…' : `Start game (${s.roster.length})`;
+    start.onclick = () => send({ type: 'start' });
+    $('lobbyMsg').textContent = s.roster.length < 2 ? 'Share the invite link to add players.' : '';
+  } else {
+    start.style.display = 'none';
+    $('lobbyMsg').textContent = 'Waiting for the host to start…';
+  }
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ---------------------------------------------------------------------------
+// Table rendering
+// ---------------------------------------------------------------------------
+
+// Card containers only rebuild (and re-animate) when their contents change.
 const cardSig = { you: '', opp: '', shared: '' };
 
 function renderShared(s) {
@@ -283,31 +338,56 @@ function renderShared(s) {
   $('sharedCard').replaceWith(el);
 }
 
-function renderOppCards(s) {
-  const count = s.opp && s.opp.holeCount != null ? s.opp.holeCount : 0;
-  const rev = s.opp && s.opp.revealedCard ? `${s.opp.revealIndex}:${s.opp.revealedCard.suit}` : '-';
-  const sig = `${count}|${rev}`;
+function renderOpponents(s) {
+  const others = s.others || [];
+  // Signature so we only rebuild when something visible changes.
+  const sig = others
+    .map((o) => `${o.seat}:${o.chips}:${o.holeCount}:${o.folded}:${o.allIn}:${o.eliminated}:${o.isTurn}:${o.isDealer}:${o.connected}:${o.committed}:${o.revealedCard ? o.revealedCard.suit : '-'}`)
+    .join('|');
   if (sig === cardSig.opp) return;
   cardSig.opp = sig;
 
-  const box = $('oppCards');
+  const box = $('opponents');
   box.innerHTML = '';
-  for (let i = 0; i < count; i++) {
-    // The opponent's one revealed card shows face-up; the rest stay face-down.
-    if (s.opp.revealedCard && s.opp.revealIndex === i) box.appendChild(cardEl(s.opp.revealedCard));
-    else box.appendChild(cardEl(null));
-  }
+  box.style.setProperty('--cols', Math.min(others.length || 1, others.length > 4 ? 4 : others.length));
+  others.forEach((o) => {
+    const tile = document.createElement('div');
+    tile.className = 'opp-tile';
+    if (o.isTurn) tile.classList.add('turn');
+    if (o.folded || o.eliminated) tile.classList.add('dim');
+
+    const head = document.createElement('div');
+    head.className = 'opp-head';
+    head.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(o.seat)}">${initial(o.name)}</span>` +
+      `<span class="opp-meta"><span class="opp-name">${escapeHtml(o.name)}<i class="dot ${o.connected ? 'on' : ''}"></i></span>` +
+      `<span class="opp-stack">🪙 ${o.chips}${o.committed ? ` · bet ${o.committed}` : ''}</span></span>` +
+      `<span class="badges">${seatBadges(o, s, o.seat)}</span>`;
+
+    const cards = document.createElement('div');
+    cards.className = 'opp-cards';
+    for (let i = 0; i < o.holeCount; i++) {
+      if (o.revealedCard && o.revealIndex === i) cards.appendChild(cardEl(o.revealedCard));
+      else cards.appendChild(cardEl(null));
+    }
+    tile.append(head, cards);
+    box.appendChild(tile);
+  });
 }
 
 function renderYourCards(s) {
   const hole = s.you.hole || [];
-  const revealing = s.phase === 'reveal' && s.reveal && !s.reveal.youLocked;
-  const sig = `${hole.map((c) => c.suit).join(',')}|${s.you.revealIndex}|${revealing}`;
+  const revealing = s.phase === 'reveal' && s.reveal && !s.reveal.youLocked && s.you.inHand;
+  const sig = `${hole.map((c) => c.suit).join(',')}|${s.you.revealIndex}|${revealing}|${s.you.folded}`;
   if (sig === cardSig.you) return;
   cardSig.you = sig;
 
   const box = $('yourCards');
   box.innerHTML = '';
+  if (s.you.folded) {
+    box.innerHTML = '<span class="folded-note">You folded this round</span>';
+    return;
+  }
   hole.forEach((card, i) => {
     const el = cardEl(card);
     if (s.you.revealIndex === i) el.classList.add('revealed');
@@ -345,24 +425,25 @@ function renderActions(s) {
 
   if (s.matchWinner != null) {
     const win = s.matchWinner === s.seat;
-    area.appendChild(banner(win ? '🏆 You win the match!' : 'You lost the match.', win ? 'win' : 'lose'));
-    const rm = s.rematch || { youReady: false, oppReady: false };
+    area.appendChild(banner(win ? '🏆 You win the match!' : 'Match over.', win ? 'win' : 'lose'));
+    const rm = s.rematch || { youReady: false };
     const btn = actBtn(
-      rm.youReady ? 'Waiting for opponent…' : 'Rematch',
+      rm.youReady ? 'Waiting for others…' : 'Rematch',
       'btn btn-primary btn-lg',
       () => send({ type: 'rematch' }),
     );
     btn.disabled = rm.youReady;
     area.appendChild(btn);
-    if (rm.oppReady && !rm.youReady) area.appendChild(prompt('Your opponent wants a rematch!'));
     return;
   }
 
-  if (s.phase === 'waiting') {
-    const c = callout('Waiting for your opponent to join', true);
-    const invite = actBtn('Copy invite link', 'btn btn-ghost btn-lg', copyInvite);
-    area.appendChild(c);
-    area.appendChild(invite);
+  if (s.you.inMatch === false) {
+    area.appendChild(callout('Spectating — you’ll be in the next match', true));
+    return;
+  }
+
+  if (!s.you.inHand && s.phase !== 'showdown') {
+    area.appendChild(callout('You folded — watching the rest of the hand', true));
     return;
   }
 
@@ -373,7 +454,7 @@ function renderActions(s) {
 
   if (s.phase === 'reveal') {
     if (s.reveal.youLocked) {
-      area.appendChild(callout(s.reveal.oppLocked ? 'Revealing' : 'Locked in — waiting for opponent', true));
+      area.appendChild(callout(s.reveal.waiting ? 'Locked in — waiting for others' : 'Revealing', true));
     } else {
       area.appendChild(prompt('Pick one card to reveal <b>(not the liar)</b> — tap a card.'));
     }
@@ -383,7 +464,7 @@ function renderActions(s) {
   if (s.phase === 'discuss') {
     area.appendChild(prompt('Discuss freely — <b>bluff or be honest</b>.'));
     const btn = actBtn(
-      s.discuss.youReady ? 'Waiting for opponent…' : "I'm ready to bet",
+      s.discuss.youReady ? 'Waiting for others…' : "I'm ready to bet",
       'btn btn-primary btn-lg',
       () => send({ type: 'discussDone' }),
     );
@@ -396,7 +477,7 @@ function renderActions(s) {
     if (s.liar && s.liar.needsYou) {
       area.appendChild(renderLiarControls(s.liar));
     } else if (s.liar && s.liar.waitingOnOpponent) {
-      area.appendChild(callout('Waiting on opponent to resolve their liar', true));
+      area.appendChild(callout('Waiting on liar holder(s) to choose', true));
     }
     if (s.result) area.appendChild(renderResult(s));
     return;
@@ -406,7 +487,7 @@ function renderActions(s) {
 function renderBetting(area, s) {
   const b = s.betting;
   if (!b.yourTurn) {
-    area.appendChild(callout('Waiting for opponent to act', true));
+    area.appendChild(callout('Waiting for other players to act', true));
     return;
   }
   area.appendChild(
@@ -503,44 +584,59 @@ function renderResult(s) {
   const r = s.result;
   const box = document.createElement('div');
   box.className = 'result';
+  const won = (seat) => (r.awards.find((a) => a.seat === seat)?.amount ?? 0);
+  const youWon = won(s.seat);
+
   const h = document.createElement('h3');
-  if (r.kind === 'draw') {
-    h.textContent = '🤝 Draw — pot carries over';
-    h.className = 'verdict-draw';
-  } else if (r.winner === s.seat) {
-    h.textContent = `🎉 You win ${r.potAwarded}`;
+  if (youWon > 0) {
+    h.textContent = `🎉 You win ${youWon}`;
     h.className = 'verdict-win';
-  } else {
-    h.textContent = `${r.names[r.winner]} wins ${r.potAwarded}`;
+  } else if (r.kind === 'fold') {
+    const w = r.awards[0];
+    h.textContent = `${nameOf(s, w.seat)} wins ${w.amount} — everyone folded`;
     h.className = 'verdict-lose';
+  } else {
+    const winners = r.awards.map((a) => `${nameOf(s, a.seat)} ${a.amount}`).join(' · ');
+    h.textContent = winners ? `Pot: ${winners}` : '🤝 Draw — pot carries';
+    h.className = r.awards.length > 1 ? 'verdict-draw' : 'verdict-lose';
   }
   box.appendChild(h);
+  if (r.carried) box.appendChild(prompt(`<b>${r.carried}</b> carried to next round`));
 
-  if (r.hands) {
+  if (r.reveals && r.reveals.length) {
     const hands = document.createElement('div');
     hands.className = 'hands';
-    [0, 1].forEach((seat) => {
+    r.reveals.forEach((rv) => {
       const col = document.createElement('div');
       col.className = 'hand';
+      if (won(rv.seat) > 0) col.classList.add('winner');
       const who = document.createElement('div');
       who.className = 'who';
-      who.textContent = seat === s.seat ? 'You' : r.names[seat];
+      who.textContent = (rv.seat === s.seat ? 'You' : rv.name) + (won(rv.seat) > 0 ? ` +${won(rv.seat)}` : '');
       const cards = document.createElement('div');
       cards.className = 'cards';
-      r.hands[seat].forEach((suit) => cards.appendChild(cardEl({ suit }, { win: r.winner === seat })));
+      if (rv.folded) {
+        cards.innerHTML = '<span class="folded-note">folded</span>';
+      } else {
+        rv.cards.forEach((suit) => cards.appendChild(cardEl({ suit }, { win: won(rv.seat) > 0 })));
+      }
       const rn = document.createElement('div');
       rn.className = 'rankname';
-      rn.textContent = rankName(r.ranks[seat]);
+      rn.textContent = rv.folded ? '' : rankName(rv.rank);
       col.append(who, cards, rn);
       hands.appendChild(col);
     });
     box.appendChild(hands);
-  } else if (r.kind === 'fold') {
-    box.appendChild(prompt(r.winner === s.seat ? 'Opponent folded.' : 'You folded.'));
   }
 
   box.appendChild(actBtn('Next round →', 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
   return box;
+}
+
+function nameOf(s, seat) {
+  if (seat === s.seat) return 'You';
+  const o = (s.others || []).find((x) => x.seat === seat);
+  return o ? o.name : (s.roster?.find((p) => p.seat === seat)?.name ?? `Seat ${seat + 1}`);
 }
 
 const RANK_NAMES = {
@@ -605,13 +701,17 @@ $('chatForm').addEventListener('submit', (e) => {
 
 function addChat(msg) {
   const log = $('chatLog');
+  const mine = msg.seat === mySeat;
   const div = document.createElement('div');
-  div.className = 'msg' + (msg.seat === mySeat ? ' me' : '');
+  div.className = 'msg' + (mine ? ' me' : '');
+  if (!mine) div.style.borderLeft = `3px solid ${seatColor(msg.seat)}`;
   const b = document.createElement('b');
-  b.textContent = (msg.seat === mySeat ? 'You' : msg.name) + ': ';
+  b.style.color = seatColor(msg.seat); // name colour matches the seat's avatar
+  b.textContent = (mine ? 'You' : msg.name) + ': ';
   div.appendChild(b);
   div.appendChild(document.createTextNode(msg.text));
   log.appendChild(div);
+  while (log.children.length > 60) log.removeChild(log.firstChild); // cap history
   log.scrollTop = log.scrollHeight;
 }
 
@@ -718,70 +818,13 @@ $('ranksSheet').addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Dice roll reveal (start of each round)
+// Per-round notifications (deck reshuffle)
 // ---------------------------------------------------------------------------
 
-// Pip positions in a 3×3 grid (index 0..8) for each die face.
-const PIPS = {
-  1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8],
-};
-function setDie(el, v) {
-  el.innerHTML = '';
-  for (let i = 0; i < 9; i++) {
-    const dot = document.createElement('span');
-    dot.className = 'pip' + (PIPS[v].includes(i) ? ' on' : '');
-    el.appendChild(dot);
-  }
-}
-
-let diceTimer = null;
-let diceTimeouts = [];
-function clearDice() {
-  clearInterval(diceTimer);
-  diceTimeouts.forEach(clearTimeout);
-  diceTimeouts = [];
-}
-function maybeRollDice(s) {
+function maybeNotify(s) {
   if (!s.roundNo || s.roundNo === lastRoundNo) return;
   lastRoundNo = s.roundNo;
-  if (!s.dice || !s.opp || s.phase === 'matchover') return;
-
-  // Notify when the finite deck was reshuffled at the start of this round.
-  if (s.deckReshuffled) {
-    setTimeout(() => toast('🔄 Deck ran out — reshuffled a fresh 49 cards', 'ok'), 1200);
-  }
-
-  const names = [];
-  names[s.seat] = s.you.name;
-  names[1 - s.seat] = s.opp.name;
-  const first = s.firstActor;
-
-  clearDice(); // cancel any in-flight roll before starting a new one
-  $('diceName0').textContent = names[0];
-  $('diceName1').textContent = names[1];
-  $('diceResult').innerHTML = '&nbsp;';
-  $('dicePlayer0').className = 'dice-player';
-  $('dicePlayer1').className = 'dice-player';
-  $('die0').classList.add('tumble');
-  $('die1').classList.add('tumble');
-  $('diceOverlay').classList.remove('hidden');
-
-  diceTimer = setInterval(() => {
-    setDie($('die0'), 1 + Math.floor(Math.random() * 6));
-    setDie($('die1'), 1 + Math.floor(Math.random() * 6));
-  }, 110);
-
-  diceTimeouts.push(setTimeout(() => {
-    clearInterval(diceTimer);
-    $('die0').classList.remove('tumble');
-    $('die1').classList.remove('tumble');
-    setDie($('die0'), s.dice[0]);
-    setDie($('die1'), s.dice[1]);
-    $('dicePlayer' + first).classList.add('won');
-    $('dicePlayer' + (1 - first)).classList.add('lost');
-    $('diceResult').textContent = `${names[first]} goes first`;
-    diceTimeouts.push(setTimeout(() => $('diceOverlay').classList.add('hidden'), 1500));
-  }, 1150));
+  if (s.deckReshuffled) toast('🔄 Deck ran out — reshuffled a fresh 49 cards', 'ok');
 }
 
 init();

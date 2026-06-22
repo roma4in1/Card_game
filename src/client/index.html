@@ -49,6 +49,18 @@
       </div>
     </section>
 
+    <!-- Lobby -->
+    <section id="lobby" class="screen center hidden">
+      <div class="brand"><h1 class="lobby-title">Lobby</h1><p class="tag">Room <span id="lobbyCode" class="code"></span></p></div>
+      <div class="panel">
+        <ul id="lobbyList" class="lobby-list"></ul>
+        <button id="startBtn" class="btn btn-primary btn-lg">Start game</button>
+        <p id="lobbyMsg" class="footnote"></p>
+        <button id="lobbyInvite" class="btn btn-quiet">Copy invite link</button>
+      </div>
+      <p class="footnote">Up to 8 players. The host starts when everyone's in.</p>
+    </section>
+
     <!-- Game -->
     <section id="game" class="screen game hidden">
       <header class="topbar">
@@ -59,17 +71,8 @@
       </header>
 
       <main class="table">
-        <!-- Opponent -->
-        <div class="seat seat-opp" id="oppBox">
-          <div class="seat-id">
-            <div class="avatar" id="oppAvatar">?</div>
-            <div class="seat-meta">
-              <div class="seat-name"><span id="oppName">Opponent</span><i id="oppConn" class="dot"></i></div>
-              <div class="stack"><span class="coin">🪙</span><b id="oppChips">0</b><span class="stack-lbl">chips</span></div>
-            </div>
-          </div>
-          <div class="hand opp-cards" id="oppCards"></div>
-        </div>
+        <!-- Opponents -->
+        <div class="opponents" id="opponents"></div>
 
         <!-- Felt centre -->
         <div class="felt">
@@ -96,8 +99,8 @@
           <div class="seat-id">
             <div class="avatar you" id="youAvatar">?</div>
             <div class="seat-meta">
-              <div class="seat-name"><span id="youName">You</span><i id="youConn" class="dot on"></i></div>
-              <div class="stack"><span class="coin">🪙</span><b id="youChips">0</b><span class="stack-lbl">chips</span></div>
+              <div class="seat-name"><span id="youName">You</span><i id="youConn" class="dot on"></i><span id="youBadges" class="badges"></span></div>
+              <div class="stack"><span class="coin">🪙</span><b id="youChips">0</b><span class="stack-lbl">chips</span><span id="youBet" class="bet-chip"></span></div>
             </div>
           </div>
         </div>
@@ -138,22 +141,6 @@
       </div>
     </div>
 
-    <!-- Dice roll reveal at the start of each round -->
-    <div id="diceOverlay" class="dice-overlay hidden">
-      <div class="dice-title">Rolling for first move</div>
-      <div class="dice-stage">
-        <div class="dice-player" id="dicePlayer0">
-          <div class="dice-name" id="diceName0">P1</div>
-          <div class="die" id="die0"></div>
-        </div>
-        <div class="dice-vs">vs</div>
-        <div class="dice-player" id="dicePlayer1">
-          <div class="dice-name" id="diceName1">P2</div>
-          <div class="die" id="die1"></div>
-        </div>
-      </div>
-      <div class="dice-result" id="diceResult">&nbsp;</div>
-    </div>
 
     <div id="toast" class="toast"></div>
 

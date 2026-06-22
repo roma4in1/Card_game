@@ -1,373 +1,297 @@
-// engine.test.ts — deterministic unit tests for the game engine.
-//
-// The engine is pure and takes an injectable RNG, so the whole phase machine,
-// betting, all-in refunds, draw-carry, elimination and the reveal buffer can be
-// driven and asserted without any sockets. White-box pokes (`as any`) are used
-// to force specific hands where a fair shuffle could not.
+// engine.test.ts — deterministic unit tests for the N-player engine.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom,
-  join,
-  bet,
-  reveal,
-  discussDone,
-  setLiar,
-  nextRound,
-  rematch,
-  viewFor,
-  type Room,
-  type Seat,
+  createRoom, join, startMatch, setConnected, bet, reveal, discussDone, setLiar,
+  nextRound, rematch, viewFor, START_CHIPS, type Room,
 } from './engine.ts';
 
-// Tiny seeded LCG so games are reproducible.
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 2 ** 32;
-  };
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 2 ** 32);
 }
 
-function newGame(seed = 1): Room {
-  const room = createRoom('TEST', lcg(seed));
-  join(room, undefined, 'Alice'); // seat 0
-  join(room, undefined, 'Bob'); //   seat 1 → startRound()
+function lobby(n: number, seed = 1): Room {
+  const room = createRoom('T', lcg(seed));
+  for (let i = 0; i < n; i++) join(room, undefined, `P${i}`);
+  return room;
+}
+function game(n: number, seed = 1): Room {
+  const room = lobby(n, seed);
+  startMatch(room, room.host);
   return room;
 }
 
-const round = (room: Room) => (room as any).round;
-const toAct = (room: Room): Seat => round(room).toAct;
-// Invariant: chips never appear or vanish. Stacks + live pot + carry == 70.
-const total = (room: Room) =>
-  room.players[0]!.chips + room.players[1]!.chips + (round(room)?.pot ?? 0) + room.carry;
-
+const P = (room: Room) => room.players;
+const inHandSeats = (room: Room): number[] =>
+  room.round ? room.round.participants.filter((s) => !P(room)[s]!.folded) : [];
+// Conservation: every in-match player's chips + the pot + the carry == n*35.
+function total(room: Room): number {
+  let t = room.carry + (room.round?.pot ?? 0);
+  for (const p of room.players) if (p && p.inMatch) t += p.chips;
+  return t;
+}
+function inMatchCount(room: Room): number {
+  return room.players.filter((p) => p && p.inMatch).length;
+}
 function assertNoLeak(room: Room) {
-  for (const seat of [0, 1] as const) {
-    const v = viewFor(room, seat) as any;
-    if (v.opp) assert.ok(!('hole' in v.opp), 'opponent hole cards must never be sent');
+  for (const s of room.players.map((_, i) => i)) {
+    if (!room.players[s]) continue;
+    const v = viewFor(room, s) as any;
+    for (const o of v.others ?? []) assert.ok(!('hole' in o), 'opponent hole cards must never leak');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
-
-test('a fresh game posts blinds and starts betting round 1', () => {
-  const room = newGame();
-  assert.equal(room.phase, 'bet1');
-  assert.equal(round(room).pot, 2); // two 1-chip blinds
-  assert.equal(room.players[0]!.chips, 34);
-  assert.equal(room.players[1]!.chips, 34);
-  assert.equal(total(room), 70);
-});
-
-test('a third player is rejected as full', () => {
-  const room = newGame();
-  const r = join(room, undefined, 'Carol');
-  assert.equal(r.ok, false);
-});
-
-// ---------------------------------------------------------------------------
-// Betting
-// ---------------------------------------------------------------------------
-
-test('check-check ends a betting round and deals the 3rd card', () => {
-  const room = newGame();
-  assert.equal(bet(room, toAct(room), 'check').error, undefined);
-  assert.equal(room.phase, 'bet1'); // first check, action passes
-  assert.equal(bet(room, toAct(room), 'check').error, undefined);
-  assert.equal(room.phase, 'reveal'); // second check closes the round
-  assert.equal(round(room).holes[0].length, 3);
-  assert.equal(total(room), 70);
-});
-
-test('raise then call matches bets and advances', () => {
-  const room = newGame();
-  const a = toAct(room);
-  assert.equal(bet(room, a, 'raise', 4).error, undefined); // puts 4 in
-  const b = toAct(room);
-  assert.equal(b, 1 - a);
-  assert.equal(bet(room, b, 'call').error, undefined);
-  assert.equal(room.phase, 'reveal');
-  assert.equal(round(room).pot, 10); // 2 blinds + 4 + 4
-  assert.equal(room.players[a]!.chips, 30);
-  assert.equal(room.players[b]!.chips, 30);
-  assert.equal(total(room), 70);
-});
-
-test('folding awards the whole pot to the other player', () => {
-  const room = newGame();
-  const a = toAct(room);
-  bet(room, a, 'raise', 5);
-  const b = toAct(room);
-  assert.equal(bet(room, b, 'fold').error, undefined);
-  assert.equal(room.phase, 'showdown');
-  const res = round(room).result;
-  assert.equal(res.kind, 'fold');
-  assert.equal(res.winner, a);
-  assert.equal(room.players[a]!.chips, 36); // 34 − 5 + 7 pot
-  assert.equal(room.players[b]!.chips, 34);
-  assert.equal(round(room).pot, 0);
-  assert.equal(total(room), 70);
-});
-
-test('checking is illegal when facing a bet; calling is required', () => {
-  const room = newGame();
-  const a = toAct(room);
-  bet(room, a, 'raise', 3);
-  const b = toAct(room);
-  assert.match(bet(room, b, 'check').error!, /cannot check/i);
-});
-
-test('an all-in call for less refunds the uncalled chips', () => {
-  const room = newGame();
-  const a = toAct(room);
-  const b = (1 - a) as Seat;
-  // Force a short stack on the caller so the raise cannot be fully matched.
-  room.players[a]!.chips = 10;
-  room.players[b]!.chips = 3;
-  bet(room, a, 'raise', 8); // a commits 8 (chips 10→2), pot 2+8=10
-  assert.equal(bet(room, b, 'call').error, undefined); // b all-in for 3 of the 8
-  assert.equal(room.players[b]!.chips, 0);
-  assert.equal(room.players[a]!.chips, 7); // 2 + 5 refunded
-  assert.equal(round(room).pot, 8); // 2 blinds + 3 + 3
-  assert.equal(room.phase, 'reveal');
-});
-
-// ---------------------------------------------------------------------------
-// Step 6 — simultaneous reveal buffering
-// ---------------------------------------------------------------------------
-
-test('a revealed card is withheld until BOTH players have locked in', () => {
-  const room = newGame();
-  bet(room, toAct(room), 'check');
-  bet(room, toAct(room), 'check'); // → reveal phase
-  const idx0 = (viewFor(room, 0) as any).you.hole.findIndex((c: any) => c.suit !== 'liar');
-  assert.equal(reveal(room, 0, idx0).error, undefined);
-
-  // Only seat 0 has revealed: nobody sees a card yet, but seat 1 sees it's locked.
-  assert.equal((viewFor(room, 1) as any).opp.revealedCard, null);
-  assert.equal((viewFor(room, 1) as any).reveal.oppLocked, true);
-  assert.equal((viewFor(room, 0) as any).reveal.youLocked, true);
-
-  const idx1 = (viewFor(room, 1) as any).you.hole.findIndex((c: any) => c.suit !== 'liar');
-  reveal(room, 1, idx1);
-  // Now both cards are exposed and we move to discussion.
-  assert.notEqual((viewFor(room, 0) as any).opp.revealedCard, null);
-  assert.notEqual((viewFor(room, 1) as any).opp.revealedCard, null);
-  assert.equal(room.phase, 'discuss');
-});
-
-test('the liar can never be revealed at step 6', () => {
-  const room = newGame();
-  bet(room, toAct(room), 'check');
-  bet(room, toAct(room), 'check');
-  const c = (suit: string, id: number) => ({ suit, id });
-  round(room).holes[0] = [c('liar', 1), c('rock', 2), c('paper', 3)];
-  assert.match(reveal(room, 0, 0).error!, /cannot reveal the liar/i);
-  assert.equal(reveal(room, 0, 1).error, undefined); // a non-liar card is fine
-});
-
-test('a malformed reveal index is rejected, not crashing', () => {
-  const room = newGame();
-  bet(room, toAct(room), 'check');
-  bet(room, toAct(room), 'check');
-  assert.match(reveal(room, 0, NaN).error!, /bad card/i);
-  assert.match(reveal(room, 0, 99).error!, /bad card/i);
-});
-
-// ---------------------------------------------------------------------------
-// Showdown, draw carry, next round
-// ---------------------------------------------------------------------------
-
-test('a draw carries the pot into the next round', () => {
-  const room = newGame();
-  bet(room, toAct(room), 'check');
-  bet(room, toAct(room), 'check'); // → reveal, 3 cards each
-
-  // Force identical, liar-free hands so the showdown is a guaranteed draw.
-  const c = (suit: string, id: number) => ({ suit, id });
-  round(room).holes[0] = [c('rock', 1), c('paper', 2), c('scissor', 3)];
-  round(room).holes[1] = [c('rock', 4), c('paper', 5), c('scissor', 6)];
-  round(room).shared = c('rock', 7);
-
-  reveal(room, 0, 0);
-  reveal(room, 1, 0); // → discuss
-  discussDone(room, 0);
-  discussDone(room, 1); // → bet2
-  bet(room, toAct(room), 'check');
-  bet(room, toAct(room), 'check'); // → showdown
-
-  const res = round(room).result;
-  assert.equal(res.kind, 'draw');
-  assert.equal(res.winner, null);
-  assert.equal(room.carry, 2); // the pot carries
-  assert.equal(round(room).pot, 0);
-  assert.equal(total(room), 70);
-
-  nextRound(room, 0);
-  assert.equal(room.phase, 'bet1');
-  assert.equal(room.carry, 0);
-  assert.equal(round(room).pot, 4); // 2 carried + 2 new blinds
-  assert.equal(total(room), 70);
-});
-
-// ---------------------------------------------------------------------------
-// Finite persistent deck
-// ---------------------------------------------------------------------------
-
-// Drive a round to its showdown result without advancing to the next round.
-function toShowdown(room: Room) {
-  let guard = 0;
-  while (room.phase !== 'showdown' && room.phase !== 'matchover' && guard++ < 1000) {
-    if (room.phase === 'bet1' || room.phase === 'bet2') bet(room, toAct(room), 'check');
-    else if (room.phase === 'reveal') {
-      for (const s of [0, 1] as const) {
-        const v = viewFor(room, s) as any;
-        if (v.reveal && !v.reveal.youLocked) reveal(room, s, v.you.hole.findIndex((c: any) => c.suit !== 'liar'));
-      }
-    } else if (room.phase === 'discuss') {
-      discussDone(room, 0);
-      discussDone(room, 1);
-    }
-  }
-  for (const s of [0, 1] as const) if ((viewFor(room, s) as any).liar?.needsYou) setLiar(room, s, { auto: true });
-}
-
-test('the deck persists across rounds — cards already played are not returned', () => {
-  const room = newGame(5);
-  assert.equal((viewFor(room, 0) as any).deckCount, 44); // 49 − 5 dealt at round start
-  toShowdown(room); // step-5 deals 2 more → 42 remain
-  assert.equal(room.deck.length, 42);
-  nextRound(room, 0); // plenty left, so NOT reshuffled; deals 5 more
-  assert.equal(room.deck.length, 37);
-  assert.equal((viewFor(room, 0) as any).deckReshuffled, false, 'no reshuffle this round');
-});
-
-test('the deck reshuffles to a full 49 when it cannot deal a round, and flags it', () => {
-  const room = newGame(5);
-  toShowdown(room);
-  (room as any).deck = (room as any).deck.slice(0, 3); // starve it below 7
-  nextRound(room, 0);
-  assert.equal(room.phase, 'bet1');
-  assert.equal(room.deck.length, 44); // reshuffled to 49, then dealt 5
-  assert.equal((viewFor(room, 0) as any).deckReshuffled, true, 'reshuffle flagged for the client');
-});
-
-test('an all-in that draws keeps the match alive to play for the carried pot', () => {
-  const room = newGame(11);
-  toShowdown(room); // reach a showdown so nextRound is legal
-  // Simulate the aftermath of a drawn all-in: both stacks empty, whole pot carried.
-  room.players[0]!.chips = 0;
-  room.players[1]!.chips = 0;
-  room.carry = 70;
-
-  nextRound(room, 0);
-  assert.notEqual(room.phase, 'matchover', 'a carried pot must still be played for');
-  assert.equal(room.carry, 0);
-  assert.equal((viewFor(room, 0) as any).pot, 70); // no new blinds; the carry is the prize
-
-  toShowdown(room); // resolve the all-in round
-  const totalChips =
-    room.players[0]!.chips + room.players[1]!.chips + (room as any).round.pot + room.carry;
-  assert.equal(totalChips, 70); // the 70 is awarded or carried again — never lost
-});
-
-test('rematch resets the deck to a fresh 49', () => {
-  const room = newGame(11);
-  toShowdown(room); // deplete the deck a little
-  assert.ok(room.deck.length < 49);
-  // Force a match-ending elimination, then rematch.
-  room.players[0]!.chips = 0;
-  room.players[1]!.chips = 70;
-  room.carry = 0;
-  nextRound(room, 0);
-  assert.equal(room.phase, 'matchover');
-
-  rematch(room, 0);
-  rematch(room, 1);
-  assert.equal(room.phase, 'bet1');
-  assert.equal(room.deck.length, 44); // fresh 49 minus the 5 dealt at round start
-  assert.equal((viewFor(room, 0) as any).deckReshuffled, false); // a fresh deck, not a mid-game "ran out"
-});
-
-// ---------------------------------------------------------------------------
-// Whole-game autoplay invariants
-// ---------------------------------------------------------------------------
-
-// Generic bot: passive betting, reveal first non-liar, auto liar, ready up.
-function step(room: Room, foldSeat: number | null) {
+// Passive driver: checks/calls, reveals first non-liar, auto-resolves liar, readies up.
+function step(room: Room, foldSeat = -1) {
+  const r = room.round as any;
   switch (room.phase) {
     case 'bet1':
     case 'bet2': {
-      const s = toAct(room);
+      const s = r.toAct;
+      if (s === -1) return;
       const v = viewFor(room, s) as any;
-      if (s === foldSeat) bet(room, s, 'fold');
+      if (s === foldSeat && inHandSeats(room).length > 1) bet(room, s, 'fold');
       else if (v.betting.canCheck) bet(room, s, 'check');
       else bet(room, s, 'call');
       break;
     }
     case 'reveal':
-      for (const s of [0, 1] as const) {
-        const v = viewFor(room, s) as any;
-        if (v.reveal && !v.reveal.youLocked) {
-          reveal(room, s, v.you.hole.findIndex((c: any) => c.suit !== 'liar'));
-        }
+      for (const s of inHandSeats(room)) {
+        const p = P(room)[s]!;
+        if (p.revealIndex === null) reveal(room, s, p.hole.findIndex((c) => c.suit !== 'liar'));
       }
       break;
     case 'discuss':
-      discussDone(room, 0);
-      discussDone(room, 1);
+      for (const s of inHandSeats(room)) if (!P(room)[s]!.discussReady) discussDone(room, s);
       break;
     case 'showdown':
-      for (const s of [0, 1] as const) {
-        if ((viewFor(room, s) as any).liar?.needsYou) setLiar(room, s, { auto: true });
+      for (const s of inHandSeats(room)) {
+        const p = P(room)[s]!;
+        if (p.liar?.pending) setLiar(room, s, { values: p.liar.suggestion });
       }
-      if (round(room).result) nextRound(room, 0);
+      if (r.result) nextRound(room, r.participants[0]);
       break;
   }
 }
 
-test('fold-bot game terminates with the non-folder winning, chips conserved', () => {
-  const room = newGame(7);
-  let guard = 0;
-  while (room.phase !== 'matchover' && guard++ < 100000) {
-    step(room, 1); // seat 1 always folds → loses a blind per round
-    assert.equal(total(room), 70);
-    assertNoLeak(room);
-  }
-  assert.equal(room.phase, 'matchover');
-  assert.equal(room.matchWinner, 0);
-  assert.ok(room.players[0]!.chips >= 1);
+// ---------------------------------------------------------------------------
+// Lobby & start
+// ---------------------------------------------------------------------------
+
+test('lobby gathers players; only the host starts; needs 2+', () => {
+  const room = lobby(3);
+  assert.equal(room.phase, 'lobby');
+  assert.equal((viewFor(room, room.host) as any).lobby.canStart, true);
+  assert.match(startMatch(room, (room.host + 1) % 3).error!, /host/i);
+  const solo = lobby(1);
+  assert.match(startMatch(solo, solo.host).error!, /at least 2/i);
+
+  assert.equal(startMatch(room, room.host).error, undefined);
+  assert.equal(room.phase, 'bet1');
+  assert.equal(room.round!.participants.length, 3);
+  assert.equal(room.round!.pot, 3); // three antes
+  for (const p of room.players) if (p) assert.equal(p.chips, START_CHIPS - 1);
+  assert.equal(total(room), 3 * START_CHIPS);
 });
 
-test('rematch requires both players and resets the match', () => {
-  const room = newGame(7);
-  let guard = 0;
-  while (room.phase !== 'matchover' && guard++ < 100000) step(room, 1);
-  assert.equal(room.phase, 'matchover');
-
-  rematch(room, 0);
-  assert.equal(room.phase, 'matchover', 'one opt-in is not enough');
-  assert.equal((viewFor(room, 0) as any).rematch.youReady, true);
-
-  rematch(room, 1);
-  assert.equal(room.phase, 'bet1', 'both opted in → fresh match begins');
-  assert.equal(room.matchWinner, null);
-  assert.equal(room.players[0]!.chips + room.players[1]!.chips, 68); // 70 − 2 blinds
-  assert.equal(total(room), 70);
+test('a player cannot join a match in progress (token reconnect still works)', () => {
+  const room = game(2);
+  const r = join(room, undefined, 'late');
+  assert.equal(r.ok, false);
+  const tok = room.players[0]!.token;
+  const rj = join(room, tok, 'P0');
+  assert.equal(rj.ok, true);
 });
 
-test('passive showdown game terminates with a valid winner, chips conserved', () => {
-  const room = newGame(42);
-  let guard = 0;
-  while (room.phase !== 'matchover' && guard++ < 500000) {
-    step(room, null); // both play to showdown every round
-    assert.equal(total(room), 70);
-    assertNoLeak(room);
+test('the deck scales with the table but always holds exactly one liar', () => {
+  // deck = 48·ceil(n/2)+1, minus the 2n+1 cards dealt at round start.
+  for (const [n, expected] of [[2, 44], [4, 88], [8, 176]] as const) {
+    const room = game(n, 50 + n);
+    assert.equal(room.deck.length, expected, `${n}-player deck size`);
+    let liars = room.deck.filter((c) => c.suit === 'liar').length;
+    if (room.round!.shared!.suit === 'liar') liars++;
+    for (const s of room.round!.participants) liars += P(room)[s]!.hole.filter((c) => c.suit === 'liar').length;
+    assert.equal(liars, 1, `${n}-player liar count`);
   }
-  assert.equal(room.phase, 'matchover');
-  assert.ok(room.matchWinner === 0 || room.matchWinner === 1);
-  assert.ok(room.players[room.matchWinner!]!.chips >= 1);
+});
+
+// ---------------------------------------------------------------------------
+// Multi-way betting
+// ---------------------------------------------------------------------------
+
+test('everyone folding to one player wins the pot immediately', () => {
+  const room = game(3, 5);
+  // fold the two non-first actors as they come up
+  let guard = 0;
+  while (room.phase === 'bet1' && guard++ < 20) {
+    const s = room.round!.toAct;
+    if (inHandSeats(room).length === 1) break;
+    bet(room, s, 'fold');
+  }
+  assert.equal(room.phase, 'showdown');
+  assert.equal(room.round!.result!.kind, 'fold');
+  assert.equal(room.round!.result!.awards.length, 1);
+  assert.equal(total(room), 3 * START_CHIPS);
+});
+
+test('multi-way raise then calls keeps chips conserved and advances', () => {
+  const room = game(3, 9);
+  const first = room.round!.toAct;
+  bet(room, first, 'raise', 4);
+  let guard = 0;
+  while ((room.phase === 'bet1') && guard++ < 20) {
+    const s = room.round!.toAct;
+    if (s === -1) break;
+    bet(room, s, 'call');
+  }
+  assert.equal(room.phase, 'reveal'); // bet1 closed, third card dealt
+  assert.equal(total(room), 3 * START_CHIPS);
+});
+
+// ---------------------------------------------------------------------------
+// Side pots
+// ---------------------------------------------------------------------------
+
+test('side pots: a short all-in can only win the main pot', () => {
+  const room = game(3, 3);
+  // Control order and stacks (white-box, so global conservation is intentionally
+  // perturbed here — we assert the pot is distributed exactly instead).
+  room.dealer = 2;
+  room.round!.dealer = 2;
+  room.round!.toAct = 0;
+  P(room)[0]!.chips = 4; // short stack (already anted 1 → contributes 5 total)
+  P(room)[1]!.chips = 25;
+  P(room)[2]!.chips = 25;
+  bet(room, 0, 'raise', 4); // p0 all-in: contributes 1+4 = 5
+  assert.equal(P(room)[0]!.allIn, true);
+  bet(room, 1, 'raise', 15); // p1 to 19 this round → contributes 20
+  bet(room, 2, 'call'); // p2 matches 19 → contributes 20
+  assert.equal(room.phase, 'reveal');
+  // Force final hands: p0 quad(3) > p1 triple(7) > p2 one-love(9).
+  const c = (suit: string, id: number) => ({ suit, id } as any);
+  P(room)[0]!.hole = [c('rock', 1), c('rock', 2), c('rock', 3)];
+  P(room)[1]!.hole = [c('scissor', 4), c('scissor', 5), c('scissor', 6)];
+  P(room)[2]!.hole = [c('paper', 7), c('paper', 8), c('love', 9)];
+  room.round!.shared = c('rock', 10);
+  reveal(room, 0, 0); reveal(room, 1, 0); reveal(room, 2, 0);
+  discussDone(room, 0); discussDone(room, 1); discussDone(room, 2);
+  let g = 0;
+  while (room.phase === 'bet2' && g++ < 10) { const s = room.round!.toAct; if (s === -1) break; bet(room, s, 'check'); }
+  assert.equal(room.phase, 'showdown');
+  const res = room.round!.result!;
+  const won = (s: number) => res.awards.find((a) => a.seat === s)?.amount ?? 0;
+  // Main pot = 5×3 = 15 (p0 eligible, best) → p0. Side pot = 15×2 = 30 (p1,p2) → p1 beats p2.
+  assert.equal(won(0), 15, 'short all-in wins only the main pot');
+  assert.equal(won(1), 30, 'deep stacks contest the side pot; triple beats one-love');
+  assert.equal(won(2), 0, 'worst hand wins nothing');
+  // The whole contested pot (45) is distributed, nothing lost.
+  assert.equal(won(0) + won(1) + won(2) + res.carried, 45);
+});
+
+test('a 0-chip player still wins a carried pot they are owed', () => {
+  const room = game(2, 21);
+  let g = 0;
+  while (room.phase !== 'showdown' && g++ < 60) step(room); // reach a showdown
+  // Simulate a drawn all-in: both broke, the whole pot (70) carried.
+  P(room)[0]!.chips = 0;
+  P(room)[1]!.chips = 0;
+  room.carry = 70;
+  nextRound(room, 0);
+  assert.notEqual(room.phase, 'matchover', 'a carried pot keeps the match alive');
+  assert.equal(room.round!.pot, 70); // no antes; the carry is the prize
+  assert.ok(P(room)[0]!.allIn && P(room)[1]!.allIn);
+
+  // Force hands so the broke player p1 (quad) beats p0 (one pair).
+  const c = (suit: string, id: number) => ({ suit, id } as any);
+  P(room)[0]!.hole = [c('rock', 1), c('rock', 2), c('paper', 3)];
+  P(room)[1]!.hole = [c('scissor', 4), c('scissor', 5), c('scissor', 6)];
+  room.round!.shared = c('scissor', 7); // p0 one-pair(8); p1 scissor quad(3)
+  for (const s of [0, 1]) reveal(room, s, P(room)[s]!.hole.findIndex((x) => x.suit !== 'liar'));
+  for (const s of [0, 1]) discussDone(room, s);
+  const res = room.round!.result!;
+  const won = (s: number) => res.awards.find((a) => a.seat === s)?.amount ?? 0;
+  assert.equal(won(1), 70, 'the 0-chip player with the best hand wins the carry');
+  assert.equal(won(0), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Multi-way showdown: cyclic tie splits among the cycle
+// ---------------------------------------------------------------------------
+
+test('a rock-paper-scissor cycle at the top splits the pot among the cycle', () => {
+  const room = game(3, 2);
+  // reach reveal with 3 cards each
+  bet(room, room.round!.toAct, 'check'); // p? ...
+  let g = 0;
+  while (room.phase === 'bet1' && g++ < 10) { const s = room.round!.toAct; if (s === -1) break; bet(room, s, 'check'); }
+  assert.equal(room.phase, 'reveal');
+  const c = (suit: string, id: number) => ({ suit, id } as any);
+  // Shared = liar so each player independently sets the 4th card → build a cycle.
+  P(room)[0]!.hole = [c('rock', 1), c('rock', 2), c('rock', 3)];
+  P(room)[1]!.hole = [c('scissor', 4), c('scissor', 5), c('scissor', 6)];
+  P(room)[2]!.hole = [c('paper', 7), c('paper', 8), c('paper', 9)];
+  room.round!.shared = c('liar', 10);
+  reveal(room, 0, 0); reveal(room, 1, 0); reveal(room, 2, 0);
+  discussDone(room, 0); discussDone(room, 1); discussDone(room, 2);
+  while (room.phase === 'bet2' && g++ < 20) { const s = room.round!.toAct; if (s === -1) break; bet(room, s, 'check'); }
+  assert.equal(room.phase, 'showdown');
+  // Each sets the shared liar to make rank-7 triples that cycle: rock>scissor>paper>rock.
+  setLiar(room, 0, { values: ['paper'] }); // rock,rock,rock,paper
+  setLiar(room, 1, { values: ['rock'] }); // scissor³ + rock
+  setLiar(room, 2, { values: ['scissor'] }); // paper³ + scissor
+  const res = room.round!.result!;
+  assert.equal(res.awards.length, 3, 'all three cycle members share');
+  assert.equal(total(room), 3 * START_CHIPS);
+});
+
+// ---------------------------------------------------------------------------
+// Reveal buffering
+// ---------------------------------------------------------------------------
+
+test('reveals are withheld until everyone still in has locked in', () => {
+  const room = game(3, 4);
+  let g = 0;
+  while (room.phase === 'bet1' && g++ < 10) { const s = room.round!.toAct; if (s === -1) break; bet(room, s, 'check'); }
+  assert.equal(room.phase, 'reveal');
+  const live = inHandSeats(room);
+  reveal(room, live[0], P(room)[live[0]]!.hole.findIndex((c) => c.suit !== 'liar'));
+  // another player should NOT see live[0]'s card yet
+  const other = live[1];
+  assert.equal((viewFor(room, other) as any).others.find((o: any) => o.seat === live[0]).revealedCard, null);
+  for (const s of live.slice(1)) reveal(room, s, P(room)[s]!.hole.findIndex((c) => c.suit !== 'liar'));
+  assert.equal(room.phase, 'discuss');
+  assert.notEqual((viewFor(room, other) as any).others.find((o: any) => o.seat === live[0]).revealedCard, null);
+});
+
+// ---------------------------------------------------------------------------
+// Whole-match autoplay: conservation + last player standing
+// ---------------------------------------------------------------------------
+
+for (const n of [2, 3, 5, 8]) {
+  test(`a ${n}-player match plays to a single winner with chips conserved`, () => {
+    const room = game(n, 100 + n);
+    let guard = 0;
+    while (room.phase !== 'matchover' && guard++ < 2_000_000) {
+      step(room);
+      assert.equal(total(room), n * START_CHIPS);
+      assertNoLeak(room);
+    }
+    assert.equal(room.phase, 'matchover');
+    assert.ok(room.matchWinner !== null);
+    assert.equal(P(room)[room.matchWinner!]!.chips, n * START_CHIPS); // winner holds every chip
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rematch
+// ---------------------------------------------------------------------------
+
+test('rematch returns everyone to the lobby with full stacks', () => {
+  const room = game(3, 11);
+  let guard = 0;
+  while (room.phase !== 'matchover' && guard++ < 2_000_000) step(room);
+  for (const s of [0, 1, 2]) rematch(room, s);
+  assert.equal(room.phase, 'lobby');
+  for (const p of room.players) if (p) assert.equal(p.chips, START_CHIPS);
 });
