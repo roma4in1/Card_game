@@ -867,13 +867,73 @@ $('ranksSheet').addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-round notifications (deck reshuffle)
+// Round-start announcement (who acts first) + deck-reshuffle notice
 // ---------------------------------------------------------------------------
 
+// Pip layout (index 0..8 in a 3×3 grid) per die face.
+const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function setDie(el, v) {
+  el.innerHTML = '';
+  for (let i = 0; i < 9; i++) {
+    const dot = document.createElement('span');
+    dot.className = 'pip' + (PIPS[v].includes(i) ? ' on' : '');
+    el.appendChild(dot);
+  }
+}
+
+let roTimer = null;
+let roTimeouts = [];
 function maybeNotify(s) {
   if (!s.roundNo || s.roundNo === lastRoundNo) return;
   lastRoundNo = s.roundNo;
-  if (s.deckReshuffled) toast('🔄 Deck ran out — reshuffled a fresh 49 cards', 'ok');
+  if (s.phase === 'lobby' || s.phase === 'matchover') return;
+  if (s.deckReshuffled) setTimeout(() => toast('🔄 Deck ran out — reshuffled a fresh deck', 'ok'), 1300);
+  announceRound(s);
 }
+
+function nameForSeat(s, seat) {
+  if (seat === s.seat) return 'You';
+  const p = (s.roster || []).find((x) => x.seat === seat);
+  return p ? p.name : `Seat ${seat + 1}`;
+}
+
+function announceRound(s) {
+  clearInterval(roTimer);
+  roTimeouts.forEach(clearTimeout);
+  roTimeouts = [];
+
+  const die = $('roDie');
+  const dealerName = nameForSeat(s, s.dealer);
+  const firstSeat = s.firstActor;
+  $('roTitle').textContent = `Round ${s.roundNo}`;
+  $('roSub').innerHTML = `<span class="dealer-chip">D</span>${escapeHtml(dealerName)} deals`;
+  $('roFirst').textContent = '';
+  die.classList.add('tumble');
+  $('roundOverlay').classList.remove('hidden');
+
+  roTimer = setInterval(() => setDie(die, 1 + Math.floor(Math.random() * 6)), 100);
+  roTimeouts.push(
+    setTimeout(() => {
+      clearInterval(roTimer);
+      die.classList.remove('tumble');
+      setDie(die, 1 + Math.floor(Math.random() * 6));
+      if (firstSeat == null || firstSeat < 0) {
+        $('roFirst').textContent = 'All-in — straight to showdown';
+      } else {
+        const first = nameForSeat(s, firstSeat);
+        $('roFirst').textContent = first === 'You' ? 'You act first' : `${first} acts first`;
+      }
+      roTimeouts.push(setTimeout(() => $('roundOverlay').classList.add('hidden'), 1400));
+    }, 900),
+  );
+}
+
+// Tap to skip the round-start splash (so a first-to-act player isn't blocked).
+$('roundOverlay').addEventListener('click', () => {
+  clearInterval(roTimer);
+  roTimeouts.forEach(clearTimeout);
+  roTimeouts = [];
+  $('roundOverlay').classList.add('hidden');
+});
 
 init();
