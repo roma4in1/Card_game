@@ -116,6 +116,16 @@ test('the deck scales with the table but always holds exactly one liar', () => {
   }
 });
 
+test('every round rolls dice and the highest roll acts first', () => {
+  const room = game(4, 7);
+  const r = room.round as any;
+  const max = Math.max(...r.participants.map((s: number) => r.dice[s]));
+  const leaders = r.participants.filter((s: number) => r.dice[s] === max);
+  assert.equal(leaders.length, 1, 'ties are re-rolled to a unique winner');
+  assert.equal(r.firstActor, leaders[0]);
+  assert.equal(r.toAct, leaders[0], 'action opens on the dice winner');
+});
+
 // ---------------------------------------------------------------------------
 // Multi-way betting
 // ---------------------------------------------------------------------------
@@ -157,9 +167,8 @@ test('side pots: a short all-in can only win the main pot', () => {
   const room = game(3, 3);
   // Control order and stacks (white-box, so global conservation is intentionally
   // perturbed here — we assert the pot is distributed exactly instead).
-  room.dealer = 2;
-  room.round!.dealer = 2;
-  room.round!.toAct = 0;
+  room.round!.toAct = 0; // force seat 0 to act first
+  room.round!.firstActor = 0;
   P(room)[0]!.chips = 4; // short stack (already anted 1 → contributes 5 total)
   P(room)[1]!.chips = 25;
   P(room)[2]!.chips = 25;
@@ -262,6 +271,19 @@ test('reveals are withheld until everyone still in has locked in', () => {
   for (const s of live.slice(1)) reveal(room, s, P(room)[s]!.hole.findIndex((c) => c.suit !== 'liar'));
   assert.equal(room.phase, 'discuss');
   assert.notEqual((viewFor(room, other) as any).others.find((o: any) => o.seat === live[0]).revealedCard, null);
+});
+
+test('nextRound is idempotent — a second click after advancing is a harmless no-op', () => {
+  const room = game(2, 13);
+  let g = 0;
+  while (room.phase !== 'showdown' && g++ < 80) step(room); // reach a result
+  const before = room.roundNo;
+  assert.equal(nextRound(room, 0).error, undefined);
+  assert.ok(room.roundNo > before, 'first click advances');
+  const advanced = room.roundNo;
+  const second = nextRound(room, 1); // stale click (round already advanced)
+  assert.equal(second.error, undefined, 'no spurious error');
+  assert.equal(room.roundNo, advanced, 'does not double-advance');
 });
 
 // ---------------------------------------------------------------------------
