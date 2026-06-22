@@ -71,39 +71,23 @@
       </header>
 
       <main class="table">
-        <!-- Opponents -->
-        <div class="opponents" id="opponents"></div>
-
-        <!-- Felt centre -->
-        <div class="felt">
-          <div class="pot-wrap">
-            <div class="pot-label">POT</div>
-            <div class="pot-amount" id="pot">0</div>
-            <div class="carry" id="carry"></div>
-          </div>
-          <div class="shared-wrap">
-            <span class="shared-lbl">Community</span>
-            <div id="sharedCard" class="card placeholder">?</div>
-            <div class="deck-badge" id="deckBadge" title="Cards left in the deck">
-              <span class="deck-icon" aria-hidden="true"></span>
-              <b class="deck-num" id="deckCount">—</b>
-              <span class="deck-text">in deck</span>
+        <div class="poker-table" id="pokerTable">
+          <div class="felt-oval">
+            <div class="felt-rail"></div>
+            <div class="table-center">
+              <div class="pot-pill"><span class="pot-label">POT</span><b id="pot">0</b><small id="carry"></small></div>
+              <div id="sharedCard" class="card placeholder">?</div>
+              <div class="turn-banner" id="turnFlag"></div>
+              <div class="deck-badge" id="deckBadge" title="Cards left in the deck">
+                <span class="deck-icon" aria-hidden="true"></span>
+                <b class="deck-num" id="deckCount">—</b>
+                <span class="deck-text">in deck</span>
+              </div>
             </div>
           </div>
-          <div class="turn-banner" id="turnFlag"></div>
+          <div class="seats" id="seats"></div>
         </div>
-
-        <!-- You -->
-        <div class="seat seat-you" id="youBox">
-          <div class="hand your-cards" id="yourCards"></div>
-          <div class="seat-id">
-            <div class="avatar you" id="youAvatar">?</div>
-            <div class="seat-meta">
-              <div class="seat-name"><span id="youName">You</span><i id="youConn" class="dot on"></i><span id="youBadges" class="badges"></span></div>
-              <div class="stack"><span class="coin">🪙</span><b id="youChips">0</b><span class="stack-lbl">chips</span><span id="youBet" class="bet-chip"></span></div>
-            </div>
-          </div>
-        </div>
+        <div class="your-hand" id="yourCards"></div>
       </main>
 
       <div class="action-area" id="actionArea"></div>
