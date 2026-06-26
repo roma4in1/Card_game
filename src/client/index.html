@@ -245,6 +245,45 @@
       </div>
     </div>
 
+    <!-- Codenames (two-team word game) -->
+    <section id="codenames" class="screen codenames hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="cnRoom">····</b></div>
+        <div class="phase-pill" id="cnTurn">—</div>
+        <button id="cnRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="cnLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="cnCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="cn-main">
+        <div class="cn-teams" id="cnTeams"></div>
+        <div class="cn-cluebar" id="cnClue"></div>
+        <div class="cn-grid" id="cnGrid"></div>
+        <div class="action-area" id="cnActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="cnLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Codenames rules reference -->
+    <div id="cnRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Codenames — how to play</h3>
+          <button id="cnRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Two teams race to contact all their agents on a 5×5 board.</p>
+        <div class="rules-body">
+          <p>Each team has one <b>spymaster</b> (who sees the secret key) and <b>operatives</b> (who don't).</p>
+          <p><b>Spymaster:</b> give a one-word clue and a number — how many cards it points to (e.g. <i>“ANIMAL 3”</i>).</p>
+          <p><b>Operatives:</b> tap cards you think are your team's. A correct agent lets you keep going (up to the number <b>+1</b>); a neutral or enemy card ends your turn.</p>
+          <p>Reveal all your agents to <b>win</b>. Tap the <b>assassin</b> and you instantly lose.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

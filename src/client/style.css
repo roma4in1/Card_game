@@ -813,6 +813,73 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .sg-cluename { font-weight: 600; font-size: 0.84rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 38%; }
 .sg-clueword { font-size: 0.92rem; color: var(--ink); }
 
+/* ---------------------------------------------------------------------------
+   Codenames screen
+--------------------------------------------------------------------------- */
+.codenames { gap: 10px; padding-top: max(12px, env(safe-area-inset-top)); }
+.cn-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+:root { --cn-red: #d6453f; --cn-blue: #3179d1; --cn-neutral: #cdb893; --cn-assassin: #15151a; }
+.cn-turnpill.red { color: #ff9a93; background: rgba(214, 69, 63, 0.18); border-color: rgba(214, 69, 63, 0.4); }
+.cn-turnpill.blue { color: #97c2f5; background: rgba(49, 121, 209, 0.18); border-color: rgba(49, 121, 209, 0.4); }
+
+.cn-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cn-team { padding: 8px 10px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); }
+.cn-team.red { border-left: 4px solid var(--cn-red); }
+.cn-team.blue { border-left: 4px solid var(--cn-blue); }
+.cn-team.active { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
+.cn-teamhead { display: flex; align-items: baseline; justify-content: space-between; }
+.cn-teamname { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.82rem; letter-spacing: 0.06em; }
+.cn-team.red .cn-teamname { color: #ff9a93; }
+.cn-team.blue .cn-teamname { color: #97c2f5; }
+.cn-agents { font-family: 'Outfit', sans-serif; font-weight: 900; font-size: 1.35rem; }
+.cn-roleline { font-size: 0.74rem; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn-roleline.ops { color: var(--faint); }
+
+.cn-cluebar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--line); flex-wrap: wrap; }
+.cn-cluebar.waiting { color: var(--muted); font-size: 0.88rem; }
+.cn-cluebar.red { box-shadow: inset 3px 0 0 var(--cn-red); }
+.cn-cluebar.blue { box-shadow: inset 3px 0 0 var(--cn-blue); }
+.cn-cluelbl { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.cn-clueword { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.2rem; letter-spacing: 0.02em; }
+.cn-cluenum { display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 8px; background: var(--gold); color: #3a2a00; font-family: 'Outfit', sans-serif; font-weight: 800; }
+.cn-guessesleft { margin-left: auto; font-size: 0.78rem; color: var(--muted); }
+
+.cn-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+.cn-card {
+  position: relative; aspect-ratio: 1.5 / 1; border-radius: 8px; border: 1px solid var(--line-strong);
+  background: linear-gradient(160deg, #f3ead4, #e4d6b4); color: #2a2620;
+  display: grid; place-items: center; padding: 2px; cursor: default; overflow: hidden;
+  font-weight: 700; transition: transform 0.1s, box-shadow 0.15s;
+}
+.cn-word { font-size: clamp(0.5rem, 2.4vw, 0.82rem); text-transform: uppercase; letter-spacing: 0.02em; text-align: center; line-height: 1.05; word-break: break-word; }
+.cn-card.guessable { cursor: pointer; }
+.cn-card.guessable:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
+.cn-card.guessable:active { transform: scale(0.96); }
+
+/* spymaster's hidden key — a tint + colored frame, word still readable */
+.cn-card.key.id-red { box-shadow: inset 0 0 0 3px var(--cn-red); background: linear-gradient(160deg, #f3d6d2, #e7b8b3); }
+.cn-card.key.id-blue { box-shadow: inset 0 0 0 3px var(--cn-blue); background: linear-gradient(160deg, #d2e0f3, #b3c9e7); }
+.cn-card.key.id-neutral { box-shadow: inset 0 0 0 3px #b8a47e; }
+.cn-card.key.id-assassin { box-shadow: inset 0 0 0 3px #000; background: linear-gradient(160deg, #4a4a52, #2c2c33); color: #f0f0f0; }
+
+/* revealed — fully colored, dimmed word */
+.cn-card.revealed { color: #fff; border-color: transparent; cursor: default; }
+.cn-card.revealed .cn-word { opacity: 0.92; }
+.cn-card.revealed.id-red { background: var(--cn-red); }
+.cn-card.revealed.id-blue { background: var(--cn-blue); }
+.cn-card.revealed.id-neutral { background: var(--cn-neutral); color: #2a2620; }
+.cn-card.revealed.id-assassin { background: var(--cn-assassin); }
+.cn-skull { position: absolute; font-size: 1.4rem; opacity: 0.5; }
+
+.cn-rolechip { align-self: center; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 0.8rem; margin-bottom: 4px; }
+.cn-rolechip.red { background: rgba(214, 69, 63, 0.18); color: #ff9a93; }
+.cn-rolechip.blue { background: rgba(49, 121, 209, 0.18); color: #97c2f5; }
+.cn-clueform { display: flex; gap: 8px; }
+.cn-clueinput { flex: 1; padding: 11px 13px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--bg-1); color: var(--ink); font-size: 1rem; }
+.cn-clueinput:focus, .cn-numinput:focus { outline: none; border-color: var(--good); }
+.cn-numinput { width: 58px; padding: 11px 8px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--bg-1); color: var(--ink); font-size: 1rem; text-align: center; }
+.cn-oversub { text-align: center; color: var(--muted); margin: 6px 0 12px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

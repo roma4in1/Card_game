@@ -266,6 +266,11 @@ function render() {
     renderSpyGame(s);
     return;
   }
+  if (s.gameId === 'codenames') {
+    ensureScreen('codenames');
+    renderCodenames(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -1118,6 +1123,174 @@ function renderSgLog(s) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Codenames — two-team word game
+// ---------------------------------------------------------------------------
+
+function renderCodenames(s) {
+  $('cnRoom').textContent = s.room;
+  const phasePill = $('cnTurn');
+  if (s.over) phasePill.textContent = 'Game over';
+  else phasePill.textContent = `${s.turnTeam.toUpperCase()} ${s.phase === 'clue' ? 'clue' : 'guessing'}`;
+  phasePill.className = 'phase-pill cn-turnpill ' + (s.over ? '' : s.turnTeam);
+  $('cnCopy').onclick = copyInvite;
+  renderCnTeams(s);
+  renderCnClue(s);
+  renderCnGrid(s);
+  renderCnActions(s);
+  renderCnLog(s);
+}
+
+function renderCnTeams(s) {
+  const box = $('cnTeams');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  const tag = (m) => escapeHtml(m.name) + (bots.has(m.seat) ? ' 🤖' : '') + (m.seat === s.seat ? ' (you)' : '');
+  for (const team of ['red', 'blue']) {
+    const t = s.teams[team];
+    const active = !s.over && s.turnTeam === team;
+    const panel = document.createElement('div');
+    panel.className = 'cn-team ' + team + (active ? ' active' : '');
+    panel.innerHTML =
+      `<div class="cn-teamhead"><span class="cn-teamname">${team.toUpperCase()}</span><span class="cn-agents">${t.agentsRemaining}</span></div>` +
+      `<div class="cn-roleline">🔍 ${t.spymaster ? tag(t.spymaster) : '—'}</div>` +
+      `<div class="cn-roleline ops">${(t.operatives || []).map(tag).join(', ') || '—'}</div>`;
+    box.appendChild(panel);
+  }
+}
+
+function renderCnClue(s) {
+  const el = $('cnClue');
+  if (s.over) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+  if (s.currentClue) {
+    el.className = 'cn-cluebar ' + s.turnTeam;
+    el.innerHTML =
+      `<span class="cn-cluelbl">Clue</span>` +
+      `<span class="cn-clueword">${escapeHtml(s.currentClue.word)}</span>` +
+      `<span class="cn-cluenum">${s.currentClue.number}</span>` +
+      `<span class="cn-guessesleft">${s.guessesLeft} guess${s.guessesLeft === 1 ? '' : 'es'} left</span>`;
+  } else {
+    el.className = 'cn-cluebar waiting';
+    el.innerHTML = `<span>Waiting for ${s.turnTeam.toUpperCase()} spymaster’s clue…</span>`;
+  }
+}
+
+function renderCnGrid(s) {
+  const box = $('cnGrid');
+  box.innerHTML = '';
+  const you = s.you || {};
+  (s.grid || []).forEach((card, i) => {
+    const el = document.createElement('button');
+    el.className = 'cn-card';
+    const id = card.identity;
+    if (card.revealed) el.classList.add('revealed', 'id-' + id);
+    else if (id) el.classList.add('key', 'id-' + id); // spymaster's hidden key tint
+    const guessable = !s.over && you.canGuess && !card.revealed;
+    if (guessable) {
+      el.classList.add('guessable');
+      el.onclick = () => send({ type: 'guessCard', cardIndex: i });
+    } else {
+      el.disabled = true;
+    }
+    const mark = card.revealed && id === 'assassin' ? '<span class="cn-skull">💀</span>' : '';
+    el.innerHTML = `${mark}<span class="cn-word">${escapeHtml(card.word)}</span>`;
+    box.appendChild(el);
+  });
+}
+
+function renderCnActions(s) {
+  const area = $('cnActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderCnOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this match', true));
+    return;
+  }
+  const chip = document.createElement('div');
+  chip.className = 'cn-rolechip ' + you.team;
+  chip.textContent = `You are ${you.team.toUpperCase()}'s ${you.isSpymaster ? 'Spymaster 🔍' : 'Operative'}`;
+  area.appendChild(chip);
+
+  if (you.canClue) {
+    area.appendChild(renderCnClueForm());
+  } else if (you.canGuess) {
+    area.appendChild(prompt('Your team is guessing — tap a card on the board.'));
+    if (you.canStop) {
+      const row = document.createElement('div');
+      row.className = 'btn-row';
+      row.appendChild(actBtn(`Stop guessing · ${s.guessesLeft} left`, 'btn btn-neutral', () => send({ type: 'stopGuessing' })));
+      area.appendChild(row);
+    }
+  } else {
+    const what = s.phase === 'clue' ? 'spymaster to clue' : 'operatives to guess';
+    area.appendChild(callout(`Waiting for ${s.turnTeam.toUpperCase()} ${what}`, true));
+  }
+}
+
+function renderCnClueForm() {
+  const box = document.createElement('div');
+  box.appendChild(prompt('Give a <b>one-word clue</b> and a number (how many cards it points to).'));
+  const form = document.createElement('form');
+  form.className = 'cn-clueform';
+  const word = document.createElement('input');
+  word.maxLength = 24;
+  word.placeholder = 'clue word';
+  word.autocomplete = 'off';
+  word.className = 'cn-clueinput';
+  const num = document.createElement('input');
+  num.type = 'number';
+  num.min = '0';
+  num.max = '9';
+  num.value = '1';
+  num.className = 'cn-numinput';
+  const btn = document.createElement('button');
+  btn.type = 'submit';
+  btn.className = 'btn btn-good';
+  btn.textContent = 'Give clue';
+  form.append(word, num, btn);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const w = word.value.trim();
+    const n = parseInt(num.value, 10);
+    if (w && Number.isFinite(n)) send({ type: 'giveClue', word: w, number: n });
+  };
+  box.appendChild(form);
+  setTimeout(() => word.focus(), 0);
+  return box;
+}
+
+function renderCnOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const wTeam = (s.winner || '').toUpperCase();
+  box.appendChild(banner(youWin ? '🏆 You win!' : `${wTeam} wins`, youWin ? 'win' : 'lose'));
+  const sub = document.createElement('div');
+  sub.className = 'cn-oversub';
+  sub.textContent = s.endReason === 'assassin' ? 'The other team tapped the assassin 💀' : `${wTeam} contacted all their agents.`;
+  box.appendChild(sub);
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderCnLog(s) {
+  const ul = $('cnLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -1691,6 +1864,7 @@ $('leaveBtn').onclick = leaveRoom;
 $('liLeaveBtn').onclick = leaveRoom;
 $('yzLeaveBtn').onclick = leaveRoom;
 $('sgLeaveBtn').onclick = leaveRoom;
+$('cnLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
@@ -1711,6 +1885,13 @@ $('sgRulesBtn').onclick = () => $('sgRulesSheet').classList.remove('hidden');
 $('sgRulesClose').onclick = () => $('sgRulesSheet').classList.add('hidden');
 $('sgRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'sgRulesSheet') $('sgRulesSheet').classList.add('hidden');
+});
+
+// Codenames rules sheet
+$('cnRulesBtn').onclick = () => $('cnRulesSheet').classList.remove('hidden');
+$('cnRulesClose').onclick = () => $('cnRulesSheet').classList.add('hidden');
+$('cnRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'cnRulesSheet') $('cnRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------
