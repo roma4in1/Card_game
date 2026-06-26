@@ -96,7 +96,9 @@ test('a 3-player match plays a round to showdown with conserved chips and no lea
       new Promise((_, rej) => setTimeout(() => rej(new Error('round timeout')), 8000).unref()),
     ]);
 
-    const total = s.roster.reduce((sum: number, p: any) => sum + p.chips, 0) + s.pot + (s.carry || 0);
+    // Chips live in the game view (you + others), not the room roster.
+    const chips = s.you.chips + s.others.reduce((sum: number, o: any) => sum + o.chips, 0);
+    const total = chips + s.pot + (s.carry || 0);
     assert.equal(total, 3 * 35, `chips should be conserved (got ${total})`);
     assert.ok(['fold', 'showdown'].includes(s.result.kind));
   } finally {

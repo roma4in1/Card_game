@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0d0f15" />
-    <title>Win or Die</title>
+    <title>Game Hub</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet" />
@@ -17,8 +17,8 @@
         <div class="brand-mark" aria-hidden="true">
           <span class="chip chip-r"></span><span class="chip chip-b"></span><span class="chip chip-y"></span>
         </div>
-        <h1>Win or Die</h1>
-        <p class="tag">A two-player game of nerve &amp; deception.</p>
+        <h1>Game Hub</h1>
+        <p class="tag">A hub for playing games</p>
       </div>
       <div class="panel">
         <button id="createBtn" class="btn btn-primary btn-lg">Create a game</button>
@@ -54,11 +54,13 @@
       <div class="brand"><h1 class="lobby-title">Lobby</h1><p class="tag">Room <span id="lobbyCode" class="code"></span></p></div>
       <div class="panel">
         <ul id="lobbyList" class="lobby-list"></ul>
+        <div id="gamePicker" class="game-picker"></div>
         <button id="startBtn" class="btn btn-primary btn-lg">Start game</button>
         <p id="lobbyMsg" class="footnote"></p>
         <button id="lobbyInvite" class="btn btn-quiet">Copy invite link</button>
+        <button id="leaveLobbyBtn" class="btn btn-quiet">Leave lobby</button>
       </div>
-      <p class="footnote">Up to 8 players. The host starts when everyone's in.</p>
+      <p class="footnote">Up to 8 players. The host picks the game and starts.</p>
     </section>
 
     <!-- Game -->
@@ -67,6 +69,7 @@
         <div class="room-pill">ROOM&nbsp;<b id="roomCode">····</b></div>
         <div class="phase-pill" id="phaseChip">—</div>
         <button id="ranksBtn" class="rank-pill" title="Hand rankings">Ranks</button>
+        <button id="leaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
         <button id="copyLink2" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -106,6 +109,61 @@
         </details>
       </div>
     </section>
+
+    <!-- Lock In (press-your-luck dice game) -->
+    <section id="lockin" class="screen lockin hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="liRoom">····</b></div>
+        <div class="phase-pill" id="liRound">Round 1</div>
+        <button id="liRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="liLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="liCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="li-main">
+        <div class="li-board-head">
+          <span class="li-board-title">Scoreboard</span>
+          <span class="li-legend">
+            <span class="lg"><b class="z play">▮</b>Play</span>
+            <span class="lg"><b class="z res">🔒</b>Reserve</span>
+            <span class="lg"><b class="z dis">♻</b>Discard</span>
+          </span>
+        </div>
+        <div class="li-board" id="liBoard"></div>
+        <div class="li-stage">
+          <div class="li-turninfo" id="liTurnInfo"></div>
+          <div class="li-dice" id="liDice"></div>
+          <div class="li-aside-track" id="liSetAside"></div>
+        </div>
+      </main>
+
+      <div class="action-area" id="liActions"></div>
+
+      <div class="dock">
+        <details class="feed" open>
+          <summary>Game log</summary>
+          <ul id="liLog"></ul>
+        </details>
+      </div>
+    </section>
+
+    <!-- Lock In rules reference -->
+    <div id="liRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Lock In — how to play</h3>
+          <button id="liRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Press your luck with 9 dice over 5 rounds. Most points wins.</p>
+        <div class="rules-body">
+          <p><b>Your turn:</b> roll all 9 dice and <b>lock one target number</b> (1–6) for the whole turn — one die of it is set aside automatically.</p>
+          <p><b>Keep rolling:</b> each roll, if any die shows your target you set aside <b>exactly one</b>. Roll <b>two or more</b> of it and you also pull a chip from your discard into play (if you have one).</p>
+          <p><b>Bust or pay:</b> roll <b>zero</b> targets and you must spend a chip to reroll — or your turn ends.</p>
+          <p><b>Bank anytime</b> after a successful roll: score <b>+1 per die set aside</b>. Set aside <b>8</b> → +1 bonus. All <b>9</b> → +3 (and a reserve chip moves into play); a <b>perfect run</b> with no chips spent → +5.</p>
+          <p><b>Game end:</b> +2 points per chip left in your <b>play area</b>. Highest total wins; ties broken by play-area chips.</p>
+        </div>
+      </div>
+    </div>
 
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">

@@ -1,9 +1,10 @@
-// server.ts — transport layer for "Love & Liar".
+// server.ts — transport layer for the game platform.
 //
 // Thin and I/O-only: it serves the static client, accepts WebSocket
-// connections, validates/parses messages, and forwards them to the pure engine
-// (engine.ts). After any state-changing call it broadcasts each seat's private
-// view. It holds NO game rules — those all live in the engine.
+// connections, validates/parses messages, and forwards them to the pure room
+// (platform/room.ts), which owns the lobby and routes in-game actions to the
+// selected game plugin. After any state-changing call it broadcasts each seat's
+// private view. It holds NO game rules — those live in the room and the games.
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -14,19 +15,18 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   createRoom,
   join as joinRoom,
+  selectGame,
   startMatch,
   setConnected,
-  bet,
-  reveal,
-  discussDone,
-  setLiar,
-  nextRound,
+  act,
   rematch,
+  leave,
+  botMove,
+  hasHumans,
   viewFor,
   MAX_SEATS,
   type Room,
-  type Seat,
-} from './engine.ts';
+} from './platform/room.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = join(__dirname, 'client');
@@ -36,6 +36,8 @@ const ROOM_TTL_MS = 60 * 60 * 1000;
 const rooms = new Map<string, Room>();
 // Sockets are transport state, kept out of the engine. One slot per seat.
 const sockets = new Map<string, (WebSocket | null)[]>();
+// One pending bot-move timer per room (bots play on a human-like delay).
+const botTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function send(ws: WebSocket | null, obj: unknown) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -44,10 +46,40 @@ function send(ws: WebSocket | null, obj: unknown) {
 function broadcast(room: Room) {
   room.lastActivity = Date.now();
   const ws = sockets.get(room.code);
-  if (!ws) return;
-  for (let seat = 0; seat < MAX_SEATS; seat++) {
-    if (room.players[seat]) send(ws[seat], viewFor(room, seat));
+  if (ws) {
+    for (let seat = 0; seat < MAX_SEATS; seat++) {
+      if (room.members[seat]) send(ws[seat], viewFor(room, seat));
+    }
   }
+  scheduleBots(room); // let any bot whose turn it is play next
+}
+
+// If a bot-controlled seat has a move pending, play it after a short, human-like
+// delay, then broadcast (which may schedule the following bot move, and so on).
+function scheduleBots(room: Room) {
+  if (botTimers.has(room.code) || !rooms.has(room.code)) return;
+  if (!botMove(room)) return;
+  const timer = setTimeout(() => {
+    botTimers.delete(room.code);
+    if (!rooms.has(room.code)) return;
+    const mv = botMove(room);
+    if (!mv) return;
+    const res = act(room, mv.seat, mv.msg);
+    if (res?.error) {
+      console.warn('bot move rejected:', res.error, mv.msg);
+      return; // stop the chain rather than loop on a bad move
+    }
+    broadcast(room);
+  }, 650 + Math.floor(Math.random() * 500));
+  botTimers.set(room.code, timer);
+}
+
+function dropRoom(code: string) {
+  const t = botTimers.get(code);
+  if (t) clearTimeout(t);
+  botTimers.delete(code);
+  rooms.delete(code);
+  sockets.delete(code);
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +88,7 @@ function broadcast(room: Room) {
 
 interface Conn {
   code: string | null;
-  seat: Seat | null;
+  seat: number | null;
 }
 
 function handleJoin(ws: WebSocket, conn: Conn, msg: Record<string, unknown>) {
@@ -104,11 +136,13 @@ function handleMessage(ws: WebSocket, conn: Conn, raw: string) {
   if (!room) return;
   const seat = conn.seat;
 
-  // Chat is pure transport (no game state) — relay verbatim to both seats.
+  if (msg.type === 'leave') return handleLeave(ws, conn, room, seat);
+
+  // Chat is pure transport (no game state) — relay verbatim to everyone.
   if (msg.type === 'chat') {
     const text = String(msg.text ?? '').slice(0, 200);
     if (!text.trim()) return;
-    const payload = { type: 'chat', seat, name: room.players[seat]!.name, text };
+    const payload = { type: 'chat', seat, name: room.members[seat]!.name, text };
     for (const s of sockets.get(conn.code)!) send(s, payload);
     return;
   }
@@ -118,23 +152,33 @@ function handleMessage(ws: WebSocket, conn: Conn, raw: string) {
   else broadcast(room);
 }
 
-function dispatch(room: Room, seat: Seat, msg: Record<string, unknown>): { error?: string } | void {
+// Room-level messages are handled here; anything else is an in-game action
+// routed to the active game plugin.
+function dispatch(room: Room, seat: number, msg: Record<string, unknown>): { error?: string } | void {
   switch (msg.type) {
+    case 'selectGame':
+      return selectGame(room, seat, String(msg.gameId ?? ''));
     case 'start':
       return startMatch(room, seat);
-    case 'action':
-      return bet(room, seat, String(msg.action ?? ''), Number(msg.amount) || 0);
-    case 'reveal':
-      return reveal(room, seat, Number(msg.cardIndex));
-    case 'discussDone':
-      return discussDone(room, seat);
-    case 'liar':
-      return setLiar(room, seat, msg as { values?: string[] });
-    case 'nextRound':
-      return nextRound(room, seat);
     case 'rematch':
       return rematch(room, seat);
+    default:
+      return act(room, seat, msg);
   }
+}
+
+function handleLeave(ws: WebSocket, conn: Conn, room: Room, seat: number) {
+  // Detach the socket first so the leaver isn't broadcast to and the later
+  // close handler is a no-op, then free the seat for everyone else.
+  const sk = sockets.get(conn.code!);
+  if (sk && sk[seat] === ws) sk[seat] = null;
+  conn.code = null;
+  conn.seat = null;
+  leave(room, seat);
+  // If only bots remain, there's no one to play for — discard the room.
+  if (!hasHumans(room)) dropRoom(room.code);
+  else broadcast(room);
+  send(ws, { type: 'left' });
 }
 
 function handleClose(conn: Conn, closed: WebSocket) {
@@ -208,15 +252,12 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
-// Reap abandoned rooms (both seats disconnected for over an hour).
+// Reap abandoned rooms (no connected human for over an hour; bots don't count).
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    const anyConnected = room.players.some((p) => p?.connected);
-    if (!anyConnected && now - room.lastActivity > ROOM_TTL_MS) {
-      rooms.delete(code);
-      sockets.delete(code);
-    }
+    const anyHuman = room.members.some((m) => m && !m.bot && m.connected);
+    if (!anyHuman && now - room.lastActivity > ROOM_TTL_MS) dropRoom(code);
   }
 }, 10 * 60 * 1000).unref();
 
