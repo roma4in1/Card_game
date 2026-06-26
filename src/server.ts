@@ -214,7 +214,8 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) 
   const ext = safe.slice(safe.lastIndexOf('.'));
   try {
     const body = await readFile(join(CLIENT_DIR, safe));
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    // Revalidate on every load so clients never run a stale app.js/style.css.
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(body);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' });

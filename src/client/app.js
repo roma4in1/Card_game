@@ -256,6 +256,11 @@ function render() {
     renderLockIn(s);
     return;
   }
+  if (s.gameId === 'yahtzee') {
+    ensureScreen('yahtzee');
+    renderYahtzee(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -577,6 +582,314 @@ function renderLIOver(s) {
 
 function renderLILog(s) {
   const ul = $('liLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Yahtzee — 5-dice scorecard game
+// ---------------------------------------------------------------------------
+
+const YZ_ROWS = [
+  { type: 'head', label: 'Upper section' },
+  { type: 'cat', cat: 'ones', label: 'Ones' },
+  { type: 'cat', cat: 'twos', label: 'Twos' },
+  { type: 'cat', cat: 'threes', label: 'Threes' },
+  { type: 'cat', cat: 'fours', label: 'Fours' },
+  { type: 'cat', cat: 'fives', label: 'Fives' },
+  { type: 'cat', cat: 'sixes', label: 'Sixes' },
+  { type: 'sub', key: 'upper', label: 'Upper total' },
+  { type: 'sub', key: 'upperBonus', label: 'Bonus (63+ → 35)' },
+  { type: 'head', label: 'Lower section' },
+  { type: 'cat', cat: 'threeOfAKind', label: '3 of a kind' },
+  { type: 'cat', cat: 'fourOfAKind', label: '4 of a kind' },
+  { type: 'cat', cat: 'fullHouse', label: 'Full house' },
+  { type: 'cat', cat: 'smallStraight', label: 'Sm. straight' },
+  { type: 'cat', cat: 'largeStraight', label: 'Lg. straight' },
+  { type: 'cat', cat: 'yahtzee', label: 'Yahtzee' },
+  { type: 'cat', cat: 'chance', label: 'Chance' },
+  { type: 'sub', key: 'yBonus', label: 'Yahtzee bonus' },
+  { type: 'sub', key: 'grand', label: 'Grand total' },
+];
+
+// Plain-language definition for each scorecard row (shown on hover / tap).
+const YZ_DESC = {
+  ones: 'Sum of all dice showing 1.',
+  twos: 'Sum of all dice showing 2.',
+  threes: 'Sum of all dice showing 3.',
+  fours: 'Sum of all dice showing 4.',
+  fives: 'Sum of all dice showing 5.',
+  sixes: 'Sum of all dice showing 6.',
+  threeOfAKind: 'Three or more of a kind — scores the sum of all five dice.',
+  fourOfAKind: 'Four or more of a kind — scores the sum of all five dice.',
+  fullHouse: 'Three of one number and two of another — 25 points.',
+  smallStraight: 'Four in a row (e.g. 2-3-4-5) — 30 points.',
+  largeStraight: 'Five in a row (1-2-3-4-5 or 2-3-4-5-6) — 40 points.',
+  yahtzee: 'All five dice the same — 50 points.',
+  chance: 'Any dice at all — scores the sum of all five.',
+  upper: 'Sum of Ones through Sixes.',
+  upperBonus: 'Score 63+ in the upper section to earn a +35 bonus.',
+  yBonus: '+100 for each extra Yahtzee rolled after your first scored a 50.',
+  grand: 'Final score: upper total + bonus + lower total + Yahtzee bonuses.',
+};
+
+function renderYahtzee(s) {
+  $('yzRoom').textContent = s.room;
+  $('yzRound').textContent = s.over ? 'Final' : `Round ${s.round}/${s.rounds}`;
+  $('yzCopy').onclick = copyInvite;
+  renderYzTurn(s);
+  renderYzDice(s);
+  renderYzActions(s);
+  renderYzCard(s);
+  renderYzLog(s);
+}
+
+function renderYzTurn(s) {
+  const t = s.turn;
+  const el = $('yzTurn');
+  if (s.over) {
+    el.innerHTML = '<div class="li-whose">Game over</div>';
+    return;
+  }
+  const whose = t.yourTurn ? 'Your turn' : `${t.seat === s.seat ? 'You' : escapeHtml(t.name)}'s turn`;
+  el.innerHTML =
+    `<div class="li-whose ${t.yourTurn ? 'you' : ''}">${whose}</div>` +
+    `<div class="yz-sub">Roll <b>${t.rollsUsed}</b>/3${t.bonusReady ? ' · <b class="yz-bonusflag">🎲 Yahtzee bonus +100 ready!</b>' : ''}</div>`;
+}
+
+let yzRollKey = '';
+let yzRolling = false; // dice mid-tumble — hide previews so they can't contradict the dice
+let yzTimers = [];
+function clearYzAnim() {
+  yzTimers.forEach((t) => {
+    clearInterval(t);
+    clearTimeout(t);
+  });
+  yzTimers = [];
+}
+function renderYzDice(s) {
+  const t = s.turn;
+  const box = $('yzDice');
+  // Every distinct roll (including each turn's first roll, even for the same
+  // player in a solo game) has a unique seat:round:rollNo key. A hold-toggle
+  // keeps the same key, so it re-renders without re-tumbling.
+  const rollKey = `${t.seat}:${s.round}:${t.rollsUsed}`;
+  const rolled = !s.over && yzRollKey !== rollKey;
+  yzRollKey = rollKey;
+  clearYzAnim();
+  box.innerHTML = '';
+  const els = (t.dice || []).map((v, i) => {
+    const die = document.createElement('div');
+    die.className = 'li-die yz-die' + (t.kept[i] ? ' kept' : '');
+    setDie(die, v);
+    if (t.yourTurn && t.rollsUsed < 3 && !s.over) {
+      die.classList.add('tappable');
+      die.onclick = () => send({ type: 'hold', index: i });
+    }
+    box.appendChild(die);
+    return { die, v, kept: t.kept[i] };
+  });
+  if (!rolled) {
+    yzRolling = false;
+    return;
+  }
+  // Tumble only the dice that were actually rerolled (the un-kept ones).
+  const moving = els.filter((e) => !e.kept);
+  if (moving.length === 0) {
+    yzRolling = false;
+    return;
+  }
+  yzRolling = true; // previews stay hidden until these land (see renderYzCard)
+  moving.forEach((e) => e.die.classList.add('rolling'));
+  const spin = setInterval(() => {
+    for (const e of moving) setDie(e.die, 1 + Math.floor(Math.random() * 6));
+  }, 60);
+  yzTimers.push(spin);
+  yzTimers.push(
+    setTimeout(() => {
+      clearInterval(spin);
+      moving.forEach((e, k) =>
+        yzTimers.push(
+          setTimeout(() => {
+            e.die.classList.remove('rolling');
+            setDie(e.die, e.v);
+            e.die.classList.add('land');
+          }, k * 60),
+        ),
+      );
+      // Once the last die has landed, reveal the (now-matching) previews.
+      yzTimers.push(
+        setTimeout(() => {
+          yzRolling = false;
+          if (state && state.gameId === 'yahtzee' && !state.over) {
+            renderYzCard(state);
+            renderYzActions(state);
+          }
+        }, moving.length * 60 + 90),
+      );
+    }, 420),
+  );
+}
+
+function renderYzActions(s) {
+  const area = $('yzActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderYzOver(s));
+    return;
+  }
+  const t = s.turn;
+  if (!t.yourTurn) {
+    area.appendChild(callout(`Waiting for ${t.seat === s.seat ? 'you' : escapeHtml(t.name)} to play`, true));
+    return;
+  }
+  if (yzRolling) {
+    area.appendChild(prompt('🎲 Rolling…'));
+    return;
+  }
+  if (t.canRoll) {
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.appendChild(actBtn(`🎲 Roll · ${t.rollsLeft} left`, 'btn btn-good', () => send({ type: 'roll' })));
+    area.appendChild(row);
+    area.appendChild(prompt('Tap dice to <b>keep</b>, then roll again — or tap a category to <b>score</b>.'));
+  } else {
+    area.appendChild(prompt('No rolls left — tap a category cell to <b>score</b> and end your turn.'));
+  }
+}
+
+function renderYzCard(s) {
+  const box = $('yzCard');
+  const players = s.players || [];
+  const bots = botSeatSet(s);
+  box.style.setProperty('--yz-cols', players.length);
+  box.innerHTML = '';
+
+  // header row: player names + running grand totals
+  const head = document.createElement('div');
+  head.className = 'yz-row yz-headrow';
+  head.appendChild(yzCell('yz-cap', ''));
+  players.forEach((p) => {
+    const h = document.createElement('div');
+    h.className = 'yz-pcol' + (p.isTurn ? ' acting' : '') + (p.seat === s.seat ? ' you' : '');
+    h.style.borderTopColor = seatColor(p.seat);
+    h.innerHTML =
+      `<span class="yz-pname" style="color:${seatColor(p.seat)}">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}</span>` +
+      `<span class="yz-ptot">${p.grand}</span>`;
+    head.appendChild(h);
+  });
+  box.appendChild(head);
+
+  for (const row of YZ_ROWS) {
+    const r = document.createElement('div');
+    if (row.type === 'head') {
+      r.className = 'yz-row yz-section';
+      const c = yzCell('yz-sectionlbl', row.label);
+      c.style.gridColumn = `1 / span ${players.length + 1}`;
+      r.appendChild(c);
+      box.appendChild(r);
+      continue;
+    }
+    r.className = 'yz-row' + (row.type === 'sub' ? ' yz-subrow' : '');
+    r.appendChild(yzCapCell(row.label, YZ_DESC[row.cat] || YZ_DESC[row.key]));
+    for (const p of players) {
+      const c = document.createElement('div');
+      c.className = 'yz-cell';
+      if (p.isTurn) c.classList.add('col-acting');
+      if (row.type === 'sub') {
+        c.classList.add('yz-subcell');
+        c.textContent = yzSubValue(row.key, p);
+      } else {
+        const val = p.scores[row.cat];
+        if (val != null) {
+          c.classList.add('filled');
+          c.textContent = val;
+        } else if (p.seat === s.seat && s.turn.yourTurn && yzRolling) {
+          // dice still tumbling — don't show a number that contradicts them
+          c.classList.add('open');
+          c.textContent = '·';
+        } else if (p.seat === s.seat && s.turn.yourTurn) {
+          const pv = (s.turn.previews || {})[row.cat];
+          if (pv && pv.allowed) {
+            c.classList.add('pick');
+            if (pv.value > 0) c.classList.add('good');
+            c.textContent = pv.value;
+            c.onclick = () => send({ type: 'score', category: row.cat });
+          } else {
+            c.classList.add('locked');
+            c.textContent = '–';
+          }
+        } else {
+          c.classList.add('open');
+          c.textContent = '·';
+        }
+      }
+      r.appendChild(c);
+    }
+    box.appendChild(r);
+  }
+}
+
+function yzCell(cls, text) {
+  const c = document.createElement('div');
+  c.className = cls;
+  c.textContent = text;
+  return c;
+}
+// A row label that reveals its rule on hover (desktop) or tap (mobile).
+function yzCapCell(label, desc) {
+  const c = document.createElement('div');
+  c.className = 'yz-cap';
+  if (!desc) {
+    c.textContent = label;
+    return c;
+  }
+  c.classList.add('has-desc');
+  c.title = desc;
+  c.innerHTML = `<span class="yz-caplbl">${escapeHtml(label)}</span><span class="yz-info" aria-hidden="true">ⓘ</span>`;
+  c.onclick = () => toast(`${label}: ${desc}`, 'ok');
+  return c;
+}
+function yzSubValue(key, p) {
+  if (key === 'upper') return String(p.upper);
+  if (key === 'upperBonus') return String(p.upperBonus);
+  if (key === 'yBonus') return String((p.yahtzeeBonus || 0) * 100);
+  if (key === 'grand') return String(p.grand);
+  return '';
+}
+
+function renderYzOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : nameForSeat(s, seat))).join(', ');
+  box.appendChild(
+    banner(youWin ? (shared ? '🤝 Shared win!' : '🏆 You win!') : `${names} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'),
+  );
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  (s.finals || []).forEach((f) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(f.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(f.seat)}">${initial(nameForSeat(s, f.seat))}</span>` +
+      `<span class="li-fname">${f.seat === s.seat ? 'You' : escapeHtml(nameForSeat(s, f.seat))}</span>` +
+      `<span class="li-fbreak">${f.upper}+${f.upperBonus} up · ${f.lower} low${f.bonus ? ` · +${f.bonus}` : ''}</span>` +
+      `<span class="li-ftotal">${f.total}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderYzLog(s) {
+  const ul = $('yzLog');
   ul.innerHTML = '';
   (s.log || []).forEach((line) => {
     const li = document.createElement('li');
@@ -1152,16 +1465,24 @@ $('ranksSheet').addEventListener('click', (e) => {
   if (e.target.id === 'ranksSheet') closeRanks(); // tap the backdrop to dismiss
 });
 
-// Leave buttons (lobby + both game screens)
+// Leave buttons (lobby + all game screens)
 $('leaveLobbyBtn').onclick = leaveRoom;
 $('leaveBtn').onclick = leaveRoom;
 $('liLeaveBtn').onclick = leaveRoom;
+$('yzLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
 $('liRulesClose').onclick = () => $('liRulesSheet').classList.add('hidden');
 $('liRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'liRulesSheet') $('liRulesSheet').classList.add('hidden');
+});
+
+// Yahtzee rules sheet
+$('yzRulesBtn').onclick = () => $('yzRulesSheet').classList.remove('hidden');
+$('yzRulesClose').onclick = () => $('yzRulesSheet').classList.add('hidden');
+$('yzRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'yzRulesSheet') $('yzRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------

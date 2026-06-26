@@ -703,6 +703,59 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .rules-body p { font-size: 0.88rem; line-height: 1.45; color: var(--ink); }
 .rules-body b { color: var(--gold); }
 
+/* ---------------------------------------------------------------------------
+   Yahtzee screen
+--------------------------------------------------------------------------- */
+.yahtzee { gap: 12px; padding-top: max(12px, env(safe-area-inset-top)); }
+.yz-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 12px 0; overflow-y: auto; min-height: 0; }
+.yz-stage { gap: 12px; padding: 16px 14px; }
+.yz-turninfo { text-align: center; }
+.yz-sub { font-size: 0.9rem; color: #b8d8cc; margin-top: 4px; }
+.yz-bonusflag { color: var(--gold); }
+
+.yz-die { width: 50px; height: 50px; }
+.yz-die.tappable { cursor: pointer; }
+.yz-die.kept { box-shadow: 0 0 0 3px var(--good), 0 0 16px rgba(52, 211, 153, 0.5); transform: translateY(-4px); }
+.yz-die.kept .pip.on { background: #145239; }
+
+/* scorecard grid */
+.yz-card { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.yz-row { display: grid; grid-template-columns: minmax(96px, 1.3fr) repeat(var(--yz-cols, 2), minmax(46px, 1fr)); gap: 2px; }
+.yz-headrow { position: sticky; top: 0; z-index: 2; }
+.yz-cap { display: flex; align-items: center; gap: 5px; padding: 5px 8px; font-size: 0.78rem; color: var(--muted); background: var(--surface); border-radius: 6px 0 0 6px; }
+.yz-cap.has-desc { cursor: help; }
+.yz-cap.has-desc .yz-caplbl { text-decoration: underline dotted rgba(245, 196, 81, 0.5); text-underline-offset: 3px; }
+.yz-cap.has-desc:hover { color: var(--ink); background: var(--surface-2); }
+.yz-info { font-size: 0.82rem; color: var(--gold); flex: none; opacity: 0.85; }
+.yz-cap.has-desc:active { background: var(--surface-2); }
+.yz-cap.has-desc:hover .yz-info { opacity: 1; }
+.yz-pcol { display: flex; flex-direction: column; align-items: center; padding: 5px 4px; background: var(--surface-2); border-top: 3px solid var(--line); border-radius: 8px 8px 0 0; min-width: 0; }
+.yz-pcol.acting { box-shadow: 0 0 0 1.5px var(--gold) inset; }
+.yz-pname { font-weight: 700; font-size: 0.74rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yz-ptot { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.05rem; }
+
+.yz-section { margin-top: 4px; }
+.yz-sectionlbl { padding: 4px 8px; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+
+.yz-cell {
+  display: flex; align-items: center; justify-content: center; min-height: 30px;
+  font-size: 0.92rem; font-weight: 700; background: var(--surface); border-radius: 5px; color: var(--ink);
+}
+.yz-cell.col-acting { background: rgba(245, 196, 81, 0.06); }
+.yz-cell.open { color: var(--faint); font-weight: 400; }
+.yz-cell.filled { color: var(--ink); }
+.yz-cell.locked { color: var(--faint); background: rgba(255, 255, 255, 0.02); }
+.yz-cell.pick {
+  cursor: pointer; color: var(--gold); background: rgba(245, 196, 81, 0.12);
+  box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.4) inset; transition: transform 0.1s, background 0.15s;
+}
+.yz-cell.pick.good { color: var(--good); background: rgba(52, 211, 153, 0.16); box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.5) inset; }
+.yz-cell.pick:hover { filter: brightness(1.15); }
+.yz-cell.pick:active { transform: scale(0.95); }
+.yz-subrow .yz-cap { color: var(--ink); font-weight: 700; }
+.yz-subcell { background: var(--surface-2); font-family: 'Outfit', sans-serif; }
+.yz-row:last-child .yz-cap, .yz-row:last-child .yz-subcell { color: var(--gold); font-size: 1.02rem; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

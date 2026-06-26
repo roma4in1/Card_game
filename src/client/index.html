@@ -165,6 +165,48 @@
       </div>
     </div>
 
+    <!-- Yahtzee (5-dice scorecard game) -->
+    <section id="yahtzee" class="screen yahtzee hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="yzRoom">····</b></div>
+        <div class="phase-pill" id="yzRound">Round 1</div>
+        <button id="yzRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="yzLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="yzCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="yz-main">
+        <div class="li-stage yz-stage">
+          <div class="yz-turninfo" id="yzTurn"></div>
+          <div class="li-dice yz-dice" id="yzDice"></div>
+        </div>
+        <div class="action-area" id="yzActions"></div>
+        <div class="yz-card" id="yzCard"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="yzLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Yahtzee rules reference -->
+    <div id="yzRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Yahtzee — how to play</h3>
+          <button id="yzRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Fill all 13 categories over 13 rounds. Highest grand total wins.</p>
+        <div class="rules-body">
+          <p><b>Your turn:</b> roll five dice up to <b>three times</b>. Tap dice to keep them between rolls, then commit to exactly one <b>unused category</b> — that ends your turn.</p>
+          <p><b>Upper (Ones–Sixes):</b> sum of the dice showing that face. Reach <b>63+</b> up top for a <b>+35 bonus</b>.</p>
+          <p><b>Lower:</b> 3/4 of a kind (sum of all dice), full house (25), small straight (30), large straight (40), Yahtzee — five of a kind (50), chance (sum).</p>
+          <p><b>Bonus Yahtzee:</b> roll another five-of-a-kind after scoring a 50 in Yahtzee for <b>+100</b> each. You must place it in the matching upper box, or (if used) as a <b>Joker</b> in any open lower box at full value.</p>
+          <p>You must always score something — dump a bad roll as a <b>0</b> if you have to.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
