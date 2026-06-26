@@ -76,9 +76,9 @@ export interface RoundResult {
 interface Round {
   shared: Card | null;
   reshuffled: boolean;
-  dealer: number;
+  dice: number[]; // each participant's d6 roll (0 for non-participants); highest acts first
   toAct: number; // seat to act, or -1
-  firstActor: number; // seat that acted first this round (-1 if betting was skipped)
+  firstActor: number; // seat that rolled highest and acts first this round
   pot: number;
   carryIn: number; // carried-over chips that seeded this round's pot (dead money)
   currentBet: number;
@@ -94,7 +94,6 @@ export interface Room {
   phase: Phase;
   deck: Card[];
   round: Round | null;
-  dealer: number; // persists across rounds; rotates each hand
   roundNo: number;
   carry: number;
   log: string[];
@@ -120,7 +119,6 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     phase: 'lobby',
     deck: [],
     round: null,
-    dealer: 0,
     roundNo: 0,
     carry: 0,
     log: [],
@@ -210,7 +208,6 @@ export function startMatch(room: Room, seat: Seat): ActionResult {
   room.carry = 0;
   room.matchWinner = null;
   room.round = null;
-  room.dealer = joined[randInt(room.rng, joined.length)];
   log(room, `Match started with ${joined.length} players.`);
   startRound(room);
   return ok;
@@ -219,15 +216,6 @@ export function startMatch(room: Room, seat: Seat): ActionResult {
 // ---------------------------------------------------------------------------
 // Round lifecycle
 // ---------------------------------------------------------------------------
-
-function nextActiveAfter(room: Room, seat: number): number {
-  for (let i = 1; i <= MAX_SEATS; i++) {
-    const s = (seat + i) % MAX_SEATS;
-    const p = room.players[s];
-    if (p && p.inMatch && !p.eliminated) return s;
-  }
-  return seat;
-}
 
 function resetRoundState(p: Player) {
   p.hole = [];
@@ -259,10 +247,6 @@ function startRound(room: Room) {
     return;
   }
 
-  // Rotate the dealer to the next active seat (except on the match's first hand).
-  if (room.round) room.dealer = nextActiveAfter(room, room.dealer);
-  else if (!active.includes(room.dealer)) room.dealer = active[0];
-
   room.roundNo += 1;
   room.rematchReady = new Array(MAX_SEATS).fill(false);
 
@@ -279,9 +263,9 @@ function startRound(room: Room) {
   const round: Round = {
     shared: null,
     reshuffled,
-    dealer: room.dealer,
+    dice: new Array(MAX_SEATS).fill(0),
     toAct: -1,
-    firstActor: -1,
+    firstActor: active[0],
     pot: room.carry,
     carryIn: room.carry,
     currentBet: 0,
@@ -290,6 +274,17 @@ function startRound(room: Room) {
   };
   room.carry = 0;
   room.round = round;
+
+  // Everyone rolls a die; the highest roll acts first (ties are re-rolled).
+  let firstActor = active[0];
+  for (let tries = 0; tries < 60; tries++) {
+    for (const s of active) round.dice[s] = 1 + randInt(room.rng, 6);
+    const max = Math.max(...active.map((s) => round.dice[s]));
+    const leaders = active.filter((s) => round.dice[s] === max);
+    firstActor = leaders[0];
+    if (leaders.length === 1) break;
+  }
+  round.firstActor = firstActor;
 
   // Antes: each player who can afford one posts it. Players with no chips (all-in
   // from a carried pot) post nothing and are marked all-in — they still contest
@@ -302,7 +297,7 @@ function startRound(room: Room) {
     }
     if (room.players[s]!.chips === 0) room.players[s]!.allIn = true;
   }
-  log(room, `New round. Dealer: ${room.players[room.dealer]!.name}. ${anteCount} antes → pot ${round.pot}.`);
+  log(room, `New round. 🎲 ${room.players[firstActor]!.name} rolled highest — acts first. ${anteCount} antes → pot ${round.pot}.`);
 
   // Deal 2 hole cards each, then the shared community card.
   for (let i = 0; i < 2; i++) for (const s of active) room.players[s]!.hole.push(room.deck.pop()!);
@@ -346,8 +341,8 @@ function enterBetting(room: Room) {
     room.players[s]!.committed = 0;
     room.players[s]!.acted = false;
   }
-  r.toAct = nextToAct(room, r.dealer);
-  if (room.phase === 'bet1' && r.firstActor === -1) r.firstActor = r.toAct; // first to act this round
+  // Action opens on the dice winner (or the next able player if they've folded).
+  r.toAct = nextToAct(room, (r.firstActor - 1 + MAX_SEATS) % MAX_SEATS);
   if (r.toAct === -1) closeBetting(room); // everyone folded or all-in
 }
 
@@ -624,13 +619,16 @@ function finalizeShowdown(room: Room) {
 }
 
 export function nextRound(room: Room, _seat: Seat): ActionResult {
-  if (room.phase !== 'showdown' || !room.round?.result) return fail('No round to advance.');
+  // Either player may advance once the result is shown; if the round already
+  // advanced (another player clicked first), this is a harmless no-op rather
+  // than an error.
+  if (room.phase !== 'showdown' || !room.round?.result) return ok;
   startRound(room);
   return ok;
 }
 
 export function rematch(room: Room, seat: Seat): ActionResult {
-  if (room.phase !== 'matchover') return fail('No match to rematch.');
+  if (room.phase !== 'matchover') return ok; // already past match-over — no-op
   room.rematchReady[seat] = true;
   log(room, `${room.players[seat]!.name} wants a rematch.`);
   // Don't let a player who left block the rest — only connected entrants count.
@@ -697,8 +695,8 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
   }
   if (!r) return view;
 
-  view.dealer = r.dealer;
   view.firstActor = r.firstActor;
+  view.dice = r.dice;
   view.currentBet = r.currentBet;
   view.shared = cardView(r.shared);
 
@@ -731,7 +729,7 @@ export function viewFor(room: Room, seat: Seat): Record<string, unknown> {
         committed: p.committed,
         holeCount: p.hole.length,
         isTurn: r.toAct === s,
-        isDealer: r.dealer === s,
+        firstActor: r.firstActor === s,
         revealedCard: showReveal ? cardView(p.hole[p.revealIndex!]) : null,
         revealIndex: showReveal ? p.revealIndex : null,
       };

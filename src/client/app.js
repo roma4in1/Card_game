@@ -346,7 +346,7 @@ function renderSeats(s) {
     list
       .map((p) => {
         const turn = p.isYou ? !!(s.betting && s.betting.yourTurn) : !!p.isTurn;
-        return `${p.seat}:${p.chips}:${p.committed || 0}:${p.folded}:${p.allIn}:${turn}:${s.dealer === p.seat}:${p.connected}:${p.isYou ? 'Y' : p.holeCount}:${p.revealedCard ? p.revealedCard.suit + p.revealIndex : '-'}`;
+        return `${p.seat}:${p.chips}:${p.committed || 0}:${p.folded}:${p.allIn}:${turn}:${p.connected}:${p.isYou ? 'Y' : p.holeCount}:${p.revealedCard ? p.revealedCard.suit + p.revealIndex : '-'}`;
       })
       .join('|') + `|${list.length}`;
   if (sig === seatsSig) return;
@@ -401,16 +401,7 @@ function renderSeats(s) {
     }
     box.appendChild(tile);
 
-    // Dealer button + bet chip sit on the felt, along the seat's angle toward the pot.
-    if (s.dealer === p.seat) {
-      const dpos = posAt(theta, SEAT_RX * 0.74, SEAT_RY * 0.72);
-      const d = document.createElement('span');
-      d.className = 'felt-dealer';
-      d.textContent = 'D';
-      d.style.left = `${dpos.left}%`;
-      d.style.top = `${dpos.top}%`;
-      box.appendChild(d);
-    }
+    // Bet chip sits on the felt, along the seat's angle toward the pot.
     if (p.committed) {
       const bpos = posAt(theta, SEAT_RX * 0.6, SEAT_RY * 0.58);
       const bet = document.createElement('div');
@@ -897,42 +888,70 @@ function nameForSeat(s, seat) {
   return p ? p.name : `Seat ${seat + 1}`;
 }
 
-function announceRound(s) {
-  clearInterval(roTimer);
-  roTimeouts.forEach(clearTimeout);
-  roTimeouts = [];
+const TUMBLE_MS = 1800; // how long the dice tumble before settling
+const HOLD_MS = 2000; // how long the result is shown after settling
 
-  const die = $('roDie');
-  const dealerName = nameForSeat(s, s.dealer);
-  const firstSeat = s.firstActor;
-  $('roTitle').textContent = `Round ${s.roundNo}`;
-  $('roSub').innerHTML = `<span class="dealer-chip">D</span>${escapeHtml(dealerName)} deals`;
+function announceRound(s) {
+  clearDiceSplash();
+
+  // Build one die per player who's in this round (those with a roll).
+  const dice = s.dice || [];
+  const players = (s.roster || [])
+    .map((p) => p.seat)
+    .filter((seat) => dice[seat] > 0)
+    .map((seat) => ({ seat, name: nameForSeat(s, seat), final: dice[seat] }));
+  if (!players.length) return;
+
+  $('roTitle').textContent = `Round ${s.roundNo} — rolling for first move`;
   $('roFirst').textContent = '';
-  die.classList.add('tumble');
+  const stage = $('roDice');
+  stage.innerHTML = '';
+  const dieEls = players.map((p) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'ro-player';
+    wrap.dataset.seat = p.seat;
+    const die = document.createElement('div');
+    die.className = 'ro-die tumble';
+    const name = document.createElement('div');
+    name.className = 'ro-name';
+    name.textContent = p.seat === s.seat ? 'You' : p.name;
+    name.style.color = seatColor(p.seat);
+    wrap.append(die, name);
+    stage.appendChild(wrap);
+    return { ...p, die, wrap };
+  });
   $('roundOverlay').classList.remove('hidden');
 
-  roTimer = setInterval(() => setDie(die, 1 + Math.floor(Math.random() * 6)), 100);
+  // All dice tumble simultaneously.
+  roTimer = setInterval(() => {
+    for (const d of dieEls) setDie(d.die, 1 + Math.floor(Math.random() * 6));
+  }, 130);
+
   roTimeouts.push(
     setTimeout(() => {
       clearInterval(roTimer);
-      die.classList.remove('tumble');
-      setDie(die, 1 + Math.floor(Math.random() * 6));
-      if (firstSeat == null || firstSeat < 0) {
-        $('roFirst').textContent = 'All-in — straight to showdown';
-      } else {
-        const first = nameForSeat(s, firstSeat);
-        $('roFirst').textContent = first === 'You' ? 'You act first' : `${first} acts first`;
+      for (const d of dieEls) {
+        d.die.classList.remove('tumble');
+        setDie(d.die, d.final); // land on the real roll
+        if (d.seat === s.firstActor) d.wrap.classList.add('won');
+        else d.wrap.classList.add('lost');
       }
-      roTimeouts.push(setTimeout(() => $('roundOverlay').classList.add('hidden'), 1400));
-    }, 900),
+      const first = nameForSeat(s, s.firstActor);
+      $('roFirst').textContent = first === 'You' ? '🎉 You act first' : `${first} acts first`;
+      roTimeouts.push(setTimeout(() => $('roundOverlay').classList.add('hidden'), HOLD_MS));
+    }, TUMBLE_MS),
   );
+}
+
+function clearDiceSplash() {
+  clearInterval(roTimer);
+  roTimeouts.forEach(clearTimeout);
+  roTimeouts = [];
 }
 
 // Tap to skip the round-start splash (so a first-to-act player isn't blocked).
 $('roundOverlay').addEventListener('click', () => {
-  clearInterval(roTimer);
-  roTimeouts.forEach(clearTimeout);
-  roTimeouts = [];
+  clearDiceSplash();
   $('roundOverlay').classList.add('hidden');
 });
 
