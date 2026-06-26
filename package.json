@@ -7,7 +7,7 @@
     "node": ">=22.6.0"
   },
   "scripts": {
-    "test": "node --test src/*.test.ts",
+    "test": "node --test \"src/**/*.test.ts\"",
     "start": "node src/server.ts",
     "dev": "node --watch src/server.ts"
   },

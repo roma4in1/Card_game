@@ -54,6 +54,7 @@ const SUIT_LABEL = {
 // A stable colour per seat so players are recognisable across the table and chat.
 const SEAT_COLORS = ['#e8536b', '#2f86d6', '#5bbf3a', '#e0a01e', '#9a6cff', '#1fb6a8', '#ff7a3d', '#d65bb0'];
 const seatColor = (seat) => SEAT_COLORS[seat % SEAT_COLORS.length] || '#888';
+const botSeatSet = (s) => new Set((s.roster || []).filter((p) => p.bot).map((p) => p.seat));
 const PHASE_LABEL = {
   lobby: 'Lobby',
   bet1: 'Betting · round 1',
@@ -161,6 +162,7 @@ function connect(code, name) {
   };
   ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
   ws.onclose = () => {
+    if (leaving) return; // we asked to leave — don't reconnect
     showOverlay('Reconnecting…');
     setTimeout(() => connect(code, name), 1500);
   };
@@ -195,7 +197,22 @@ function onMessage(msg) {
       showScreen('gate');
       $('gateMsg').textContent = msg.message;
       break;
+    case 'left':
+      location.href = '/'; // server freed our seat — back to the landing page
+      break;
   }
+}
+
+// Leave the current room: tell the server to free our seat, drop our token so we
+// don't auto-rejoin, and return to the landing page.
+let leaving = false;
+function leaveRoom() {
+  if (leaving) return;
+  if (!confirm('Leave this game? A bot will take over your seat.')) return;
+  leaving = true;
+  if (roomCode) localStorage.removeItem(tokenKey(roomCode));
+  send({ type: 'leave' });
+  setTimeout(() => (location.href = '/'), 200); // fallback if no 'left' arrives
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +249,11 @@ function render() {
   if (s.phase === 'lobby') {
     ensureScreen('lobby');
     renderLobby(s);
+    return;
+  }
+  if (s.gameId === 'lock-in') {
+    ensureScreen('lockin');
+    renderLockIn(s);
     return;
   }
   ensureScreen('game');
@@ -275,9 +297,12 @@ function renderLobby(s) {
       `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
       `<span class="lobby-name">${escapeHtml(p.name)}${p.seat === s.seat ? ' (you)' : ''}</span>` +
       (p.host ? '<span class="badge b-host">host</span>' : '') +
+      (p.bot ? '<span class="badge b-bot">🤖 bot</span>' : '') +
       `<i class="dot ${p.connected ? 'on' : ''}"></i>`;
     list.appendChild(li);
   });
+  renderGamePicker(s);
+
   const start = $('startBtn');
   if (s.youAreHost) {
     start.style.display = '';
@@ -289,6 +314,275 @@ function renderLobby(s) {
     start.style.display = 'none';
     $('lobbyMsg').textContent = 'Waiting for the host to start…';
   }
+}
+
+// Host chooses which game the room will play; others see the selection.
+function renderGamePicker(s) {
+  const box = $('gamePicker');
+  const lob = s.lobby || {};
+  const games = lob.games || [];
+  box.innerHTML = '';
+  if (games.length <= 1) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  const title = document.createElement('div');
+  title.className = 'gp-title';
+  title.textContent = s.youAreHost ? 'Choose a game' : 'Game';
+  box.appendChild(title);
+  games.forEach((g) => {
+    const card = document.createElement('button');
+    card.className = 'gp-card' + (g.id === lob.selectedGame ? ' sel' : '');
+    card.innerHTML =
+      `<div class="gp-name">${escapeHtml(g.name)}</div>` +
+      `<div class="gp-blurb">${escapeHtml(g.blurb)}</div>` +
+      `<div class="gp-meta">${g.minPlayers}–${g.maxPlayers} players</div>`;
+    if (s.youAreHost) card.onclick = () => send({ type: 'selectGame', gameId: g.id });
+    else card.disabled = true;
+    box.appendChild(card);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Lock In — press-your-luck dice game
+// ---------------------------------------------------------------------------
+
+function renderLockIn(s) {
+  $('liRoom').textContent = s.room;
+  $('liRound').textContent = s.over ? 'Final' : `Round ${s.round}/${s.rounds}`;
+  $('liCopy').onclick = copyInvite;
+  renderLIBoard(s);
+  renderLITable(s);
+  renderLIActions(s);
+  renderLILog(s);
+}
+
+function renderLIBoard(s) {
+  const box = $('liBoard');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-prow' + (p.isTurn ? ' acting' : '') + (p.seat === s.seat ? ' you' : '');
+    row.style.borderLeftColor = seatColor(p.seat);
+    row.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="li-pname">${escapeHtml(p.name)}${p.seat === s.seat ? ' (you)' : ''}${bots.has(p.seat) ? ' 🤖' : ''}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
+      `<span class="li-score">${p.score}<small>pts</small></span>` +
+      `<span class="li-chips">` +
+      `<span class="z play" title="Play area (spendable, +2 pts each at the end)">▮ ${p.playArea}</span>` +
+      `<span class="z res" title="Reserve (earned into play by setting aside all 9)">🔒 ${p.reserve}</span>` +
+      `<span class="z dis" title="Discard (earn chips back from here)">♻ ${p.discard}</span>` +
+      `</span>`;
+    box.appendChild(row);
+  });
+}
+
+function renderLITable(s) {
+  const t = s.turn;
+  const info = $('liTurnInfo');
+  if (s.over) {
+    info.innerHTML = '<div class="li-whose">Game over</div>';
+  } else {
+    const whose = t.yourTurn ? 'Your turn' : `${t.seat === s.seat ? 'You' : escapeHtml(t.name)}'s turn`;
+    info.innerHTML =
+      `<div class="li-whose ${t.yourTurn ? 'you' : ''}">${whose}</div>` +
+      `<div class="li-target">${t.target ? `Target <b class="tnum">${t.target}</b>` : 'Pick a target number'}` +
+      `<span class="li-aside">Set aside <b>${t.setAside}</b>/9</span></div>`;
+  }
+  renderLIDice(s);
+
+  // Fill the set-aside track in sync with the dice: when a roll locks a die we
+  // hold the newest pip back until the die actually lands (afterDiceLand fills it).
+  const newTurn = t.seat !== liAside.seat;
+  const increased = !newTurn && t.setAside === liAside.shown + 1;
+  if (increased && liTumbling) renderAsideTrack(t.setAside - 1, false);
+  else renderAsideTrack(t.setAside, increased);
+  liAside = { seat: t.seat, shown: t.setAside };
+}
+
+let liAside = { seat: -1, shown: 0 };
+function renderAsideTrack(count, justPop) {
+  const track = $('liSetAside');
+  track.innerHTML = '';
+  for (let i = 0; i < 9; i++) {
+    const pip = document.createElement('span');
+    pip.className = 'aside-pip' + (i < count ? ' on' : '');
+    if (justPop && i === count - 1) pip.classList.add('just');
+    track.appendChild(pip);
+  }
+}
+
+let liDiceSig = '';
+let liDiceTimers = [];
+let liTumbling = false;
+function clearLIDiceAnim() {
+  liDiceTimers.forEach((t) => {
+    clearInterval(t);
+    clearTimeout(t);
+  });
+  liDiceTimers = [];
+}
+
+const SPIN_MS = 540; // how long the whole set of dice tumbles before settling
+const SETTLE_STAGGER = 75; // dice land left-to-right for a cascade feel
+
+function renderLIDice(s) {
+  const t = s.turn;
+  const dl = $('liDice');
+  const dice = t.dice || [];
+  const valsSig = dice.join(',') + '|' + t.seat; // changes only on an actual roll
+  const fullSig = valsSig + '|' + (t.target || 0) + '|' + t.setAside;
+  if (fullSig === liDiceSig) return;
+  // A fresh roll = the dice values changed (a pick keeps the same 9 faces).
+  const isRoll = liDiceSig !== '' && liDiceSig.split('|').slice(0, 2).join('|') !== valsSig;
+  liDiceSig = fullSig;
+
+  clearLIDiceAnim();
+  dl.innerHTML = '';
+  const els = dice.map((v) => {
+    const die = document.createElement('div');
+    die.className = 'li-die';
+    setDie(die, v);
+    dl.appendChild(die);
+    return { die, v };
+  });
+
+  const settle = (e) => {
+    e.die.classList.remove('rolling');
+    setDie(e.die, e.v);
+    e.die.classList.add('land');
+    if (t.target && e.v === t.target) e.die.classList.add('hit');
+  };
+
+  if (!isRoll) {
+    // First paint or a target lock — no tumble, just mark matches (with a pop on pick).
+    els.forEach((e) => {
+      if (t.target && e.v === t.target) {
+        e.die.classList.add('hit');
+        if (t.setAside) e.die.classList.add('lockpop');
+      }
+    });
+    return;
+  }
+
+  // Tumble: every die spins through random faces, then they settle one by one.
+  liTumbling = true;
+  els.forEach((e) => e.die.classList.add('rolling'));
+  const spin = setInterval(() => {
+    for (const e of els) setDie(e.die, 1 + Math.floor(Math.random() * 6));
+  }, 65);
+  liDiceTimers.push(spin);
+
+  liDiceTimers.push(
+    setTimeout(() => {
+      clearInterval(spin);
+      els.forEach((e, i) => liDiceTimers.push(setTimeout(() => settle(e), i * SETTLE_STAGGER)));
+      const after = els.length * SETTLE_STAGGER + 120;
+      liDiceTimers.push(setTimeout(() => afterDiceLand(s), after));
+    }, SPIN_MS),
+  );
+}
+
+// Tactile payoff once the dice have settled: glow the locked die, react to a
+// bust, and surface an earned chip.
+function afterDiceLand(s) {
+  const t = s.turn;
+  liTumbling = false;
+  // The opening 9-dice roll has no target chosen yet — it's never a bust.
+  if (t.target === null || t.phase === 'pick') return;
+  // Fill the pip for the die that just landed (held back during the tumble).
+  if (t.matches >= 1 && t.setAside > 0) renderAsideTrack(t.setAside, true);
+  if (t.matches === 0) {
+    const stage = document.querySelector('.li-stage');
+    if (stage) {
+      stage.classList.remove('shake');
+      void stage.offsetWidth;
+      stage.classList.add('shake');
+    }
+    if (t.yourTurn) toast('No match — reroll or bank', 'err');
+  } else if (t.earnedThisRoll) {
+    toast('💰 Chip earned — into your play area', 'ok');
+  } else if (t.setAside === 9) {
+    toast(t.chipsSpent === 0 ? '✨ Perfect run!' : '🎯 All nine locked!', 'ok');
+  }
+}
+
+function renderLIActions(s) {
+  const area = $('liActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderLIOver(s));
+    return;
+  }
+  const t = s.turn;
+  if (!t.yourTurn) {
+    area.appendChild(callout(`Waiting for ${t.seat === s.seat ? 'you' : escapeHtml(t.name)} to play`, true));
+    return;
+  }
+  if (t.canPick) {
+    area.appendChild(prompt('Lock a <b>target number</b> from your roll — you set aside one of it each roll.'));
+    const row = document.createElement('div');
+    row.className = 'btn-row li-picks';
+    const present = [...new Set(t.dice)].sort((a, b) => a - b);
+    present.forEach((v) => {
+      const count = t.dice.filter((d) => d === v).length;
+      const b = actBtn('', 'btn btn-neutral li-pick', () => send({ type: 'pick', target: v }));
+      b.innerHTML = `<b class="pn">${v}</b><small>×${count}</small>`;
+      row.appendChild(b);
+    });
+    area.appendChild(row);
+    return;
+  }
+  if (t.phase === 'zero') {
+    area.appendChild(prompt(`No <b>${t.target}</b> rolled. Spend a chip to reroll, or bank <b>${t.setAside}</b>.`));
+  } else {
+    area.appendChild(prompt(`<b>${t.setAside}</b>/9 set aside on <b>${t.target}</b>. Press your luck or bank it.`));
+  }
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  if (t.canRoll) row.appendChild(actBtn('🎲 Roll again', 'btn btn-good', () => send({ type: 'roll' })));
+  if (t.canReroll) row.appendChild(actBtn('♻ Reroll · −1 chip', 'btn btn-gold', () => send({ type: 'reroll' })));
+  if (t.canStop) row.appendChild(actBtn(`Bank ${t.setAside} pts`, 'btn btn-bad', () => send({ type: 'stop' })));
+  area.appendChild(row);
+}
+
+function renderLIOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : nameForSeat(s, seat))).join(', ');
+  box.appendChild(
+    banner(youWin ? (shared ? '🤝 Shared win!' : '🏆 You win!') : `${names} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'),
+  );
+
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  (s.finals || []).forEach((f) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(f.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(f.seat)}">${initial(nameForSeat(s, f.seat))}</span>` +
+      `<span class="li-fname">${f.seat === s.seat ? 'You' : escapeHtml(nameForSeat(s, f.seat))}</span>` +
+      `<span class="li-fbreak">${f.score} pts + ${f.bonus} chips</span>` +
+      `<span class="li-ftotal">${f.total}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderLILog(s) {
+  const ul = $('liLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
 }
 
 function escapeHtml(str) {
@@ -342,11 +636,12 @@ const posAt = (theta, rx, ry) => ({ left: 50 + rx * Math.cos(theta), top: 50 + r
 
 function renderSeats(s) {
   const list = buildSeatList(s);
+  const bots = botSeatSet(s);
   const sig =
     list
       .map((p) => {
         const turn = p.isYou ? !!(s.betting && s.betting.yourTurn) : !!p.isTurn;
-        return `${p.seat}:${p.chips}:${p.committed || 0}:${p.folded}:${p.allIn}:${turn}:${p.connected}:${p.isYou ? 'Y' : p.holeCount}:${p.revealedCard ? p.revealedCard.suit + p.revealIndex : '-'}`;
+        return `${p.seat}:${p.chips}:${p.committed || 0}:${p.folded}:${p.allIn}:${turn}:${p.connected}:${bots.has(p.seat)}:${p.isYou ? 'Y' : p.holeCount}:${p.revealedCard ? p.revealedCard.suit + p.revealIndex : '-'}`;
       })
       .join('|') + `|${list.length}`;
   if (sig === seatsSig) return;
@@ -386,7 +681,7 @@ function renderSeats(s) {
     body.className = 'pseat-body';
     body.innerHTML =
       `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
-      `<span class="pseat-meta"><span class="pseat-name">${escapeHtml(p.name)}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
+      `<span class="pseat-meta"><span class="pseat-name">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
       `<span class="pseat-chips">🪙 ${p.chips}</span></span>`;
     tile.appendChild(body);
 
@@ -855,6 +1150,18 @@ $('ranksBtn').onclick = openRanks;
 $('ranksClose').onclick = closeRanks;
 $('ranksSheet').addEventListener('click', (e) => {
   if (e.target.id === 'ranksSheet') closeRanks(); // tap the backdrop to dismiss
+});
+
+// Leave buttons (lobby + both game screens)
+$('leaveLobbyBtn').onclick = leaveRoom;
+$('leaveBtn').onclick = leaveRoom;
+$('liLeaveBtn').onclick = leaveRoom;
+
+// Lock In rules sheet
+$('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
+$('liRulesClose').onclick = () => $('liRulesSheet').classList.add('hidden');
+$('liRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'liRulesSheet') $('liRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------

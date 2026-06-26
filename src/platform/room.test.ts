@@ -1,0 +1,202 @@
+// room.test.ts — the game-agnostic room: lobby, host, game selection, routing,
+// reconnection and rematch. The game rules themselves live (and are tested) in
+// games/win-or-die; here we only check the room wires them up correctly.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  createRoom, join, setConnected, selectGame, startMatch, act, rematch, leave, botMove, hasHumans, viewFor,
+  type Room,
+} from './room.ts';
+import { DEFAULT_GAME } from './registry.ts';
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 2 ** 32);
+}
+
+function lobby(n: number, seed = 1): Room {
+  const room = createRoom('T', lcg(seed));
+  for (let i = 0; i < n; i++) join(room, undefined, `P${i}`);
+  return room;
+}
+function playing(n: number, seed = 1): Room {
+  const room = lobby(n, seed);
+  startMatch(room, room.host);
+  return room;
+}
+
+// ---------------------------------------------------------------------------
+// Lobby & start
+// ---------------------------------------------------------------------------
+
+test('lobby gathers players; only the host can start; needs 2+', () => {
+  const room = lobby(3);
+  assert.equal(room.phase, 'lobby');
+  const hv = viewFor(room, room.host) as any;
+  assert.equal(hv.phase, 'lobby');
+  assert.equal(hv.lobby.canStart, true);
+  assert.equal(hv.lobby.selectedGame, DEFAULT_GAME);
+  assert.ok(Array.isArray(hv.lobby.games) && hv.lobby.games.length >= 1);
+
+  assert.match(startMatch(room, (room.host + 1) % 3).error!, /host/i);
+  const solo = lobby(1);
+  assert.match(startMatch(solo, solo.host).error!, /at least 2/i);
+
+  assert.equal(startMatch(room, room.host).error, undefined);
+  assert.equal(room.phase, 'playing');
+  assert.ok(room.game);
+  // The playing view is the game's view wrapped with room identity.
+  const pv = viewFor(room, room.host) as any;
+  assert.equal(pv.type, 'state');
+  assert.equal(pv.youAreHost, true);
+  assert.equal(pv.phase, 'bet1');
+  assert.equal(pv.roster.length, 3);
+});
+
+test('the host can switch games in the lobby; non-hosts cannot', () => {
+  const room = lobby(2);
+  assert.match(selectGame(room, (room.host + 1) % 2, DEFAULT_GAME).error!, /host/i);
+  assert.match(selectGame(room, room.host, 'no-such-game').error!, /unknown/i);
+  assert.equal(selectGame(room, room.host, DEFAULT_GAME).error, undefined);
+  assert.equal(room.gameId, DEFAULT_GAME);
+});
+
+test('a player cannot join a match in progress, but a token reconnect works', () => {
+  const room = playing(2);
+  const late = join(room, undefined, 'late');
+  assert.equal(late.ok, false);
+  const tok = room.members[0]!.token;
+  const rj = join(room, tok, 'P0');
+  assert.equal(rj.ok, true);
+  assert.equal((rj as any).reconnected, true);
+});
+
+test('leaving hands the seat to a bot and passes the host to a human', () => {
+  const room = lobby(3);
+  const host = room.host;
+  assert.equal(hasHumans(room), true);
+  // the host leaves: their seat becomes a bot, host passes to a human seat
+  leave(room, host);
+  assert.ok(room.members[host], 'seat is still occupied');
+  assert.equal(room.members[host]!.bot, true);
+  assert.notEqual(room.host, host);
+  assert.equal(room.members[room.host]!.bot ?? false, false, 'a bot is never the host');
+});
+
+test('a bot plays its turn through botMove', () => {
+  const room = lobby(2);
+  startMatch(room, room.host);
+  // hand seat 1 to a bot, then it should produce a legal move on its turn
+  leave(room, 1);
+  // drive the match purely via bot moves + host autoplay until something happens
+  let moves = 0;
+  for (let i = 0; i < 50; i++) {
+    const mv = botMove(room);
+    if (!mv) break;
+    assert.equal(mv.seat, 1, 'only the bot seat is driven');
+    assert.equal(act(room, mv.seat, mv.msg).error, undefined, 'bot moves are legal');
+    moves++;
+  }
+  assert.ok(moves > 0, 'the bot took at least one action');
+});
+
+test('hasHumans is false once every seat is a bot', () => {
+  const room = lobby(2);
+  leave(room, 0);
+  assert.equal(hasHumans(room), true);
+  leave(room, 1);
+  assert.equal(hasHumans(room), false);
+});
+
+// ---------------------------------------------------------------------------
+// Routing & reconnection
+// ---------------------------------------------------------------------------
+
+test('in-game actions route to the active game', () => {
+  const room = playing(2, 9);
+  const game = room.game!;
+  const first = (game.def.view(game.state, room.host) as any).betting.toAct as number;
+  // A raise from the wrong seat is rejected by the game, surfaced through the room.
+  const wrong = (first + 1) % 2;
+  assert.match(act(room, wrong, { type: 'action', action: 'check' }).error!, /turn/i);
+  // The correct seat's action is accepted.
+  assert.equal(act(room, first, { type: 'action', action: 'check' }).error, undefined);
+});
+
+test('act outside a match is rejected', () => {
+  const room = lobby(2);
+  assert.match(act(room, 0, { type: 'action', action: 'check' }).error!, /no game/i);
+});
+
+test('disconnect/reconnect propagate to the game', () => {
+  const room = playing(2, 4);
+  const game = room.game!;
+  setConnected(room, 0, false);
+  assert.equal((game.def.view(game.state, 1) as any).others.find((o: any) => o.seat === 0).connected, false);
+  setConnected(room, 0, true);
+  assert.equal((game.def.view(game.state, 1) as any).others.find((o: any) => o.seat === 0).connected, true);
+});
+
+// ---------------------------------------------------------------------------
+// Rematch
+// ---------------------------------------------------------------------------
+
+test('rematch only returns to the lobby once the match is over', () => {
+  const room = playing(2, 11);
+  // mid-match rematch is a no-op
+  assert.equal(rematch(room, 0).error, undefined);
+  assert.equal(room.phase, 'playing');
+
+  // Drive the match to completion, then rematch back to the lobby.
+  const c = { rng: room.rng, now: 0 };
+  let guard = 0;
+  while (!room.game!.def.result(room.game!.state).over && guard++ < 2_000_000) {
+    autoStep(room, c);
+  }
+  rematch(room, 0);
+  assert.equal(room.phase, 'lobby');
+  assert.equal(room.game, null);
+  // Same members are still seated and can start again.
+  assert.equal(room.members.filter(Boolean).length, 2);
+});
+
+// Minimal autoplayer that talks only through the room's act().
+function autoStep(room: Room, _c: { rng: () => number; now: number }) {
+  const v = room.game!.def.view(room.game!.state, room.host) as any;
+  switch (v.phase) {
+    case 'bet1':
+    case 'bet2': {
+      const s = v.betting?.toAct;
+      if (typeof s !== 'number' || s === -1) return;
+      const sv = room.game!.def.view(room.game!.state, s) as any;
+      act(room, s, { type: 'action', action: sv.betting.canCheck ? 'check' : 'call' });
+      break;
+    }
+    case 'reveal':
+      for (const o of seatsInHand(room)) {
+        const pv = room.game!.def.view(room.game!.state, o) as any;
+        if (pv.you.revealIndex === null && pv.you.hole) {
+          const idx = pv.you.hole.findIndex((c: any) => c && c.suit !== 'liar');
+          act(room, o, { type: 'reveal', cardIndex: idx });
+        }
+      }
+      break;
+    case 'discuss':
+      for (const o of seatsInHand(room)) act(room, o, { type: 'discussDone' });
+      break;
+    case 'showdown':
+      for (const o of seatsInHand(room)) {
+        const pv = room.game!.def.view(room.game!.state, o) as any;
+        if (pv.liar?.needsYou) act(room, o, { type: 'liar', values: new Array(pv.liar.wildSlots.length).fill('rock') });
+      }
+      act(room, room.host, { type: 'nextRound' });
+      break;
+  }
+}
+function seatsInHand(room: Room): number[] {
+  const v = room.game!.def.view(room.game!.state, room.host) as any;
+  const out: number[] = [];
+  if (v.you?.inHand) out.push(room.host);
+  for (const o of v.others ?? []) if (o.inHand) out.push(o.seat);
+  return out;
+}
