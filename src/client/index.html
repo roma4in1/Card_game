@@ -207,6 +207,44 @@
       </div>
     </div>
 
+    <!-- Spy Game (hidden-role football clue game) -->
+    <section id="spygame" class="screen spygame hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="sgRoom">····</b></div>
+        <div class="phase-pill" id="sgPhase">Clues</div>
+        <button id="sgRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="sgLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="sgCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="sg-main">
+        <div class="sg-role" id="sgRole"></div>
+        <div class="action-area" id="sgActions"></div>
+        <div class="sg-clues" id="sgClues"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="sgLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Spy Game rules reference -->
+    <div id="sgRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Spy Game — how to play</h3>
+          <button id="sgRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Every player shares one secret footballer — except the spy, who has a similar decoy.</p>
+        <div class="rules-body">
+          <p><b>Detectives:</b> you all share the same secret player. Over <b>3 rounds</b>, each give a one-word clue about them — but don't be so obvious the spy works it out.</p>
+          <p><b>Spy:</b> you get a <i>different</i> but similar player. Blend in with plausible clues and avoid the vote.</p>
+          <p><b>Vote:</b> after the clues, everyone secretly votes for the spy. Most votes is caught (a tie means the spy escapes).</p>
+          <p><b>If the spy is caught</b>, they get one guess at the detectives' player from a shortlist — guess right and the spy <b>steals the win</b>; guess wrong and the detectives win.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

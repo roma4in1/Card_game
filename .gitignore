@@ -1,0 +1,6 @@
+# Dependencies (restored via `npm install`) — never commit these.
+node_modules/
+
+# macOS / editor cruft
+.DS_Store
+*.log

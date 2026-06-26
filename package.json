@@ -12,6 +12,7 @@
     "dev": "node --watch src/server.ts"
   },
   "dependencies": {
+    "node": "^26.4.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {

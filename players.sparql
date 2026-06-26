@@ -1,0 +1,37 @@
+#standard query — paste into https://query.wikidata.org and run, OR fetch via the
+# REST endpoint (see fetch-players.js). Returns notable association-football players
+# with nationality, positions, and the leagues their clubs played in.
+#
+# Notability filter: ordered by sitelink count (number of Wikipedia language editions),
+# a strong fame proxy. We pull a generous pool here (LIMIT) and trim/curate to 500 in
+# the transform step.
+
+SELECT ?player ?playerLabel ?sitelinks
+       (GROUP_CONCAT(DISTINCT ?countryLabel; separator="|") AS ?nationalities)
+       (GROUP_CONCAT(DISTINCT ?posLabel;     separator="|") AS ?positions)
+       (GROUP_CONCAT(DISTINCT ?leagueLabel;  separator="|") AS ?leagues)
+       (MIN(?born) AS ?birth)
+WHERE {
+  ?player wdt:P106 wd:Q937857 .          # occupation: association football player
+  ?player wikibase:sitelinks ?sitelinks .
+  FILTER(?sitelinks >= 30)               # fame threshold; raise for stricter, lower for more
+
+  OPTIONAL { ?player wdt:P27 ?country. }                 # nationality
+  OPTIONAL { ?player wdt:P413 ?pos. }                    # position played on team
+  OPTIONAL { ?player wdt:P569 ?born. }                   # date of birth
+  OPTIONAL {                                              # clubs -> their leagues
+    ?player wdt:P54 ?club .
+    ?club  wdt:P118 ?league .
+  }
+
+  SERVICE wikibase:label {
+    bd:serviceParam wikibase:language "en" .
+    ?country  rdfs:label ?countryLabel .
+    ?pos      rdfs:label ?posLabel .
+    ?league   rdfs:label ?leagueLabel .
+    ?player   rdfs:label ?playerLabel .
+  }
+}
+GROUP BY ?player ?playerLabel ?sitelinks
+ORDER BY DESC(?sitelinks)
+LIMIT 1500

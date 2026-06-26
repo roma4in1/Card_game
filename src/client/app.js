@@ -261,6 +261,11 @@ function render() {
     renderYahtzee(s);
     return;
   }
+  if (s.gameId === 'spy-game') {
+    ensureScreen('spygame');
+    renderSpyGame(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -898,6 +903,221 @@ function renderYzLog(s) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Spy Game — hidden-role football clue game
+// ---------------------------------------------------------------------------
+
+const SG_PHASE_LABEL = { clues: 'Clues', voting: 'Voting', spyGuess: "Spy's guess", done: 'Reveal' };
+const sgName = (s, seat) => {
+  const p = (s.players || []).find((x) => x.seat === seat);
+  return p ? p.name : `Seat ${seat + 1}`;
+};
+
+function renderSpyGame(s) {
+  $('sgRoom').textContent = s.room;
+  $('sgPhase').textContent = s.over ? 'Reveal' : SG_PHASE_LABEL[s.phase] || s.phase;
+  $('sgCopy').onclick = copyInvite;
+  renderSgRole(s);
+  renderSgActions(s);
+  renderSgClues(s);
+  renderSgLog(s);
+}
+
+function renderSgRole(s) {
+  const el = $('sgRole');
+  const you = s.you || {};
+  if (you.spectator) {
+    el.className = 'sg-role';
+    el.innerHTML = '<div class="sg-rolecard">Spectating this match</div>';
+    return;
+  }
+  const spy = you.isSpy;
+  el.className = 'sg-role ' + (spy ? 'is-spy' : 'is-detective');
+  el.innerHTML =
+    `<div class="sg-roletag">${spy ? '🕵️ You are the SPY' : '🔎 You are a Detective'}</div>` +
+    `<div class="sg-secret"><span class="sg-secretlbl">Your player</span><b>${escapeHtml(you.secret || '?')}</b></div>` +
+    `<div class="sg-rolehint">${spy ? 'Blend in — your player is a decoy, not the others’ one.' : 'Clue your player without tipping off the spy.'}</div>`;
+}
+
+function renderSgActions(s) {
+  const area = $('sgActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderSgReveal(s));
+    return;
+  }
+  if (s.phase === 'clues') return renderSgCluePhase(area, s);
+  if (s.phase === 'voting') return renderSgVoting(area, s);
+  if (s.phase === 'spyGuess') return renderSgGuess(area, s);
+}
+
+function renderSgCluePhase(area, s) {
+  const t = s.turn || {};
+  if (t.yourTurn) {
+    area.appendChild(prompt(`Round <b>${s.round}</b>/3 — give a <b>one-word clue</b> about your player.`));
+    const form = document.createElement('form');
+    form.className = 'sg-clueform';
+    const input = document.createElement('input');
+    input.maxLength = 30;
+    input.placeholder = 'your clue…';
+    input.autocomplete = 'off';
+    const btn = document.createElement('button');
+    btn.type = 'submit';
+    btn.className = 'btn btn-good';
+    btn.textContent = 'Submit';
+    form.append(input, btn);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const w = input.value.trim();
+      if (w) send({ type: 'submitClue', word: w });
+    };
+    area.appendChild(form);
+    setTimeout(() => input.focus(), 0);
+  } else {
+    const who = s.activeSeat != null ? sgName(s, s.activeSeat) : '';
+    area.appendChild(callout(`Round ${s.round}/3 — waiting for ${escapeHtml(who)} to clue`, true));
+  }
+}
+
+function renderSgVoting(area, s) {
+  const v = s.voting || {};
+  const bots = botSeatSet(s);
+  if (v.youVoted) {
+    area.appendChild(callout(`Vote locked in — waiting for ${v.waiting} more`, true));
+  } else {
+    area.appendChild(prompt('Who is the <b>spy</b>? Cast your secret vote.'));
+    const grid = document.createElement('div');
+    grid.className = 'sg-votegrid';
+    (v.options || []).forEach((o) => {
+      const b = actBtn('', 'sg-votebtn', () => send({ type: 'castVote', target: o.seat }));
+      b.innerHTML =
+        `<span class="avatar sm" style="background:${seatColor(o.seat)}">${initial(o.name)}</span>` +
+        `<span>${escapeHtml(o.name)}${bots.has(o.seat) ? ' 🤖' : ''}</span>`;
+      grid.appendChild(b);
+    });
+    area.appendChild(grid);
+  }
+  area.appendChild(renderSgVoteStatus(s));
+}
+
+function renderSgVoteStatus(s) {
+  const box = document.createElement('div');
+  box.className = 'sg-votestatus';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('span');
+    chip.className = 'sg-vchip' + (p.hasVoted ? ' voted' : '');
+    chip.style.background = seatColor(p.seat);
+    chip.title = p.name + (p.hasVoted ? ' — voted' : ' — thinking');
+    chip.textContent = p.hasVoted ? '✓' : initial(p.name);
+    box.appendChild(chip);
+  });
+  return box;
+}
+
+function renderSgGuess(area, s) {
+  const g = s.guess || {};
+  if (g.needsYou) {
+    area.appendChild(prompt('🕵️ You were <b>caught</b>! Guess the Detectives’ player to steal the win:'));
+    const grid = document.createElement('div');
+    grid.className = 'sg-guessgrid';
+    (g.options || []).forEach((o) => {
+      grid.appendChild(actBtn(o.name, 'btn btn-gold sg-guessbtn', () => send({ type: 'spyGuess', choice: o.id })));
+    });
+    area.appendChild(grid);
+  } else {
+    area.appendChild(callout(`${escapeHtml(g.caughtName || 'The spy')} was caught — waiting for their guess…`, true));
+  }
+  if (s.voteResult) area.appendChild(renderSgVotes(s, s.voteResult.votes, s.caughtId));
+}
+
+function renderSgReveal(s) {
+  const r = s.reveal || {};
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  box.appendChild(banner(youWin ? '🏆 You win!' : 'You lose', youWin ? 'win' : 'lose'));
+
+  const sub = document.createElement('div');
+  sub.className = 'sg-revealsub';
+  sub.innerHTML = r.spyWon
+    ? `🕵️ <b>${escapeHtml(r.spyName)}</b> was the spy and got away${r.guess ? ` — guessed <b>${escapeHtml(r.guess)}</b> ${r.guessCorrect ? '✓ correct!' : ''}` : ''}.`
+    : `🎯 The Detectives caught <b>${escapeHtml(r.spyName)}</b>${r.guess ? `, who wrongly guessed ${escapeHtml(r.guess)}` : ''}.`;
+  box.appendChild(sub);
+
+  const cards = document.createElement('div');
+  cards.className = 'sg-revealcards';
+  cards.innerHTML =
+    `<div class="sg-rcard det"><span>Detectives’ player</span><b>${escapeHtml(r.target)}</b></div>` +
+    `<div class="sg-rcard spy"><span>Spy’s decoy</span><b>${escapeHtml(r.decoy)}</b></div>`;
+  box.appendChild(cards);
+
+  box.appendChild(renderSgVotes(s, r.votes, r.spyId));
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderSgVotes(s, votes, spyId) {
+  const box = document.createElement('div');
+  box.className = 'sg-votes';
+  const title = document.createElement('div');
+  title.className = 'sg-votestitle';
+  title.textContent = 'Votes';
+  box.appendChild(title);
+  (votes || []).forEach((vt) => {
+    const row = document.createElement('div');
+    row.className = 'sg-voterow';
+    const to = vt.vote != null ? sgName(s, vt.vote) : '—';
+    row.innerHTML =
+      `<span style="color:${seatColor(vt.seat)}">${escapeHtml(vt.name)}${vt.seat === spyId ? ' 🕵️' : ''}</span>` +
+      `<span class="sg-arrow">→</span><b>${escapeHtml(to)}</b>`;
+    box.appendChild(row);
+  });
+  return box;
+}
+
+function renderSgClues(s) {
+  const el = $('sgClues');
+  el.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'sg-cluestitle';
+  title.textContent = 'Clue log';
+  el.appendChild(title);
+  if (!s.clueLog || !s.clueLog.length) {
+    const empty = document.createElement('div');
+    empty.className = 'sg-empty';
+    empty.textContent = 'No clues yet…';
+    el.appendChild(empty);
+    return;
+  }
+  let curRound = 0;
+  for (const c of s.clueLog) {
+    if (c.round !== curRound) {
+      curRound = c.round;
+      const rd = document.createElement('div');
+      rd.className = 'sg-round';
+      rd.textContent = 'Round ' + curRound;
+      el.appendChild(rd);
+    }
+    const row = document.createElement('div');
+    row.className = 'sg-clue';
+    row.innerHTML =
+      `<span class="avatar xs" style="background:${seatColor(c.seat)}">${initial(c.name)}</span>` +
+      `<span class="sg-cluename" style="color:${seatColor(c.seat)}">${escapeHtml(c.name)}</span>` +
+      `<span class="sg-clueword">“${escapeHtml(c.word)}”</span>`;
+    el.appendChild(row);
+  }
+}
+
+function renderSgLog(s) {
+  const ul = $('sgLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -1470,6 +1690,7 @@ $('leaveLobbyBtn').onclick = leaveRoom;
 $('leaveBtn').onclick = leaveRoom;
 $('liLeaveBtn').onclick = leaveRoom;
 $('yzLeaveBtn').onclick = leaveRoom;
+$('sgLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
@@ -1483,6 +1704,13 @@ $('yzRulesBtn').onclick = () => $('yzRulesSheet').classList.remove('hidden');
 $('yzRulesClose').onclick = () => $('yzRulesSheet').classList.add('hidden');
 $('yzRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'yzRulesSheet') $('yzRulesSheet').classList.add('hidden');
+});
+
+// Spy Game rules sheet
+$('sgRulesBtn').onclick = () => $('sgRulesSheet').classList.remove('hidden');
+$('sgRulesClose').onclick = () => $('sgRulesSheet').classList.add('hidden');
+$('sgRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'sgRulesSheet') $('sgRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------
