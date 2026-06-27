@@ -281,6 +281,11 @@ function render() {
     renderTectonic(s);
     return;
   }
+  if (s.gameId === 'memory-match') {
+    ensureScreen('memorymatch');
+    renderMemoryMatch(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -1651,6 +1656,146 @@ function renderTecLog(s) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Memory Match — multilingual concentration
+// ---------------------------------------------------------------------------
+
+const MM_LANGS = [
+  { code: 'en', label: 'EN', flag: '🇬🇧' },
+  { code: 'fr', label: 'FR', flag: '🇫🇷' },
+  { code: 'ko', label: 'KO', flag: '🇰🇷' },
+];
+const mmFlag = (code) => (MM_LANGS.find((l) => l.code === code) || {}).flag || '';
+
+function renderMemoryMatch(s) {
+  $('mmRoom').textContent = s.room;
+  const active = (s.players || []).find((p) => p.isTurn);
+  const pill = $('mmTurn');
+  pill.textContent = s.over ? 'Game over' : active ? `${active.seat === s.seat ? 'Your' : escapeHtml(active.name) + '’s'} turn · ${s.pairsLeft} left` : '—';
+  pill.className = 'phase-pill';
+  $('mmCopy').onclick = copyInvite;
+  renderMMPlayers(s);
+  renderMMBoard(s);
+  renderMMActions(s);
+  renderMMLog(s);
+}
+
+function renderMMPlayers(s) {
+  const box = $('mmPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'mm-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="mm-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="mm-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="mm-plang">${mmFlag(p.lang)}</span>` +
+      `<span class="mm-pscore">${p.score}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderMMBoard(s) {
+  const box = $('mmBoard');
+  box.innerHTML = '';
+  const you = s.you || {};
+  const canFlip = !s.over && you.canFlip;
+  const n = (s.cards || []).length;
+  box.style.setProperty('--mm-cols', n <= 16 ? 4 : n <= 24 ? 6 : 8);
+  const flipped = new Set(s.flipped || []);
+  for (const c of s.cards || []) {
+    const el = document.createElement('button');
+    el.className = 'mm-card ' + (c.faceUp ? 'up' : 'down') + ' ' + c.side;
+    if (c.matched) el.classList.add('matched');
+    if (c.peek) el.classList.add('miss');
+    if (flipped.has(c.cardId)) el.classList.add('sel');
+    if (c.matchedBy != null) el.style.borderColor = seatColor(c.matchedBy);
+    if (c.faceUp) {
+      el.innerHTML = c.side === 'word' ? `<span class="mm-word">${escapeHtml(c.text || '')}</span>` : `<span class="mm-emoji">${c.emoji || ''}</span>`;
+    } else {
+      el.innerHTML = `<span class="mm-back">${c.side === 'word' ? 'Aa' : '🖼'}</span>`;
+    }
+    if (canFlip && !c.faceUp) el.onclick = () => send({ type: 'flipCard', cardId: c.cardId });
+    else el.disabled = true;
+    box.appendChild(el);
+  }
+}
+
+function renderMMLangPicker(s) {
+  const row = document.createElement('div');
+  row.className = 'mm-langrow';
+  const lbl = document.createElement('span');
+  lbl.className = 'mm-langlbl';
+  lbl.textContent = 'Your language:';
+  row.appendChild(lbl);
+  const mine = (s.you || {}).lang || 'en';
+  for (const l of MM_LANGS) {
+    row.appendChild(actBtn(`${l.flag} ${l.label}`, 'btn ' + (mine === l.code ? 'btn-gold' : 'btn-neutral') + ' mm-langbtn', () => send({ type: 'setLanguage', lang: l.code })));
+  }
+  return row;
+}
+
+function renderMMActions(s) {
+  const area = $('mmActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderMMOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (!you.spectator) area.appendChild(renderMMLangPicker(s));
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this match', true));
+    return;
+  }
+  if (s.phase === 'reveal') {
+    area.appendChild(callout('No match — flipping back…', true));
+    return;
+  }
+  if (you.isTurn) {
+    const flippedN = (s.flipped || []).length;
+    area.appendChild(prompt(flippedN === 1 ? 'Flip a <b>second</b> card to find its match.' : 'Your turn — <b>flip two cards</b> to find a word + its picture.'));
+  } else {
+    const active = (s.players || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to flip`, true));
+  }
+}
+
+function renderMMOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? (shared ? '🤝 Shared win!' : '🏆 You win!') : `${escapeHtml(names)} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="mm-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)} ${mmFlag(p.lang)}</span>` +
+      `<span class="li-ftotal">${p.score} pairs</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderMMLog(s) {
+  const ul = $('mmLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -2227,6 +2372,7 @@ $('sgLeaveBtn').onclick = leaveRoom;
 $('cnLeaveBtn').onclick = leaveRoom;
 $('qrLeaveBtn').onclick = leaveRoom;
 $('tecLeaveBtn').onclick = leaveRoom;
+$('mmLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
@@ -2268,6 +2414,13 @@ $('tecRulesBtn').onclick = () => $('tecRulesSheet').classList.remove('hidden');
 $('tecRulesClose').onclick = () => $('tecRulesSheet').classList.add('hidden');
 $('tecRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'tecRulesSheet') $('tecRulesSheet').classList.add('hidden');
+});
+
+// Memory Match rules sheet
+$('mmRulesBtn').onclick = () => $('mmRulesSheet').classList.remove('hidden');
+$('mmRulesClose').onclick = () => $('mmRulesSheet').classList.add('hidden');
+$('mmRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'mmRulesSheet') $('mmRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------

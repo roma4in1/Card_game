@@ -23,6 +23,7 @@ import {
   leave,
   botMove,
   hasHumans,
+  tick,
   viewFor,
   MAX_SEATS,
   type Room,
@@ -252,6 +253,12 @@ wss.on('connection', (ws) => {
   });
   ws.on('error', () => {});
 });
+
+// Drive timed game mechanics (e.g. Memory Match's no-match flip-back). Tick each
+// playing room; broadcast only those whose state actually advanced.
+setInterval(() => {
+  for (const room of rooms.values()) if (tick(room)) broadcast(room);
+}, 500).unref();
 
 // Reap abandoned rooms (no connected human for over an hour; bots don't count).
 setInterval(() => {

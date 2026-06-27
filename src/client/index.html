@@ -360,6 +360,44 @@
       </div>
     </div>
 
+    <!-- Memory Match (multilingual concentration) -->
+    <section id="memorymatch" class="screen memorymatch hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="mmRoom">····</b></div>
+        <div class="phase-pill" id="mmTurn">—</div>
+        <button id="mmRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="mmLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="mmCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="mm-main">
+        <div class="mm-players" id="mmPlayers"></div>
+        <div class="mm-board" id="mmBoard"></div>
+        <div class="action-area" id="mmActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="mmLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Memory Match rules reference -->
+    <div id="mmRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Memory Match — how to play</h3>
+          <button id="mmRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Match each word to its picture. Most pairs wins.</p>
+        <div class="rules-body">
+          <p>On your turn, flip <b>two cards</b>. A pair is a <b>word</b> card and the <b>picture</b> of the same thing (e.g. “apple” + 🍎).</p>
+          <p><b>Match</b> → you keep the pair, score a point, and go again. <b>Miss</b> → the cards flip back and the next player goes.</p>
+          <p>Word cards show in <b>your chosen language</b> (English, French, or Korean) — switch anytime; everyone sees the same board, just their own language.</p>
+          <p>The game ends when the board is cleared. Most pairs wins; a tie is shared.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

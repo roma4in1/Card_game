@@ -10,11 +10,14 @@ import { createCodenames } from '../games/codenames/game.ts';
 import { WORD_BANK as CODENAMES_WORDS } from '../games/codenames/wordbank.ts';
 import { quoridor } from '../games/quoridor/game.ts';
 import { tectonic } from '../games/tectonic/game.ts';
+import { createMemoryMatch } from '../games/memory-match/game.ts';
+import { CONCEPTS } from '../games/memory-match/conceptbank.ts';
 
 const spyGame = createSpyGame(SPY_WORDS);
 const codenames = createCodenames(CODENAMES_WORDS);
+const memoryMatch = createMemoryMatch(CONCEPTS);
 
-const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic];
+const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch];
 
 export const GAMES: Record<string, GameDef> = Object.fromEntries(ALL.map((g) => [g.id, g]));
 export const GAME_SUMMARIES: GameSummary[] = ALL.map(gameSummary);

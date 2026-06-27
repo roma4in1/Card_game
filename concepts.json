@@ -1,0 +1,352 @@
+[
+  {
+    "id": 1,
+    "emoji": "🍎",
+    "en": "apple",
+    "fr": "pomme",
+    "ko": "사과"
+  },
+  {
+    "id": 2,
+    "emoji": "🐶",
+    "en": "dog",
+    "fr": "chien",
+    "ko": "개"
+  },
+  {
+    "id": 3,
+    "emoji": "🐱",
+    "en": "cat",
+    "fr": "chat",
+    "ko": "고양이"
+  },
+  {
+    "id": 4,
+    "emoji": "🌳",
+    "en": "tree",
+    "fr": "arbre",
+    "ko": "나무"
+  },
+  {
+    "id": 5,
+    "emoji": "⭐",
+    "en": "star",
+    "fr": "étoile",
+    "ko": "별"
+  },
+  {
+    "id": 6,
+    "emoji": "🏠",
+    "en": "house",
+    "fr": "maison",
+    "ko": "집"
+  },
+  {
+    "id": 7,
+    "emoji": "🚗",
+    "en": "car",
+    "fr": "voiture",
+    "ko": "자동차"
+  },
+  {
+    "id": 8,
+    "emoji": "☀️",
+    "en": "sun",
+    "fr": "soleil",
+    "ko": "태양"
+  },
+  {
+    "id": 9,
+    "emoji": "🌙",
+    "en": "moon",
+    "fr": "lune",
+    "ko": "달"
+  },
+  {
+    "id": 10,
+    "emoji": "🐟",
+    "en": "fish",
+    "fr": "poisson",
+    "ko": "물고기"
+  },
+  {
+    "id": 11,
+    "emoji": "🐦",
+    "en": "bird",
+    "fr": "oiseau",
+    "ko": "새"
+  },
+  {
+    "id": 12,
+    "emoji": "🌸",
+    "en": "flower",
+    "fr": "fleur",
+    "ko": "꽃"
+  },
+  {
+    "id": 13,
+    "emoji": "📖",
+    "en": "book",
+    "fr": "livre",
+    "ko": "책"
+  },
+  {
+    "id": 14,
+    "emoji": "🔑",
+    "en": "key",
+    "fr": "clé",
+    "ko": "열쇠"
+  },
+  {
+    "id": 15,
+    "emoji": "⏰",
+    "en": "clock",
+    "fr": "horloge",
+    "ko": "시계"
+  },
+  {
+    "id": 16,
+    "emoji": "✈️",
+    "en": "plane",
+    "fr": "avion",
+    "ko": "비행기"
+  },
+  {
+    "id": 17,
+    "emoji": "🚢",
+    "en": "ship",
+    "fr": "bateau",
+    "ko": "배"
+  },
+  {
+    "id": 18,
+    "emoji": "🐴",
+    "en": "horse",
+    "fr": "cheval",
+    "ko": "말"
+  },
+  {
+    "id": 19,
+    "emoji": "🐘",
+    "en": "elephant",
+    "fr": "éléphant",
+    "ko": "코끼리"
+  },
+  {
+    "id": 20,
+    "emoji": "🦁",
+    "en": "lion",
+    "fr": "lion",
+    "ko": "사자"
+  },
+  {
+    "id": 21,
+    "emoji": "🐻",
+    "en": "bear",
+    "fr": "ours",
+    "ko": "곰"
+  },
+  {
+    "id": 22,
+    "emoji": "🍌",
+    "en": "banana",
+    "fr": "banane",
+    "ko": "바나나"
+  },
+  {
+    "id": 23,
+    "emoji": "🍇",
+    "en": "grapes",
+    "fr": "raisin",
+    "ko": "포도"
+  },
+  {
+    "id": 24,
+    "emoji": "🍋",
+    "en": "lemon",
+    "fr": "citron",
+    "ko": "레몬"
+  },
+  {
+    "id": 25,
+    "emoji": "🥚",
+    "en": "egg",
+    "fr": "œuf",
+    "ko": "계란"
+  },
+  {
+    "id": 26,
+    "emoji": "🧀",
+    "en": "cheese",
+    "fr": "fromage",
+    "ko": "치즈"
+  },
+  {
+    "id": 27,
+    "emoji": "🍞",
+    "en": "bread",
+    "fr": "pain",
+    "ko": "빵"
+  },
+  {
+    "id": 28,
+    "emoji": "🥛",
+    "en": "milk",
+    "fr": "lait",
+    "ko": "우유"
+  },
+  {
+    "id": 29,
+    "emoji": "☕",
+    "en": "coffee",
+    "fr": "café",
+    "ko": "커피"
+  },
+  {
+    "id": 30,
+    "emoji": "🔥",
+    "en": "fire",
+    "fr": "feu",
+    "ko": "불"
+  },
+  {
+    "id": 31,
+    "emoji": "💧",
+    "en": "water",
+    "fr": "eau",
+    "ko": "물"
+  },
+  {
+    "id": 32,
+    "emoji": "❄️",
+    "en": "snow",
+    "fr": "neige",
+    "ko": "눈"
+  },
+  {
+    "id": 33,
+    "emoji": "☁️",
+    "en": "cloud",
+    "fr": "nuage",
+    "ko": "구름"
+  },
+  {
+    "id": 34,
+    "emoji": "🌧️",
+    "en": "rain",
+    "fr": "pluie",
+    "ko": "비"
+  },
+  {
+    "id": 35,
+    "emoji": "⚽",
+    "en": "ball",
+    "fr": "ballon",
+    "ko": "공"
+  },
+  {
+    "id": 36,
+    "emoji": "🎵",
+    "en": "music",
+    "fr": "musique",
+    "ko": "음악"
+  },
+  {
+    "id": 37,
+    "emoji": "👁️",
+    "en": "eye",
+    "fr": "œil",
+    "ko": "눈(目)"
+  },
+  {
+    "id": 38,
+    "emoji": "✋",
+    "en": "hand",
+    "fr": "main",
+    "ko": "손"
+  },
+  {
+    "id": 39,
+    "emoji": "🦶",
+    "en": "foot",
+    "fr": "pied",
+    "ko": "발"
+  },
+  {
+    "id": 40,
+    "emoji": "❤️",
+    "en": "heart",
+    "fr": "cœur",
+    "ko": "심장"
+  },
+  {
+    "id": 41,
+    "emoji": "🌹",
+    "en": "rose",
+    "fr": "rose",
+    "ko": "장미"
+  },
+  {
+    "id": 42,
+    "emoji": "🍄",
+    "en": "mushroom",
+    "fr": "champignon",
+    "ko": "버섯"
+  },
+  {
+    "id": 43,
+    "emoji": "🐝",
+    "en": "bee",
+    "fr": "abeille",
+    "ko": "벌"
+  },
+  {
+    "id": 44,
+    "emoji": "🦋",
+    "en": "butterfly",
+    "fr": "papillon",
+    "ko": "나비"
+  },
+  {
+    "id": 45,
+    "emoji": "🐍",
+    "en": "snake",
+    "fr": "serpent",
+    "ko": "뱀"
+  },
+  {
+    "id": 46,
+    "emoji": "🐸",
+    "en": "frog",
+    "fr": "grenouille",
+    "ko": "개구리"
+  },
+  {
+    "id": 47,
+    "emoji": "🌍",
+    "en": "earth",
+    "fr": "terre",
+    "ko": "지구"
+  },
+  {
+    "id": 48,
+    "emoji": "🧊",
+    "en": "ice",
+    "fr": "glace",
+    "ko": "얼음"
+  },
+  {
+    "id": 49,
+    "emoji": "🗝️",
+    "en": "lock",
+    "fr": "serrure",
+    "ko": "자물쇠"
+  },
+  {
+    "id": 50,
+    "emoji": "🎁",
+    "en": "gift",
+    "fr": "cadeau",
+    "ko": "선물"
+  }
+]

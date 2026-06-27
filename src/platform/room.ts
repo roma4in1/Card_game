@@ -182,9 +182,10 @@ export function rematch(room: Room, _seat: number): ActionResult {
   return ok;
 }
 
-/** Periodic tick so games can enforce timeouts/clocks. */
-export function tick(room: Room) {
-  if (room.phase === 'playing' && room.game) room.game.def.tick?.(room.game.state, ctxFor(room));
+/** Periodic tick so games can enforce timeouts/clocks. Returns true if state changed. */
+export function tick(room: Room): boolean {
+  if (room.phase === 'playing' && room.game) return room.game.def.tick?.(room.game.state, ctxFor(room)) === true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------

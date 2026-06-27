@@ -60,8 +60,9 @@ export interface GameDef<S = unknown> {
    */
   act(state: S, seat: number, msg: Record<string, unknown>, ctx: GameContext): { error?: string } | void;
 
-  /** Optional periodic tick (~1Hz) for timeouts / turn clocks; the game stores its own deadlines. */
-  tick?(state: S, ctx: GameContext): void;
+  /** Optional periodic tick (~2Hz) for timeouts / turn clocks; the game stores its own
+   *  deadlines in `ctx.now`. Return `true` if it changed state (so the room re-broadcasts). */
+  tick?(state: S, ctx: GameContext): boolean | void;
 
   /** Optional: a player dropped — resolve anything they owed (e.g. a pending choice). */
   onDisconnect?(state: S, seat: number, ctx: GameContext): void;
