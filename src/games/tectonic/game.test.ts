@@ -37,16 +37,18 @@ const line = (n: number, values: number[]) =>
 // Slide legality
 // ---------------------------------------------------------------------------
 
-test('a slide stops before the first gap / pawn / edge', () => {
+test('a slide goes all the way to the last hex before a gap / pawn / edge', () => {
   // hexes (0,0)..(4,0); a gap at (3,0); pawn P0 at (0,0)
   const s = mk({ hexes: [...line(5, [0, 3, 3, 1, 1])].map((h, i) => (i === 3 ? { ...h, state: 'gap' as const } : h)), pawns: [{ id: 0, owner: 0, q: 0, r: 0 }] });
-  const slides = view(s, 0).legal.filter((m: any) => m.direction === 0); // direction 0 = +q
-  assert.deepEqual(slides.map((m: any) => m.distance).sort(), [1, 2], 'can reach (1,0) and (2,0), not past the gap');
+  const d0 = view(s, 0).legal.filter((m: any) => m.direction === 0); // direction 0 = +q
+  assert.equal(d0.length, 1, 'exactly one slide per direction — the maximal one');
+  assert.equal(d0[0].distance, 2);
+  assert.deepEqual(d0[0].to, [2, 0], 'stops at (2,0), the last hex before the gap');
 
   // a pawn blocks the same way
   const s2 = mk({ hexes: line(5, [0, 1, 1, 1, 1]), pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 2, r: 0 }] });
-  const sl2 = view(s2, 0).legal.filter((m: any) => m.direction === 0);
-  assert.deepEqual(sl2.map((m: any) => m.distance), [1], 'stops before the blocking pawn');
+  const e0 = view(s2, 0).legal.filter((m: any) => m.direction === 0);
+  assert.equal(e0[0].distance, 1, 'stops on (1,0), right before the blocking pawn');
 });
 
 // ---------------------------------------------------------------------------
@@ -55,18 +57,19 @@ test('a slide stops before the first gap / pawn / edge', () => {
 
 test('only the origin hex is removed + banked; passed-over hexes are untouched; a 0-start banks 0', () => {
   const s = mk({ hexes: line(4, [0, 2, 3, 4]), pawns: [{ id: 0, owner: 0, q: 0, r: 0 }] });
-  // slide from the 0-value start across (1,0) to (2,0): banks 0, leaves a gap at origin
-  assert.equal(act(s, 0, { type: 'slide', pawnId: 0, direction: 0, distance: 2 }).error, undefined);
+  // forced slide dir0 travels all the way to the far edge at (3,0), passing over (1,0),(2,0)
+  assert.equal(act(s, 0, { type: 'slide', pawnId: 0, direction: 0 }).error, undefined);
   assert.equal(s.scores[0], 0, 'leaving a 0-value start banks 0');
   assert.equal(s.hexes['0,0'].state, 'gap', 'origin removed');
   assert.equal(s.hexes['1,0'].state, 'present', 'passed-over hex untouched');
-  assert.equal(s.hexes['1,0'].value, 2, 'passed-over value unchanged');
-  assert.equal(s.hexes['2,0'].pawn, 0, 'pawn landed on (2,0)');
+  assert.equal(s.hexes['2,0'].value, 3, 'passed-over value unchanged');
+  assert.equal(s.hexes['3,0'].pawn, 0, 'slid to the far end');
 
-  // now on the value-3 hex (2,0); P1 has no pawns so turn stays/loops to P0 — drive P0 again
+  // slide back: from (3,0) dir3 → (2,0),(1,0),(0,0 is a gap) → stops on (1,0), banking the value-4 origin
   s.turn = 0;
-  act(s, 0, { type: 'slide', pawnId: 0, direction: 0, distance: 1 }); // leave (2,0) value 3
-  assert.equal(s.scores[0], 3, 'banked the departed hex value');
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 3 });
+  assert.equal(s.scores[0], 4, 'banked the value-4 hex it departed');
+  assert.equal(s.hexes['1,0'].pawn, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -91,13 +94,13 @@ test('no auto-claim: a lone pawn in its own region must move to collect, and los
     pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 0, r: 5 }],
   });
   s.turn = 0;
-  act(s, 0, { type: 'slide', pawnId: 0, direction: 0, distance: 1 }); // leave (0,0) v0 → bank 0
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 0 }); // forced: (0,0) v0 → slides to (2,0); banks 0
   s.turn = 0;
-  act(s, 0, { type: 'slide', pawnId: 0, direction: 0, distance: 1 }); // leave (1,0) v2 → bank 2
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 3 }); // forced: (2,0) v3 → slides back to (1,0); banks 3
   assert.equal(s.over, false, 'game continues — P1 still has moves');
-  assert.equal(s.scores[0], 2, 'collected only the departed hexes (0 + 2)');
-  assert.equal(s.pawns[0].alive, false, 'pawn is now boxed in on the value-3 hex');
-  assert.equal(s.hexes['2,0'].pawn, 0, 'the value-3 hex is held but lost — never banked by anyone');
+  assert.equal(s.scores[0], 3, 'collected only the departed hexes (0 + 3)');
+  assert.equal(s.pawns[0].alive, false, 'pawn is now boxed in on the value-2 hex');
+  assert.equal(s.hexes['1,0'].pawn, 0, 'the value-2 hex it dies on is lost — never banked by anyone');
 });
 
 // ---------------------------------------------------------------------------

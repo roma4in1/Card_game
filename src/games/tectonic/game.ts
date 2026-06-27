@@ -113,19 +113,24 @@ interface Slide {
   to: [number, number];
 }
 
-/** All legal slides for one pawn: walk each direction until the first gap/pawn/edge. */
+/** Legal slides for one pawn: one per direction, sliding ALL the way to the last hex
+ *  before the first gap/pawn/edge (you cannot choose to stop short). */
 function pawnSlides(s: TState, p: Pawn): Slide[] {
   const out: Slide[] = [];
   for (let dir = 0; dir < 6; dir++) {
     let q = p.q;
     let r = p.r;
-    for (let dist = 1; ; dist++) {
-      q += DIRS[dir][0];
-      r += DIRS[dir][1];
-      const h = s.hexes[id(q, r)];
+    let dist = 0;
+    for (;;) {
+      const nq = q + DIRS[dir][0];
+      const nr = r + DIRS[dir][1];
+      const h = s.hexes[id(nq, nr)];
       if (!h || h.state !== 'present' || h.pawn !== null) break; // edge / gap / pawn
-      out.push({ pawnId: p.id, direction: dir, distance: dist, to: [q, r] });
+      q = nq;
+      r = nr;
+      dist++;
     }
+    if (dist >= 1) out.push({ pawnId: p.id, direction: dir, distance: dist, to: [q, r] });
   }
   return out;
 }
@@ -233,25 +238,28 @@ function advanceTurn(s: TState) {
 // Action
 // ---------------------------------------------------------------------------
 
-function slide(s: TState, pid: number, pawnId: unknown, direction: unknown, distance: unknown): ActionResult {
+function slide(s: TState, pid: number, pawnId: unknown, direction: unknown): ActionResult {
   if (pid !== s.turn) return fail('Not your turn.');
   const p = s.pawns.find((x) => x.id === Number(pawnId));
   if (!p || p.owner !== pid) return fail('That is not your pawn.');
   const dir = Number(direction);
-  const dist = Number(distance);
   if (!Number.isInteger(dir) || dir < 0 || dir > 5) return fail('Bad direction.');
-  if (!Number.isInteger(dist) || dist < 1) return fail('Slide at least one hex.');
 
-  // Validate the straight-line path: every hex up to and including the target must be
-  // present and unoccupied (the slide can't pass a gap, pawn or the edge).
+  // Slide ALL the way: travel to the last present, unoccupied hex before the first
+  // gap / pawn / edge. You cannot stop short.
   let q = p.q;
   let r = p.r;
-  for (let step = 1; step <= dist; step++) {
-    q += DIRS[dir][0];
-    r += DIRS[dir][1];
-    const h = s.hexes[id(q, r)];
-    if (!h || h.state !== 'present' || h.pawn !== null) return fail('Illegal slide — blocked.');
+  let dist = 0;
+  for (;;) {
+    const nq = q + DIRS[dir][0];
+    const nr = r + DIRS[dir][1];
+    const h = s.hexes[id(nq, nr)];
+    if (!h || h.state !== 'present' || h.pawn !== null) break;
+    q = nq;
+    r = nr;
+    dist++;
   }
+  if (dist < 1) return fail('No slide that way — blocked.');
 
   // Remove + bank ONLY the origin hex; move the pawn to the target.
   const origin = s.hexes[id(p.q, p.r)];
@@ -414,7 +422,7 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
       if (s.over) return fail('The game is over.');
       const pid = s.order.indexOf(seat);
       if (pid < 0) return fail('You are not in this match.');
-      if (msg.type === 'slide') return slide(s, pid, msg.pawnId, msg.direction, msg.distance);
+      if (msg.type === 'slide') return slide(s, pid, msg.pawnId, msg.direction);
     },
 
     onDisconnect(s, seat) {
