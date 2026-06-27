@@ -161,40 +161,56 @@ const playerHasMove = (s: TState, pid: number) => s.pawns.some((p) => p.owner ==
 // End detection
 // ---------------------------------------------------------------------------
 
-/** Upper bound on points each player can still bank: the value of every present hex in the
- *  connected land-components their alive pawns sit in (an over-estimate, so early-end is safe). */
-function upperBounds(s: TState): number[] {
+/** Per-player bounds on the points still to be banked, computed per land-island
+ *  (connected component of present hexes), accounting for the lost-final-hex rule:
+ *   - ub[pid]: the MOST a player could still collect — sum of every island their alive
+ *     pawns can reach, minus the cheapest hex per pawn (each pawn must abandon one).
+ *   - lb[pid]: the LEAST they will collect from islands they DOMINATE alone — that
+ *     island's sum minus the dearest hex per pawn. (Contested islands credit no lower
+ *     bound, since the outcome there is uncertain.)
+ *  So a player who dominates islands gets those points counted toward their guaranteed
+ *  total, and the game can end as soon as a leader is mathematically out of reach. */
+function islandBounds(s: TState): { ub: number[]; lb: number[] } {
   const comp: Record<string, number> = {};
-  const compVal: number[] = [];
+  const compKeys: string[][] = [];
   let nc = 0;
   for (const key of Object.keys(s.hexes)) {
-    const h = s.hexes[key];
-    if (h.state !== 'present' || comp[key] !== undefined) continue;
-    let sum = 0;
+    if (s.hexes[key].state !== 'present' || comp[key] !== undefined) continue;
+    const keys: string[] = [];
     const stack = [key];
     comp[key] = nc;
     while (stack.length) {
       const k = stack.pop()!;
-      sum += s.hexes[k].value;
+      keys.push(k);
       const [q, r] = k.split(',').map(Number);
       for (const [dq, dr] of DIRS) {
         const nk = id(q + dq, r + dr);
-        const nh = s.hexes[nk];
-        if (nh && nh.state === 'present' && comp[nk] === undefined) {
+        if (s.hexes[nk] && s.hexes[nk].state === 'present' && comp[nk] === undefined) {
           comp[nk] = nc;
           stack.push(nk);
         }
       }
     }
-    compVal[nc++] = sum;
+    compKeys[nc++] = keys;
   }
+
   const ub = new Array(s.np).fill(0);
-  for (let pid = 0; pid < s.np; pid++) {
-    const comps = new Set<number>();
-    for (const p of s.pawns) if (p.owner === pid && p.alive) comps.add(comp[id(p.q, p.r)]);
-    for (const c of comps) ub[pid] += compVal[c];
+  const lb = new Array(s.np).fill(0);
+  for (let c = 0; c < nc; c++) {
+    const values = compKeys[c].map((k) => s.hexes[k].value).sort((a, b) => a - b);
+    const sum = values.reduce((a, b) => a + b, 0);
+    const counts: Record<number, number> = {};
+    for (const p of s.pawns) if (p.alive && comp[id(p.q, p.r)] === c) counts[p.owner] = (counts[p.owner] || 0) + 1;
+    const owners = Object.keys(counts).map(Number);
+    const cheapest = (k: number) => values.slice(0, k).reduce((a, b) => a + b, 0);
+    const dearest = (k: number) => values.slice(values.length - k).reduce((a, b) => a + b, 0);
+    for (const pid of owners) {
+      const k = counts[pid];
+      ub[pid] += Math.max(0, sum - cheapest(k));
+      if (owners.length === 1) lb[pid] += Math.max(0, sum - dearest(k)); // an island this player dominates
+    }
   }
-  return ub;
+  return { ub, lb };
 }
 
 function endGame(s: TState) {
@@ -209,12 +225,13 @@ function endGame(s: TState) {
   log(s, `Game over. ${top.length > 1 ? `Shared victory: ${names}` : `🏆 ${names} wins`} (${Math.max(...s.scores)} pts).`);
 }
 
-/** Optional early-end: if some player's score already beats every rival's best case, stop. */
+/** Early-end: if a player's guaranteed total (current score + points from islands they
+ *  dominate) already beats every rival's best case, the ranking is fixed — stop. */
 function tryEarlyEnd(s: TState): boolean {
-  const ub = upperBounds(s);
+  const { ub, lb } = islandBounds(s);
   for (let L = 0; L < s.np; L++) {
     let unbeatable = true;
-    for (let o = 0; o < s.np; o++) if (o !== L && s.scores[L] <= s.scores[o] + ub[o]) unbeatable = false;
+    for (let o = 0; o < s.np; o++) if (o !== L && s.scores[L] + lb[L] <= s.scores[o] + ub[o]) unbeatable = false;
     if (unbeatable) {
       endGame(s);
       return true;

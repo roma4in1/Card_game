@@ -65,11 +65,10 @@ test('only the origin hex is removed + banked; passed-over hexes are untouched; 
   assert.equal(s.hexes['2,0'].value, 3, 'passed-over value unchanged');
   assert.equal(s.hexes['3,0'].pawn, 0, 'slid to the far end');
 
-  // slide back: from (3,0) dir3 → (2,0),(1,0),(0,0 is a gap) → stops on (1,0), banking the value-4 origin
-  s.turn = 0;
-  act(s, 0, { type: 'slide', pawnId: 0, direction: 3 });
-  assert.equal(s.scores[0], 4, 'banked the value-4 hex it departed');
-  assert.equal(s.hexes['1,0'].pawn, 0);
+  // a fresh board: leaving a value-4 hex banks 4
+  const s2 = mk({ hexes: line(3, [4, 1, 1]), pawns: [{ id: 0, owner: 0, q: 0, r: 0 }] });
+  act(s2, 0, { type: 'slide', pawnId: 0, direction: 0 });
+  assert.equal(s2.scores[0], 4, 'banked the value-4 hex it departed');
 });
 
 // ---------------------------------------------------------------------------
@@ -84,12 +83,12 @@ test('a pawn that can never leave its hex is dead and that hex is scored by no o
 });
 
 test('no auto-claim: a lone pawn in its own region must move to collect, and loses its last hex', () => {
-  // P0 has a private 3-hex strip (0,2,3); P1 keeps a big separate region so the game
-  // neither ends nor early-terminates while we walk P0 across its strip by hand.
+  // P0 has a private 3-hex strip (0,2,3); P1 has an identical mirrored strip so neither
+  // player dominates — the game stays live (no early-end) while we walk P0 by hand.
   const s = mk({
     hexes: [
       ...line(3, [0, 2, 3]),
-      { q: 0, r: 5, value: 0 }, { q: 1, r: 5, value: 5 }, { q: 2, r: 5, value: 5 }, { q: 3, r: 5, value: 5 },
+      { q: 0, r: 5, value: 0 }, { q: 1, r: 5, value: 2 }, { q: 2, r: 5, value: 3 },
     ],
     pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 0, r: 5 }],
   });
@@ -117,6 +116,19 @@ test('the game ends when no pawn has a legal move', () => {
   act(s2, 0, { type: 'slide', pawnId: 0, direction: 0, distance: 1 }); // P0 (0,0)->(1,0), banks 0
   assert.equal(s2.over, true, 'after P0 moves to the middle, nobody can move → end');
   assert.equal(s2.scores[0], 0);
+});
+
+test('early-end credits islands a player dominates, ending a decided game', () => {
+  // P0 leads and alone controls a big island; P1 is stuck on a tiny one → result is fixed.
+  const s = mk({
+    hexes: [...line(5, [0, 3, 3, 3, 3]), { q: 0, r: 5, value: 1 }, { q: 1, r: 5, value: 1 }],
+    pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 0, r: 5 }],
+  });
+  s.scores = [20, 5];
+  s.turn = 0;
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 0 }); // any move triggers the check
+  assert.equal(s.over, true, 'P0’s lead plus their dominated island puts them out of reach');
+  assert.deepEqual(def.result(s).winners, [0]);
 });
 
 // ---------------------------------------------------------------------------
