@@ -116,14 +116,14 @@ test('face-down cards never leak their concept; only flipped/matched cards revea
   s.turn = 0;
   let v = view(def, s, 0);
   for (const c of v.cards) {
-    assert.ok(c.side === 'word' || c.side === 'image', 'side is public');
-    assert.ok(!('conceptId' in c) && !('text' in c) && !('emoji' in c), 'face-down concept hidden');
+    assert.ok(!('conceptId' in c) && !('text' in c) && !('emoji' in c) && !('side' in c), 'a face-down card reveals nothing — not even its side');
   }
-  // flip one → only that one reveals
+  // flip one → only that one reveals (concept AND side)
   act(def, s, 0, { type: 'flipCard', cardId: 0 });
   v = view(def, s, 0);
   assert.equal(v.cards[0].conceptId, 1, 'flipped card reveals its concept');
-  for (let i = 1; i < v.cards.length; i++) assert.ok(!('conceptId' in v.cards[i]), `card ${i} stays hidden`);
+  assert.ok(v.cards[0].side === 'word' || v.cards[0].side === 'image', 'and its side');
+  for (let i = 1; i < v.cards.length; i++) assert.ok(!('conceptId' in v.cards[i]) && !('side' in v.cards[i]), `card ${i} stays hidden`);
 });
 
 test('the same word card localizes per viewer; images are identical across languages', () => {

@@ -1707,7 +1707,7 @@ function renderMMBoard(s) {
   const flipped = new Set(s.flipped || []);
   for (const c of s.cards || []) {
     const el = document.createElement('button');
-    el.className = 'mm-card ' + (c.faceUp ? 'up' : 'down') + ' ' + c.side;
+    el.className = 'mm-card ' + (c.faceUp ? 'up ' + (c.side || '') : 'down');
     if (c.matched) el.classList.add('matched');
     if (c.peek) el.classList.add('miss');
     if (flipped.has(c.cardId)) el.classList.add('sel');
@@ -1715,7 +1715,8 @@ function renderMMBoard(s) {
     if (c.faceUp) {
       el.innerHTML = c.side === 'word' ? `<span class="mm-word">${escapeHtml(c.text || '')}</span>` : `<span class="mm-emoji">${c.emoji || ''}</span>`;
     } else {
-      el.innerHTML = `<span class="mm-back">${c.side === 'word' ? 'Aa' : '🖼'}</span>`;
+      // backs are identical — you can't tell a word card from an image card
+      el.innerHTML = '<span class="mm-back">?</span>';
     }
     if (canFlip && !c.faceUp) el.onclick = () => send({ type: 'flipCard', cardId: c.cardId });
     else el.disabled = true;

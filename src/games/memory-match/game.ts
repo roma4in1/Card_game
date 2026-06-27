@@ -151,14 +151,17 @@ function viewState(byId: Map<number, MMConcept>, s: MMState, seat: number | null
     const revealed = c.faceUp || c.matchedBy !== null || s.over;
     const entry: Record<string, unknown> = {
       cardId: i,
-      side: c.side, // a card's side is public; its concept is not
       faceUp: c.faceUp || c.matchedBy !== null,
       matched: c.matchedBy !== null,
       matchedBy: c.matchedBy !== null ? s.order[c.matchedBy] : null,
       peek: s.peek.includes(i),
     };
+    // A face-down card reveals NOTHING — not its concept, not even its side (word
+    // vs image) — so the backs are indistinguishable and you can wrongly flip two
+    // words or two images. Side + identity appear only once it's flipped/matched.
     if (revealed) {
       const concept = byId.get(c.conceptId)!;
+      entry.side = c.side;
       entry.conceptId = c.conceptId;
       if (c.side === 'word') entry.text = concept[myLang];
       else entry.emoji = concept.emoji;
