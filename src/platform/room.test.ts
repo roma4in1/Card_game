@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom, join, setConnected, selectGame, startMatch, act, rematch, leave, botMove, hasHumans, viewFor,
+  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, leave, botMove, hasHumans, viewFor,
   type Room,
 } from './room.ts';
 import { DEFAULT_GAME } from './registry.ts';
@@ -51,6 +51,28 @@ test('lobby gathers players; only the host can start; needs 2+', () => {
   assert.equal(pv.youAreHost, true);
   assert.equal(pv.phase, 'bet1');
   assert.equal(pv.roster.length, 3);
+});
+
+test('the host can set a game option in range; it resets on game switch and reaches create', () => {
+  const room = lobby(2);
+  selectGame(room, room.host, 'memory-match');
+  assert.equal(room.options.pairs, 12, 'defaults to 12 pairs');
+  assert.match(setOption(room, (room.host + 1) % 2, 'pairs', 18).error!, /host/i);
+  setOption(room, room.host, 'pairs', 18);
+  assert.equal(room.options.pairs, 18);
+  setOption(room, room.host, 'pairs', 999); // clamped to max
+  assert.equal(room.options.pairs, 20);
+  setOption(room, room.host, 'pairs', 1); // clamped to min
+  assert.equal(room.options.pairs, 10);
+  assert.match(setOption(room, room.host, 'bogus', 5).error!, /unknown/i);
+  // switching games resets options to that game's defaults (win-or-die has none)
+  selectGame(room, room.host, 'win-or-die');
+  assert.deepEqual(room.options, {});
+  // the chosen value flows into create
+  selectGame(room, room.host, 'memory-match');
+  setOption(room, room.host, 'pairs', 14);
+  startMatch(room, room.host);
+  assert.equal((viewFor(room, room.host) as any).pairsTotal, 14, 'the match was built with 14 pairs');
 });
 
 test('the host can switch games in the lobby; non-hosts cannot', () => {

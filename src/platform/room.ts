@@ -26,9 +26,16 @@ export interface Room {
   host: number;
   phase: 'lobby' | 'playing';
   gameId: string;
+  options: Record<string, number>; // host-chosen settings for the selected game
   game: { def: GameDef; state: unknown } | null;
   log: string[];
   lastActivity: number;
+}
+
+/** Default values for a game's host-configurable options. */
+function defaultOptions(gameId: string): Record<string, number> {
+  const specs = GAMES[gameId]?.options ?? [];
+  return Object.fromEntries(specs.map((o) => [o.key, o.default]));
 }
 
 type ActionResult = { error?: string };
@@ -59,6 +66,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     host: 0,
     phase: 'lobby',
     gameId: DEFAULT_GAME,
+    options: defaultOptions(DEFAULT_GAME),
     game: null,
     log: [],
     lastActivity: Date.now(),
@@ -111,7 +119,20 @@ export function selectGame(room: Room, seat: number, gameId: string): ActionResu
   if (seat !== room.host) return fail('Only the host can choose the game.');
   if (!GAMES[gameId]) return fail('Unknown game.');
   room.gameId = gameId;
+  room.options = defaultOptions(gameId); // reset settings to the new game's defaults
   log(room, `Host chose ${GAMES[gameId].name}.`);
+  return ok;
+}
+
+/** Host adjusts a numeric game setting (lobby only). */
+export function setOption(room: Room, seat: number, key: string, value: unknown): ActionResult {
+  if (room.phase !== 'lobby') return fail('Already playing.');
+  if (seat !== room.host) return fail('Only the host can change settings.');
+  const spec = (GAMES[room.gameId].options ?? []).find((o) => o.key === key);
+  if (!spec) return fail('Unknown setting.');
+  const v = Math.round(Number(value));
+  if (!Number.isFinite(v)) return fail('Bad value.');
+  room.options[key] = Math.min(spec.max, Math.max(spec.min, v));
   return ok;
 }
 
@@ -127,7 +148,7 @@ export function startMatch(room: Room, seat: number): ActionResult {
   if (reason) return fail(reason);
 
   const players = joined.map((s) => ({ seat: s, name: room.members[s]!.name }));
-  room.game = { def, state: def.create({ seats: joined, players }, ctxFor(room)) };
+  room.game = { def, state: def.create({ seats: joined, players, options: room.options }, ctxFor(room)) };
   room.phase = 'playing';
   log(room, `${def.name} started with ${joined.length} players.`);
   return ok;
@@ -217,6 +238,7 @@ export function viewFor(room: Room, seat: number): Record<string, unknown> {
         canStart: seat === room.host && connectedSeats(room).length >= 2,
         selectedGame: room.gameId,
         games: GAME_SUMMARIES,
+        options: room.options,
       },
       log: room.log.slice(-15),
       matchWinner: null,

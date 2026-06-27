@@ -19,6 +19,16 @@ export interface PlayerInfo {
   name: string;
 }
 
+/** A host-configurable numeric setting shown in the lobby (e.g. Memory Match pairs). */
+export interface GameOption {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  default: number;
+}
+
 /** Result of a game once it finishes. */
 export interface GameOutcome {
   over: boolean;
@@ -46,12 +56,14 @@ export interface GameDef<S = unknown> {
   readonly blurb: string;
   readonly minPlayers: number;
   readonly maxPlayers: number;
+  /** Host-configurable lobby settings (numeric), surfaced to clients and passed to create. */
+  readonly options?: GameOption[];
 
   /** Optional: reject a start with a reason beyond min/max (e.g. "needs even teams"). */
   validateStart?(seats: number[]): string | null;
 
-  /** Start a fresh match for the given participants. Returns the initial state. */
-  create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): S;
+  /** Start a fresh match. `options` carries the host's chosen settings (resolved to defaults). */
+  create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): S;
 
   /**
    * Apply a player's in-game action. Mutates `state`; returns an error string to
@@ -90,10 +102,12 @@ export interface GameSummary {
   blurb: string;
   minPlayers: number;
   maxPlayers: number;
+  options?: GameOption[];
 }
 
 export function gameSummary(def: GameDef): GameSummary {
   return {
+    options: def.options,
     id: def.id,
     name: def.name,
     blurb: def.blurb,

@@ -372,6 +372,37 @@ function renderGamePicker(s) {
     else card.disabled = true;
     box.appendChild(card);
   });
+
+  // Settings for the selected game (host can adjust; others see them read-only).
+  const sel = games.find((g) => g.id === lob.selectedGame);
+  const specs = (sel && sel.options) || [];
+  const values = lob.options || {};
+  specs.forEach((opt) => {
+    const cur = values[opt.key] != null ? values[opt.key] : opt.default;
+    const row = document.createElement('div');
+    row.className = 'gp-option';
+    row.innerHTML = `<span class="gp-optlbl">${escapeHtml(opt.label)}</span>`;
+    if (s.youAreHost) {
+      const step = opt.step || 1;
+      const stepper = document.createElement('div');
+      stepper.className = 'gp-stepper';
+      const dec = actBtn('−', 'gp-step', () => send({ type: 'setOption', key: opt.key, value: Math.max(opt.min, cur - step) }));
+      const inc = actBtn('+', 'gp-step', () => send({ type: 'setOption', key: opt.key, value: Math.min(opt.max, cur + step) }));
+      dec.disabled = cur <= opt.min;
+      inc.disabled = cur >= opt.max;
+      const val = document.createElement('span');
+      val.className = 'gp-optval';
+      val.textContent = String(cur);
+      stepper.append(dec, val, inc);
+      row.appendChild(stepper);
+    } else {
+      const val = document.createElement('span');
+      val.className = 'gp-optval';
+      val.textContent = String(cur);
+      row.appendChild(val);
+    }
+    box.appendChild(row);
+  });
 }
 
 // ---------------------------------------------------------------------------

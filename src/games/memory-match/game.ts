@@ -216,7 +216,8 @@ function botMove(s: MMState, seat: number, rng: Rng): Record<string, unknown> | 
 export function createMemoryMatch(conceptBank: MMConcept[], config: { pairs?: number } = {}): GameDef<MMState> {
   const bank = conceptBank;
   const byId = new Map(bank.map((c) => [c.id, c]));
-  const pairs = Math.min(20, Math.max(10, config.pairs ?? 12), bank.length);
+  const maxPairs = Math.min(20, bank.length);
+  const defaultPairs = Math.min(maxPairs, Math.max(10, config.pairs ?? 12));
 
   return {
     id: 'memory-match',
@@ -224,8 +225,10 @@ export function createMemoryMatch(conceptBank: MMConcept[], config: { pairs?: nu
     blurb: 'Flip cards to match a word to its picture — in your own language. Most pairs wins.',
     minPlayers: 2,
     maxPlayers: 4,
+    options: [{ key: 'pairs', label: 'Pairs', min: 10, max: maxPairs, step: 1, default: defaultPairs }],
 
-    create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): MMState {
+    create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): MMState {
+      const pairs = Math.min(maxPairs, Math.max(10, Math.round(setup.options?.pairs ?? defaultPairs)));
       const chosen = shuffle([...bank], ctx.rng).slice(0, pairs);
       const cards: Card[] = [];
       for (const c of chosen) {
