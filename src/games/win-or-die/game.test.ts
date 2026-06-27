@@ -3,7 +3,7 @@
 // state; the lobby/room is tested separately in platform/room.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { winOrDie, START_CHIPS, type Match } from './game.ts';
+import { winOrDie, anteFor, START_CHIPS, type Match } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 function lcg(seed: number): () => number {
@@ -89,6 +89,16 @@ function step(m: Match, foldSeat = -1) {
 // ---------------------------------------------------------------------------
 // Setup, deck & dice
 // ---------------------------------------------------------------------------
+
+test('antes escalate by 1 every 5 rounds, up to the cap of 5', () => {
+  assert.equal(anteFor(1), 1);
+  assert.equal(anteFor(5), 1);
+  assert.equal(anteFor(6), 2);
+  assert.equal(anteFor(10), 2);
+  assert.equal(anteFor(11), 3);
+  assert.equal(anteFor(21), 5);
+  assert.equal(anteFor(99), 5, 'capped at 5');
+});
 
 test('create antes everyone in and opens betting', () => {
   const m = game(3);

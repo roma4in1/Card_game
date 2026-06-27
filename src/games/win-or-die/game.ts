@@ -15,7 +15,14 @@ import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../p
 
 export const MAX_SEATS = 8;
 export const START_CHIPS = 35;
-export const ANTE = 1;
+export const ANTE = 1; // base ante
+export const ANTE_EVERY = 5; // blinds go up every N rounds
+export const ANTE_CAP = 5; // ante never exceeds this
+
+/** The ante for a given round number — rises by 1 every ANTE_EVERY rounds, up to the cap. */
+export function anteFor(roundNo: number): number {
+  return Math.min(ANTE_CAP, ANTE + Math.floor((roundNo - 1) / ANTE_EVERY));
+}
 
 export type GamePhase = 'bet1' | 'reveal' | 'discuss' | 'bet2' | 'showdown' | 'matchover';
 
@@ -182,16 +189,19 @@ function startRound(m: Match, rng: Rng) {
   }
   round.firstActor = firstActor;
 
-  // Antes; 0-chip players (all-in from a carried pot) post nothing and are all-in.
+  // Escalating antes; a short stack posts what it can (all-in for less).
+  const ante = anteFor(m.roundNo);
+  if (m.roundNo > 1 && ante > anteFor(m.roundNo - 1)) log(m, `⬆️ Blinds up — the ante is now ${ante}.`);
   let anteCount = 0;
   for (const s of active) {
-    if (m.players[s]!.chips >= ANTE) {
-      commit(m, s, ANTE);
+    const pay = Math.min(ante, m.players[s]!.chips);
+    if (pay > 0) {
+      commit(m, s, pay);
       anteCount++;
     }
     if (m.players[s]!.chips === 0) m.players[s]!.allIn = true;
   }
-  log(m, `New round. 🎲 ${m.players[firstActor]!.name} rolled highest — acts first. ${anteCount} antes → pot ${round.pot}.`);
+  log(m, `New round (ante ${ante}). 🎲 ${m.players[firstActor]!.name} rolled highest — acts first. ${anteCount} antes → pot ${round.pot}.`);
 
   for (let i = 0; i < 2; i++) for (const s of active) m.players[s]!.hole.push(m.deck.pop()!);
   round.shared = m.deck.pop()!;
@@ -527,6 +537,8 @@ function view(m: Match, seat: number | null): Record<string, unknown> {
     pot: r ? r.pot : 0,
     carry: m.carry,
     roundNo: m.roundNo,
+    ante: anteFor(m.roundNo),
+    anteUpInRounds: Math.min(ANTE_CAP, ANTE + Math.floor((m.roundNo - 1) / ANTE_EVERY)) >= ANTE_CAP ? null : ANTE_EVERY - ((m.roundNo - 1) % ANTE_EVERY),
     deckCount: r ? m.deck.length : null,
     log: m.log.slice(-15),
     matchWinner: m.winner,

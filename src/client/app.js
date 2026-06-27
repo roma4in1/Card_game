@@ -2287,11 +2287,15 @@ function setDie(el, v) {
 
 let roTimer = null;
 let roTimeouts = [];
+let lastAnte = 0;
 function maybeNotify(s) {
   if (!s.roundNo || s.roundNo === lastRoundNo) return;
+  const blindsUp = lastAnte && s.ante > lastAnte;
   lastRoundNo = s.roundNo;
+  lastAnte = s.ante || lastAnte;
   if (s.phase === 'lobby' || s.phase === 'matchover') return;
   if (s.deckReshuffled) setTimeout(() => toast('🔄 Deck ran out — reshuffled a fresh deck', 'ok'), 1300);
+  if (blindsUp) setTimeout(() => toast(`⬆️ Blinds up — ante is now ${s.ante}`, 'ok'), 1300);
   announceRound(s);
 }
 
@@ -2315,7 +2319,7 @@ function announceRound(s) {
     .map((seat) => ({ seat, name: nameForSeat(s, seat), final: dice[seat] }));
   if (!players.length) return;
 
-  $('roTitle').textContent = `Round ${s.roundNo} — rolling for first move`;
+  $('roTitle').textContent = `Round ${s.roundNo} · Ante ${s.ante || 1} — rolling for first move`;
   $('roFirst').textContent = '';
   const stage = $('roDice');
   stage.innerHTML = '';
