@@ -322,6 +322,44 @@
       </div>
     </div>
 
+    <!-- Tectonic Shift (hex territory game) -->
+    <section id="tectonic" class="screen tectonic hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="tecRoom">····</b></div>
+        <div class="phase-pill" id="tecTurn">—</div>
+        <button id="tecRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="tecLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="tecCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="tec-main">
+        <div class="tec-players" id="tecPlayers"></div>
+        <div class="tec-board-wrap"><div class="tec-board" id="tecBoard"></div></div>
+        <div class="action-area" id="tecActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="tecLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Tectonic Shift rules reference -->
+    <div id="tecRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Tectonic Shift — how to play</h3>
+          <button id="tecRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Slide pawns across a hex board, banking the tiles you leave behind.</p>
+        <div class="rules-body">
+          <p>On your turn, <b>slide one pawn</b> in a straight line — it can't cross a removed tile, another pawn, or the edge.</p>
+          <p>The hex you <b>leave</b> is removed and its <b>value is banked to you</b> (tiles are worth more toward the centre). Tiles you pass over are untouched.</p>
+          <p>Removing tiles fractures the board into islands. <b>Isolate</b> regions so only your pawns can harvest them — but you still must move hex-by-hex to collect.</p>
+          <p>A pawn with no move is stuck, and the tile it dies on is <b>lost</b>. Highest total wins; tiebreak is most pawns still able to move.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

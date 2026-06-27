@@ -925,6 +925,33 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 
 .qr-modebar { justify-content: center; }
 
+/* ---------------------------------------------------------------------------
+   Tectonic Shift screen
+--------------------------------------------------------------------------- */
+.tectonic { gap: 10px; padding-top: max(12px, env(safe-area-inset-top)); }
+.tec-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+
+.tec-players { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.tec-pchip { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem; }
+.tec-pchip.acting { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
+.tec-pdot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.tec-pname { font-weight: 600; }
+.tec-pscore { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.05rem; }
+.tec-palive { color: var(--faint); font-size: 0.72rem; }
+
+.tec-board-wrap { display: flex; justify-content: center; }
+.tec-board { width: 100%; max-width: min(96vw, 560px); }
+.tec-svg { width: 100%; height: auto; display: block; }
+.tec-hex { fill: #eef1f6; stroke: #2a2f3a; stroke-width: 0.6; }
+.tec-hex.dest { fill: #fff6da; stroke: var(--gold); stroke-width: 1.4; cursor: pointer; }
+.tec-hex.selhex { stroke: var(--gold); stroke-width: 1.4; }
+.tec-val { font: 700 9px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.tec-destdot { fill: var(--gold-deep); pointer-events: none; }
+.tec-pawn { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.8; cursor: pointer; }
+.tec-pawn.mine { cursor: pointer; }
+.tec-pawn.sel { stroke: var(--gold); stroke-width: 2; }
+.tec-pawn.dead { opacity: 0.4; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

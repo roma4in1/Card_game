@@ -276,6 +276,11 @@ function render() {
     renderQuoridor(s);
     return;
   }
+  if (s.gameId === 'tectonic') {
+    ensureScreen('tectonic');
+    renderTectonic(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -1476,6 +1481,176 @@ function renderQrLog(s) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Tectonic Shift — hex territory game
+// ---------------------------------------------------------------------------
+
+const TEC_VAL_COLORS = { 1: '#6b78ff', 2: '#26c6da', 3: '#49b85a', 4: '#f0883e', 5: '#e5483f' };
+const TEC_SQRT3 = Math.sqrt(3);
+let tecSel = null; // selected pawn id
+const tecPixel = (q, r, sz) => ({ x: sz * 1.5 * q, y: sz * TEC_SQRT3 * (r + q / 2) });
+function tecPoints(x, y, sz) {
+  let p = '';
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 180) * (60 * i);
+    p += `${(x + sz * Math.cos(a)).toFixed(2)},${(y + sz * Math.sin(a)).toFixed(2)} `;
+  }
+  return p.trim();
+}
+
+function renderTectonic(s) {
+  $('tecRoom').textContent = s.room;
+  const active = (s.players || []).find((p) => p.isTurn);
+  const pill = $('tecTurn');
+  pill.textContent = s.over ? 'Game over' : active ? `${active.seat === s.seat ? 'Your' : escapeHtml(active.name) + '’s'} turn` : '—';
+  pill.className = 'phase-pill';
+  $('tecCopy').onclick = copyInvite;
+  if (!s.you || !s.you.isTurn) tecSel = null;
+  renderTecPlayers(s);
+  renderTecBoard(s);
+  renderTecActions(s);
+  renderTecLog(s);
+}
+
+function renderTecPlayers(s) {
+  const box = $('tecPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'tec-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="tec-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="tec-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="tec-pscore">${p.score}</span><span class="tec-palive">${p.alivePawns}♟</span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderTecBoard(s) {
+  const board = $('tecBoard');
+  const sz = 10;
+  const present = (s.hexes || []).filter((h) => h.state === 'present');
+  if (!present.length) {
+    board.innerHTML = '';
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const h of present) {
+    const { x, y } = tecPixel(h.q, h.r, sz);
+    h._x = x;
+    h._y = y;
+    minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+  }
+  const pad = sz * 1.5;
+  const vb = `${minX - pad} ${minY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`;
+
+  const you = s.you || {};
+  const pawnByHex = {};
+  for (const p of s.pawns || []) pawnByHex[p.q + ',' + p.r] = p;
+  const dest = new Set();
+  if (tecSel != null && you.isTurn) for (const m of s.legal || []) if (m.pawnId === tecSel) dest.add(m.to[0] + ',' + m.to[1]);
+  const selPawn = tecSel != null ? (s.pawns || []).find((p) => p.id === tecSel) : null;
+
+  let svg = `<svg viewBox="${vb}" class="tec-svg" preserveAspectRatio="xMidYMid meet">`;
+  for (const h of present) {
+    const key = h.q + ',' + h.r;
+    const pawn = pawnByHex[key];
+    const isDest = dest.has(key);
+    const cls = 'tec-hex' + (isDest ? ' dest' : '') + (selPawn && selPawn.q === h.q && selPawn.r === h.r ? ' selhex' : '');
+    svg += `<polygon points="${tecPoints(h._x, h._y, sz)}" class="${cls}" data-q="${h.q}" data-r="${h.r}"/>`;
+    if (pawn) {
+      const mine = pawn.owner === s.seat;
+      svg += `<circle cx="${h._x}" cy="${h._y}" r="${sz * 0.52}" class="tec-pawn${pawn.alive ? '' : ' dead'}${tecSel === pawn.id ? ' sel' : ''}${mine ? ' mine' : ''}" fill="${seatColor(pawn.owner)}" data-q="${h.q}" data-r="${h.r}"/>`;
+    } else if (isDest) {
+      svg += `<circle cx="${h._x}" cy="${h._y}" r="${sz * 0.28}" class="tec-destdot" data-q="${h.q}" data-r="${h.r}"/>`;
+    } else {
+      svg += `<text x="${h._x}" y="${h._y}" class="tec-val" fill="${TEC_VAL_COLORS[h.value] || '#888'}" data-q="${h.q}" data-r="${h.r}">${h.value}</text>`;
+    }
+  }
+  svg += '</svg>';
+  board.innerHTML = svg;
+  const svgEl = board.querySelector('svg');
+  svgEl.onclick = (e) => {
+    const q = e.target.getAttribute && e.target.getAttribute('data-q');
+    if (q == null) return;
+    onTecClick(s, Number(q), Number(e.target.getAttribute('data-r')));
+  };
+}
+
+function onTecClick(s, q, r) {
+  const you = s.you || {};
+  if (s.over || !you.isTurn) return;
+  if (tecSel != null) {
+    const m = (s.legal || []).find((mm) => mm.pawnId === tecSel && mm.to[0] === q && mm.to[1] === r);
+    if (m) {
+      send({ type: 'slide', pawnId: tecSel, direction: m.direction, distance: m.distance });
+      tecSel = null;
+      return;
+    }
+  }
+  const pawn = (s.pawns || []).find((p) => p.q === q && p.r === r);
+  tecSel = pawn && pawn.owner === s.seat && pawn.alive ? pawn.id : null;
+  render();
+}
+
+function renderTecActions(s) {
+  const area = $('tecActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderTecOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this match', true));
+    return;
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to move`, true));
+    return;
+  }
+  area.appendChild(
+    prompt(tecSel != null ? 'Tap a <b>highlighted hex</b> to slide there — you bank the hex you leave.' : 'Tap one of <b>your pawns</b>, then a highlighted hex to slide.'),
+  );
+}
+
+function renderTecOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? (shared ? '🤝 Shared win!' : '🏆 You win!') : `${escapeHtml(names)} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="tec-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="li-fbreak">${p.alivePawns} pawns left</span>` +
+      `<span class="li-ftotal">${p.score}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderTecLog(s) {
+  const ul = $('tecLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -2051,6 +2226,7 @@ $('yzLeaveBtn').onclick = leaveRoom;
 $('sgLeaveBtn').onclick = leaveRoom;
 $('cnLeaveBtn').onclick = leaveRoom;
 $('qrLeaveBtn').onclick = leaveRoom;
+$('tecLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
@@ -2085,6 +2261,13 @@ $('qrRulesBtn').onclick = () => $('qrRulesSheet').classList.remove('hidden');
 $('qrRulesClose').onclick = () => $('qrRulesSheet').classList.add('hidden');
 $('qrRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'qrRulesSheet') $('qrRulesSheet').classList.add('hidden');
+});
+
+// Tectonic Shift rules sheet
+$('tecRulesBtn').onclick = () => $('tecRulesSheet').classList.remove('hidden');
+$('tecRulesClose').onclick = () => $('tecRulesSheet').classList.add('hidden');
+$('tecRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'tecRulesSheet') $('tecRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------

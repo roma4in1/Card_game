@@ -9,11 +9,12 @@ import { WORD_BANK as SPY_WORDS } from '../games/spy-game/wordbank.ts';
 import { createCodenames } from '../games/codenames/game.ts';
 import { WORD_BANK as CODENAMES_WORDS } from '../games/codenames/wordbank.ts';
 import { quoridor } from '../games/quoridor/game.ts';
+import { tectonic } from '../games/tectonic/game.ts';
 
 const spyGame = createSpyGame(SPY_WORDS);
 const codenames = createCodenames(CODENAMES_WORDS);
 
-const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor];
+const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic];
 
 export const GAMES: Record<string, GameDef> = Object.fromEntries(ALL.map((g) => [g.id, g]));
 export const GAME_SUMMARIES: GameSummary[] = ALL.map(gameSummary);
