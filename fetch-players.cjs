@@ -155,19 +155,27 @@ async function main() {
   }
   console.log('after orphan removal:', pool.length);
 
-  // Trim to TARGET, keeping the most-notable (rows already came sorted by sitelinks,
-  // and we preserved that order).
-  const final = pool.slice(0, TARGET);
+  // Trim to TARGET with a ~9:1 recent:older bias (favour modern, 1990s-now, players),
+  // keeping the most-notable of each (rows came sorted by sitelinks; order preserved).
+  const RECENT = new Set(['1990s', '2000s', '2010s', '2020s']);
+  const isRecent = p => RECENT.has(p.era);
+  const oldTarget = Math.round(TARGET / 10);      // ~10% older players
+  const recentTarget = TARGET - oldTarget;        // ~90% recent
+  let final = [
+    ...pool.filter(isRecent).slice(0, recentTarget),
+    ...pool.filter(p => !isRecent(p)).slice(0, oldTarget),
+  ];
 
-  // final safety re-check
-  const orphans = final.filter(p => !final.some(q => q !== p && sharePos(p, q) && shareCtx(p, q)));
-  if (orphans.length) {
-    console.error('WARNING: trimming reintroduced orphans:', orphans.map(o => o.name));
-    // re-run removal on the trimmed set
+  // Re-run orphan removal on the biased subset so every player still has a valid decoy.
+  for (;;) {
+    const kept = final.filter(p => final.some(q => q !== p && sharePos(p, q) && shareCtx(p, q)));
+    if (kept.length === final.length) break;
+    final = kept;
   }
 
   fs.writeFileSync(__dirname + '/players.json', JSON.stringify(final, null, 2));
-  console.log(`wrote players.json with ${final.length} players`);
+  const recentN = final.filter(isRecent).length;
+  console.log(`wrote players.json with ${final.length} players — ${recentN} recent / ${final.length - recentN} older (${(recentN / (final.length - recentN)).toFixed(1)}:1)`);
 
   // quick coverage report
   const byPos = {};
