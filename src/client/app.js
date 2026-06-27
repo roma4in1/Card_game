@@ -271,6 +271,11 @@ function render() {
     renderCodenames(s);
     return;
   }
+  if (s.gameId === 'quoridor') {
+    ensureScreen('quoridor');
+    renderQuoridor(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -1291,6 +1296,186 @@ function renderCnLog(s) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Quoridor — pawn race + walls (no hidden info)
+// ---------------------------------------------------------------------------
+
+let qrMode = 'move'; // 'move' | 'wall'
+let qrWallOrient = 'H'; // 'H' | 'V'
+const QR_GOAL_ARROW = { top: '↑', bottom: '↓', left: '←', right: '→' };
+// Visual top = board row 8. Tracks: cell c → 2c+1, cell row r → 2(8-r)+1; grooves are the even tracks.
+const qrCellStyle = (r, c) => ({ gridRow: String(2 * (8 - r) + 1), gridColumn: String(2 * c + 1) });
+function qrWallStyle(w) {
+  if (w.o === 'H') {
+    const row = 2 * (8 - w.r);
+    return { gridRow: `${row} / ${row + 1}`, gridColumn: `${2 * w.c + 1} / ${2 * w.c + 4}` };
+  }
+  const a = 2 * (8 - w.r);
+  return { gridColumn: `${2 * w.c + 2} / ${2 * w.c + 3}`, gridRow: `${a - 1} / ${a + 2}` };
+}
+
+function renderQuoridor(s) {
+  $('qrRoom').textContent = s.room;
+  const pill = $('qrTurn');
+  const active = (s.pawns || []).find((p) => p.isTurn);
+  pill.textContent = s.over ? 'Game over' : active ? `${active.seat === s.seat ? 'Your' : escapeHtml(active.name) + '’s'} turn` : '—';
+  pill.className = 'phase-pill';
+  $('qrCopy').onclick = copyInvite;
+  renderQrPlayers(s);
+  renderQrBoard(s);
+  renderQrActions(s);
+  renderQrLog(s);
+}
+
+function renderQrPlayers(s) {
+  const box = $('qrPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.pawns || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'qr-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="qr-pdot" style="background:${seatColor(p.seat)}">${QR_GOAL_ARROW[p.goal] || ''}</span>` +
+      `<span class="qr-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="qr-pwalls">🧱 ${p.wallsLeft}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderQrBoard(s) {
+  const board = $('qrBoard');
+  board.innerHTML = '';
+  const you = s.you || {};
+  const yourTurn = !s.over && you.isTurn;
+  const postMove = yourTurn && you.canEndTurn; // already moved → only walls/end remain
+  const mode = postMove ? 'wall' : qrMode;
+  const moveSet = new Set((s.legal?.moves || []).map((m) => m[0] + ',' + m[1]));
+  const pawnAt = {};
+  for (const p of s.pawns || []) pawnAt[p.pos[0] + ',' + p.pos[1]] = p;
+
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'qr-cell';
+      Object.assign(cell.style, qrCellStyle(r, c));
+      const p = pawnAt[r + ',' + c];
+      if (p) {
+        const disc = document.createElement('div');
+        disc.className = 'qr-pawn' + (p.isTurn ? ' acting' : '');
+        disc.style.background = seatColor(p.seat);
+        disc.textContent = initial(p.name);
+        cell.appendChild(disc);
+      }
+      if (yourTurn && mode === 'move' && you.canMove && moveSet.has(r + ',' + c)) {
+        cell.classList.add('qr-target');
+        cell.onclick = () => send({ type: 'movePawn', toCell: [r, c] });
+      }
+      board.appendChild(cell);
+    }
+  }
+
+  for (const w of s.walls || []) {
+    const bar = document.createElement('div');
+    bar.className = 'qr-wall ' + (w.o === 'H' ? 'h' : 'v');
+    Object.assign(bar.style, qrWallStyle(w));
+    board.appendChild(bar);
+  }
+
+  if (yourTurn && mode === 'wall' && you.canWall) {
+    for (const w of s.legal?.walls || []) {
+      if (w.o !== qrWallOrient) continue;
+      const slot = document.createElement('div');
+      slot.className = 'qr-wallslot ' + (w.o === 'H' ? 'h' : 'v');
+      Object.assign(slot.style, qrWallStyle(w));
+      slot.onclick = () => send({ type: 'placeWall', slot: [w.r, w.c], orientation: w.o });
+      board.appendChild(slot);
+    }
+  }
+}
+
+function renderQrActions(s) {
+  const area = $('qrActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderQrOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this match', true));
+    return;
+  }
+  if (!you.isTurn) {
+    qrMode = 'move'; // reset for the start of your next turn
+    const active = (s.pawns || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to play`, true));
+    return;
+  }
+
+  const orientRow = () => {
+    const orow = document.createElement('div');
+    orow.className = 'btn-row';
+    orow.appendChild(actBtn('Horizontal', 'btn ' + (qrWallOrient === 'H' ? 'btn-gold' : 'btn-neutral'), () => ((qrWallOrient = 'H'), render())));
+    orow.appendChild(actBtn('Vertical', 'btn ' + (qrWallOrient === 'V' ? 'btn-gold' : 'btn-neutral'), () => ((qrWallOrient = 'V'), render())));
+    return orow;
+  };
+
+  if (you.canEndTurn) {
+    // already moved this turn — optionally place a wall, then end the turn
+    if (you.canWall) {
+      area.appendChild(prompt(`You moved. Optionally place a <b>${qrWallOrient === 'H' ? 'horizontal' : 'vertical'}</b> wall, or end your turn.`));
+      area.appendChild(orientRow());
+    } else {
+      area.appendChild(prompt('You moved. No walls left — end your turn.'));
+    }
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.appendChild(actBtn('End turn ✓', 'btn btn-primary', () => send({ type: 'endTurn' })));
+    area.appendChild(row);
+    return;
+  }
+
+  // start of turn — choose to move (then optionally wall) or place a wall outright
+  const bar = document.createElement('div');
+  bar.className = 'btn-row qr-modebar';
+  bar.appendChild(actBtn('♟ Move', 'btn ' + (qrMode === 'move' ? 'btn-good' : 'btn-neutral'), () => ((qrMode = 'move'), render())));
+  const wallBtn = actBtn('🧱 Wall', 'btn ' + (qrMode === 'wall' ? 'btn-good' : 'btn-neutral'), () => ((qrMode = 'wall'), render()));
+  if (!you.canWall) {
+    wallBtn.disabled = true;
+    wallBtn.title = 'No walls left';
+  }
+  bar.appendChild(wallBtn);
+  area.appendChild(bar);
+
+  if (qrMode === 'move') {
+    area.appendChild(prompt('Tap a highlighted cell to move — you can place a wall afterwards.'));
+  } else {
+    area.appendChild(orientRow());
+    area.appendChild(prompt(`Tap a groove to place a <b>${qrWallOrient === 'H' ? 'horizontal' : 'vertical'}</b> wall (ends your turn without moving).`));
+  }
+}
+
+function renderQrOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const w = (s.pawns || []).find((p) => p.pid === s.winner);
+  box.appendChild(banner(youWin ? '🏆 You win!' : `${w ? escapeHtml(w.name) : 'Someone'} wins`, youWin ? 'win' : 'lose'));
+  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  return box;
+}
+
+function renderQrLog(s) {
+  const ul = $('qrLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -1865,6 +2050,7 @@ $('liLeaveBtn').onclick = leaveRoom;
 $('yzLeaveBtn').onclick = leaveRoom;
 $('sgLeaveBtn').onclick = leaveRoom;
 $('cnLeaveBtn').onclick = leaveRoom;
+$('qrLeaveBtn').onclick = leaveRoom;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
@@ -1892,6 +2078,13 @@ $('cnRulesBtn').onclick = () => $('cnRulesSheet').classList.remove('hidden');
 $('cnRulesClose').onclick = () => $('cnRulesSheet').classList.add('hidden');
 $('cnRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'cnRulesSheet') $('cnRulesSheet').classList.add('hidden');
+});
+
+// Quoridor rules sheet
+$('qrRulesBtn').onclick = () => $('qrRulesSheet').classList.remove('hidden');
+$('qrRulesClose').onclick = () => $('qrRulesSheet').classList.add('hidden');
+$('qrRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'qrRulesSheet') $('qrRulesSheet').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------------------

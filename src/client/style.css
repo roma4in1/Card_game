@@ -880,6 +880,51 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .cn-numinput { width: 58px; padding: 11px 8px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--bg-1); color: var(--ink); font-size: 1rem; text-align: center; }
 .cn-oversub { text-align: center; color: var(--muted); margin: 6px 0 12px; }
 
+/* ---------------------------------------------------------------------------
+   Quoridor screen
+--------------------------------------------------------------------------- */
+.quoridor { gap: 10px; padding-top: max(12px, env(safe-area-inset-top)); }
+.qr-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+
+.qr-players { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.qr-pchip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem; }
+.qr-pchip.acting { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
+.qr-pdot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 0.8rem; font-weight: 800; }
+.qr-pname { font-weight: 600; }
+.qr-pwalls { color: var(--muted); font-weight: 700; }
+
+.qr-board-wrap { display: flex; justify-content: center; }
+.qr-board {
+  --qr-wall: 9px;
+  width: 100%; max-width: min(92vw, 460px); aspect-ratio: 1; margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr var(--qr-wall)) 1fr;
+  grid-template-rows: repeat(8, 1fr var(--qr-wall)) 1fr;
+  background: #2a2f3a; padding: 6px; border-radius: 12px; box-shadow: var(--shadow-lg);
+}
+.qr-cell {
+  background: linear-gradient(160deg, #3b4250, #313845); border-radius: 5px;
+  display: grid; place-items: center; position: relative;
+}
+.qr-cell.qr-target { cursor: pointer; box-shadow: 0 0 0 2px var(--good) inset; background: rgba(52, 211, 153, 0.18); }
+.qr-cell.qr-target:hover { background: rgba(52, 211, 153, 0.3); }
+.qr-pawn {
+  width: 74%; height: 74%; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; font-weight: 800; font-size: clamp(0.6rem, 3vw, 0.95rem);
+  box-shadow: inset 0 -3px 5px rgba(0, 0, 0, 0.35), 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+.qr-pawn.acting { box-shadow: inset 0 -3px 5px rgba(0, 0, 0, 0.35), 0 0 0 2px var(--gold), 0 0 12px rgba(245, 196, 81, 0.5); }
+
+.qr-wall { background: linear-gradient(var(--gold), var(--gold-deep)); border-radius: 3px; z-index: 3; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); align-self: stretch; }
+.qr-wall.h { align-self: center; height: 100%; }
+.qr-wall.v { justify-self: center; width: 100%; }
+.qr-wallslot { z-index: 4; cursor: pointer; border-radius: 3px; background: rgba(245, 196, 81, 0.16); transition: background 0.12s; }
+.qr-wallslot:hover { background: rgba(245, 196, 81, 0.7); }
+.qr-wallslot.h { align-self: center; height: 100%; }
+.qr-wallslot.v { justify-self: center; width: 100%; }
+
+.qr-modebar { justify-content: center; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

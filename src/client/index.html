@@ -284,6 +284,44 @@
       </div>
     </div>
 
+    <!-- Quoridor (pawn race + walls) -->
+    <section id="quoridor" class="screen quoridor hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="qrRoom">····</b></div>
+        <div class="phase-pill" id="qrTurn">—</div>
+        <button id="qrRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="qrLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button id="qrCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="qr-main">
+        <div class="qr-players" id="qrPlayers"></div>
+        <div class="qr-board-wrap"><div class="qr-board" id="qrBoard"></div></div>
+        <div class="action-area" id="qrActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="qrLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Quoridor rules reference -->
+    <div id="qrRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Quoridor — how to play</h3>
+          <button id="qrRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Race your pawn to the opposite side. No luck, all strategy.</p>
+        <div class="rules-body">
+          <p>On your turn, do <b>one</b> of two things: <b>move</b> your pawn one cell, or <b>place a wall</b>.</p>
+          <p><b>Walls</b> block movement for everyone. You can't fully wall a player off — every pawn must always keep at least one route to its goal.</p>
+          <p>If an opponent sits in your way you may <b>jump</b> over them (or diagonally, if a wall or another pawn is behind them).</p>
+          <p>First pawn to reach <b>any cell on its goal edge</b> wins. Walls are limited — spend them wisely.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
