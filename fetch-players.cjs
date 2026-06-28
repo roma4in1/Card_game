@@ -129,13 +129,15 @@ async function main() {
     const leagues = mapLeagues(r.leagues?.value || '');
     const nationality = (r.nationalities?.value || '').split('|')[0]?.trim() || null;
     const era = eraFromBirth(r.birth?.value);
+    const bornYear = r.birth?.value ? new Date(r.birth.value).getUTCFullYear() : null;
 
-    // require the fields the decoy matcher needs
-    if (!nationality || positions.length === 0 || leagues.length === 0 || !era) continue;
+    // require nationality + position + age (leagues are optional — Wikidata's club→league
+    // data is patchy and would otherwise drop stars like De Bruyne/Kane).
+    if (!nationality || positions.length === 0 || !era || !bornYear) continue;
 
     seen.add(name);
-    players.push({ name, nationality, positions, leagues, era });
-    if (players.length >= TARGET * 2) break; // gather a surplus, trim after validation
+    players.push({ name, nationality, positions, leagues, era, bornYear }); // bornYear used for recency, stripped before writing
+    if (players.length >= TARGET * 4) break; // gather a big surplus so recent players can fill the bank
   }
   console.log('normalized players (pre-validation):', players.length);
 
@@ -145,45 +147,46 @@ async function main() {
   // Saudi) and pre-dates some legends (Pelé), so ALSO keep the most globally famous
   // regardless of league. `players` is in sitelink (fame) order, so index ≈ fame rank.
   const EURO_LEAGUES = new Set(['Premier League', 'First Division', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'Eredivisie', 'Primeira Liga']);
-  const FAME_KEEP = 80; // always keep the top-80 most famous (Messi, Ronaldo, Pelé, …)
+  const FAME_KEEP = 200; // keep the top-200 most famous regardless of (patchy) league data
   const europe = players.filter((p, idx) => idx < FAME_KEEP || p.leagues.some(l => EURO_LEAGUES.has(l)));
   console.log('after Champions-League/Europe filter:', europe.length, 'of', players.length);
 
-  // ---- decoy-coverage validation (same rule the server must use at match start) ----
-  // A decoy must share the SAME nationality AND a position.
+  // ---- decoy-coverage validation (same permissive rule the server uses) ----
+  // A candidate decoy shares the same nationality OR a position (the server then prefers
+  // the strongest match). Permissive so lone-nation stars aren't dropped.
   const sharePos = (a, b) => a.positions.some(x => b.positions.includes(x));
-  const shareCtx = (a, b) => a.nationality === b.nationality;
+  const isDecoy = (a, b) => a.nationality === b.nationality || sharePos(a, b);
 
   // Drop orphans iteratively (removing one can orphan another), until stable.
   let pool = europe;
   for (;;) {
-    const kept = pool.filter(p => pool.some(q => q !== p && sharePos(p, q) && shareCtx(p, q)));
+    const kept = pool.filter(p => pool.some(q => q !== p && isDecoy(p, q)));
     if (kept.length === pool.length) break;
     pool = kept;
   }
   console.log('after orphan removal:', pool.length);
 
-  // Trim to TARGET with a ~9:1 recent:older bias (favour modern, 1990s-now, players),
-  // keeping the most-notable of each (rows came sorted by sitelinks; order preserved).
-  const RECENT = new Set(['1990s', '2000s', '2010s', '2020s']);
-  const isRecent = p => RECENT.has(p.era);
-  const oldTarget = Math.round(TARGET / 10);      // ~10% older players
-  const recentTarget = TARGET - oldTarget;        // ~90% recent
-  let final = [
-    ...pool.filter(isRecent).slice(0, recentTarget),
-    ...pool.filter(p => !isRecent(p)).slice(0, oldTarget),
-  ];
+  // Favour RECENT players by birth year (a better signal than the era heuristic, which
+  // misclassifies long-career stars). Always keep the top-N most famous regardless of age
+  // (the GOATs/legends: Pelé, Maradona, Ronaldo…), then fill the rest with the most-notable
+  // recent players. `pool` is in sitelink (fame) order.
+  const FAME_ALWAYS = 80;
+  const RECENT_CUTOFF = 1987; // "recent" = born this year or later (peaked ~2011+)
+  const famous = pool.slice(0, FAME_ALWAYS);
+  const recent = pool.slice(FAME_ALWAYS).filter(p => p.bornYear >= RECENT_CUTOFF);
+  let final = [...famous, ...recent].slice(0, TARGET);
 
   // Re-run orphan removal on the biased subset so every player still has a valid decoy.
   for (;;) {
-    const kept = final.filter(p => final.some(q => q !== p && sharePos(p, q) && shareCtx(p, q)));
+    const kept = final.filter(p => final.some(q => q !== p && isDecoy(p, q)));
     if (kept.length === final.length) break;
     final = kept;
   }
 
+  const recentN = final.filter(p => p.bornYear >= RECENT_CUTOFF).length;
+  for (const p of final) delete p.bornYear; // keep the stored schema clean
   fs.writeFileSync(__dirname + '/players.json', JSON.stringify(final, null, 2));
-  const recentN = final.filter(isRecent).length;
-  console.log(`wrote players.json with ${final.length} players — ${recentN} recent / ${final.length - recentN} older (${(recentN / (final.length - recentN)).toFixed(1)}:1)`);
+  console.log(`wrote players.json with ${final.length} players — ${recentN} born ${RECENT_CUTOFF}+ / ${final.length - recentN} older`);
 
   // quick coverage report
   const byPos = {};

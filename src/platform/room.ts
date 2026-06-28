@@ -17,6 +17,7 @@ interface Member {
   name: string;
   connected: boolean;
   bot?: boolean; // seat taken over by AI (after the human left)
+  steppedOut?: boolean; // left the current match to wait in the lobby (a bot finishes their seat)
 }
 
 export interface Room {
@@ -193,13 +194,58 @@ export function hasHumans(room: Room): boolean {
   return seats(room).some((s) => !room.members[s]!.bot);
 }
 
+/** Tear down the active match and return everyone to the lobby. Players who stepped
+ *  out during the match rejoin as normal members (their bot stand-in is dropped). */
+function toLobby(room: Room) {
+  room.game = null;
+  room.phase = 'lobby';
+  for (const s of seats(room)) {
+    const m = room.members[s]!;
+    if (m.steppedOut) {
+      m.steppedOut = false;
+      m.bot = false;
+    }
+  }
+}
+
 /** From a finished match, return everyone to the lobby to pick/start again. */
 export function rematch(room: Room, _seat: number): ActionResult {
   if (room.phase !== 'playing' || !room.game) return ok;
   if (!room.game.def.result(room.game.state).over) return ok; // only once the match is over
-  room.game = null;
-  room.phase = 'lobby';
+  toLobby(room);
   log(room, 'Back to the lobby.');
+  return ok;
+}
+
+/** Leave the current match and wait in this room's lobby. A bot finishes the seat so
+ *  the others can keep playing; when the match ends the player is back in the lobby.
+ *  If they're the last human, the match simply ends and everyone returns to the lobby. */
+export function backToLobby(room: Room, seat: number): ActionResult {
+  const m = room.members[seat];
+  if (!m) return fail('Not in this room.');
+  if (room.phase !== 'playing' || !room.game) return ok; // already in the lobby
+  const otherHumans = seats(room).filter((s) => s !== seat && !room.members[s]!.bot && !room.members[s]!.steppedOut);
+  if (otherHumans.length === 0) {
+    toLobby(room);
+    log(room, 'Back to the lobby.');
+    return ok;
+  }
+  m.steppedOut = true;
+  m.bot = true; // a bot finishes their seat for the rest of the match
+  if (room.host === seat) room.host = otherHumans[0]; // never leave a stepped-out player hosting
+  log(room, `${m.name} stepped out to the lobby.`);
+  return ok;
+}
+
+/** Host removes a player (or a bot) from the lobby, freeing their seat. */
+export function kick(room: Room, seat: number, target: number): ActionResult {
+  if (room.phase !== 'lobby') return fail('You can only remove players from the lobby.');
+  if (seat !== room.host) return fail('Only the host can remove players.');
+  if (target === seat) return fail('You cannot remove yourself.');
+  const m = room.members[target];
+  if (!m) return ok;
+  log(room, `${m.name} was removed by the host.`);
+  room.members[target] = null;
   return ok;
 }
 
@@ -229,13 +275,19 @@ export function viewFor(room: Room, seat: number): Record<string, unknown> {
     roster,
   };
 
-  if (room.phase === 'lobby' || !room.game) {
+  // The lobby view is shown in the lobby, and to anyone who stepped out of an
+  // in-progress match (they wait here until it ends).
+  const inLobby = room.phase === 'lobby' || !room.game;
+  if (inLobby || me.steppedOut) {
+    const matchInProgress = !inLobby;
     return {
       ...identity,
       phase: 'lobby',
       you: { seat, name: me.name, connected: me.connected },
       lobby: {
-        canStart: seat === room.host && connectedSeats(room).length >= 2,
+        canStart: !matchInProgress && seat === room.host && connectedSeats(room).length >= 2,
+        canKick: !matchInProgress && seat === room.host,
+        matchInProgress,
         selectedGame: room.gameId,
         games: GAME_SUMMARIES,
         options: room.options,

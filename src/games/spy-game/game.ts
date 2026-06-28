@@ -30,13 +30,13 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
   return arr;
 }
 
-/** Decoy similarity rule: must share the SAME nationality AND a position — the two core
- *  identity signals — so a decoy is always a same-country player in the same role.
- *  (League/era then rank the best match in pickDecoy.) */
+/** A candidate qualifies as a possible decoy if it shares the SAME nationality OR a
+ *  position. This is deliberately permissive so no star is left without a decoy (a lone
+ *  star of their nationality+position still has same-position peers); pickDecoy then
+ *  picks the STRONGEST match — same nationality and position whenever the bank has one. */
 export function similar(a: PlayerCard, b: PlayerCard): boolean {
   if (a.name === b.name) return false;
-  if (a.nationality !== b.nationality) return false;
-  return a.positions.some((p) => b.positions.includes(p));
+  return a.nationality === b.nationality || a.positions.some((p) => b.positions.includes(p));
 }
 
 function sanitizeWord(word: unknown): string {
@@ -115,22 +115,28 @@ export function pickDecoy(bank: PlayerCard[], targetIdx: number, rng: Rng): numb
     if (i === targetIdx) i = (i + 1) % bank.length;
     return i;
   }
-  // Same nationality is the strongest plausibility signal, so restrict to it when any
-  // qualifier shares it (a 450-player bank almost always has same-nation peers).
+  // Narrow as precisely as the bank allows: same nationality, then same position within
+  // it, then the strongest by league/era (with a little variety). Each step only applies
+  // if it leaves at least one candidate, so a lone-nation/position star still gets a decoy.
   const sameNat = cands.filter((i) => bank[i].nationality === target.nationality);
-  const pool0 = sameNat.length ? sameNat : cands;
-  // Within that, pick among the strongest (within 2 points of the best) for some variety.
+  let pool0 = sameNat.length ? sameNat : cands;
+  const samePos = pool0.filter((i) => bank[i].positions.some((p) => target.positions.includes(p)));
+  if (samePos.length) pool0 = samePos;
   let best = 0;
   for (const i of pool0) best = Math.max(best, similarityScore(bank[i], target));
-  const strong = pool0.filter((i) => similarityScore(bank[i], target) >= best - 2);
+  const strong = pool0.filter((i) => similarityScore(bank[i], target) >= best - 1);
   return strong[randInt(rng, strong.length)];
 }
 
 function buildShortlist(bank: PlayerCard[], targetIdx: number, decoyIdx: number, rng: Rng): number[] {
+  const target = bank[targetIdx];
   const set = new Set<number>([targetIdx, decoyIdx]);
+  // Distractors are the strongest matches to the target (same nationality first), so the
+  // shortlist reads as five plausible peers rather than a nationality giveaway.
   const sims: number[] = [];
-  for (let i = 0; i < bank.length; i++) if (i !== targetIdx && similar(bank[i], bank[targetIdx])) sims.push(i);
+  for (let i = 0; i < bank.length; i++) if (i !== targetIdx && i !== decoyIdx && similar(bank[i], target)) sims.push(i);
   shuffle(sims, rng);
+  sims.sort((a, b) => similarityScore(bank[b], target) - similarityScore(bank[a], target));
   for (const i of sims) {
     if (set.size >= 5) break;
     set.add(i);

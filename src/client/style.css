@@ -282,7 +282,9 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .lobby-title { font-size: 2.4rem; font-weight: 900; }
 .lobby-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .lobby-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
-.lobby-name { flex: 1; font-weight: 600; }
+.lobby-name { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-kick { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 0.8rem; line-height: 1; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.lobby-kick:hover { color: #fff; background: var(--love-soft, #e8536b); border-color: var(--love-soft, #e8536b); }
 .avatar.sm { width: 30px; height: 30px; border-radius: 9px; font-size: 0.85rem; }
 
 /* status badges */
@@ -777,7 +779,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .sg-role.is-detective .sg-roletag { color: #7ab8f0; }
 .sg-secret { margin: 8px 0 4px; }
 .sg-secretlbl { display: block; font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
-.sg-secret b { font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 800; }
+.sg-secret b { display: block; font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 800; overflow-wrap: anywhere; }
 .sg-rolehint { font-size: 0.8rem; color: var(--muted); }
 
 .sg-clueform { display: flex; gap: 8px; }
@@ -786,7 +788,9 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .sg-clueform .btn { flex: none; }
 
 .sg-votegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
-.sg-votebtn { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 600; cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
+.sg-votebtn { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 600; cursor: pointer; transition: border-color 0.15s, transform 0.1s; min-width: 0; overflow: hidden; }
+.sg-votebtn .avatar { flex: none; }
+.sg-votebtn > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sg-votebtn:hover { border-color: var(--love-soft); }
 .sg-votebtn:active { transform: scale(0.97); }
 
@@ -801,7 +805,7 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .sg-revealcards { display: flex; gap: 10px; margin-bottom: 12px; }
 .sg-rcard { flex: 1; padding: 10px 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); text-align: center; }
 .sg-rcard span { display: block; font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
-.sg-rcard b { font-family: 'Outfit', sans-serif; font-size: 1.05rem; }
+.sg-rcard b { display: block; font-family: 'Outfit', sans-serif; font-size: 1.05rem; overflow-wrap: anywhere; }
 .sg-rcard.det { border-color: rgba(47, 134, 214, 0.5); }
 .sg-rcard.spy { border-color: rgba(232, 83, 107, 0.5); }
 

@@ -21,6 +21,8 @@ import {
   setConnected,
   act,
   rematch,
+  backToLobby,
+  kick,
   leave,
   botMove,
   hasHumans,
@@ -139,6 +141,7 @@ function handleMessage(ws: WebSocket, conn: Conn, raw: string) {
   const seat = conn.seat;
 
   if (msg.type === 'leave') return handleLeave(ws, conn, room, seat);
+  if (msg.type === 'kick') return handleKick(ws, room, seat, Number(msg.target));
 
   // Chat is pure transport (no game state) — relay verbatim to everyone.
   if (msg.type === 'chat') {
@@ -166,6 +169,8 @@ function dispatch(room: Room, seat: number, msg: Record<string, unknown>): { err
       return startMatch(room, seat);
     case 'rematch':
       return rematch(room, seat);
+    case 'backToLobby':
+      return backToLobby(room, seat);
     default:
       return act(room, seat, msg);
   }
@@ -183,6 +188,18 @@ function handleLeave(ws: WebSocket, conn: Conn, room: Room, seat: number) {
   if (!hasHumans(room)) dropRoom(room.code);
   else broadcast(room);
   send(ws, { type: 'left' });
+}
+
+function handleKick(ws: WebSocket, room: Room, hostSeat: number, target: number) {
+  const res = kick(room, hostSeat, target);
+  if (res?.error) return send(ws, { type: 'error', message: res.error });
+  // Notify and detach the removed player's socket (bots have none).
+  const sk = sockets.get(room.code);
+  if (sk && sk[target]) {
+    send(sk[target], { type: 'kicked' });
+    sk[target] = null;
+  }
+  broadcast(room);
 }
 
 function handleClose(conn: Conn, closed: WebSocket) {

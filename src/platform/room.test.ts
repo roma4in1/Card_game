@@ -4,9 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, leave, botMove, hasHumans, viewFor,
+  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, backToLobby, kick, leave, botMove, hasHumans, viewFor,
   type Room,
 } from './room.ts';
+
+function seatList(room: Room): number[] {
+  return room.members.map((m, i) => (m ? i : -1)).filter((i) => i >= 0);
+}
 import { DEFAULT_GAME } from './registry.ts';
 
 function lcg(seed: number): () => number {
@@ -103,6 +107,55 @@ test('leaving hands the seat to a bot and passes the host to a human', () => {
   assert.equal(room.members[host]!.bot, true);
   assert.notEqual(room.host, host);
   assert.equal(room.members[room.host]!.bot ?? false, false, 'a bot is never the host');
+});
+
+test('backToLobby steps a player out (bot finishes their seat); the last to leave ends the match', () => {
+  const room = playing(2, 7);
+  const host = room.host;
+  const other = seatList(room).find((s) => s !== host)!;
+  // a non-host steps out: a bot takes over, the others keep playing
+  backToLobby(room, other);
+  assert.equal(room.members[other]!.steppedOut, true);
+  assert.equal(room.members[other]!.bot, true);
+  assert.equal(room.phase, 'playing', 'the others keep playing');
+  const lv = viewFor(room, other) as any;
+  assert.equal(lv.phase, 'lobby', 'the stepped-out player sees the lobby');
+  assert.equal(lv.lobby.matchInProgress, true);
+  // the last human leaves → the match ends and everyone is back in the lobby, restored
+  backToLobby(room, host);
+  assert.equal(room.phase, 'lobby');
+  assert.equal(room.game, null);
+  assert.equal(room.members[other]!.steppedOut ?? false, false, 'stepped-out player is restored');
+  assert.equal(room.members[other]!.bot ?? false, false);
+});
+
+test('the host stepping out hands the host to another human', () => {
+  const room = playing(3, 3);
+  const host = room.host;
+  backToLobby(room, host);
+  assert.equal(room.members[host]!.steppedOut, true);
+  assert.notEqual(room.host, host);
+  assert.equal(room.members[room.host]!.steppedOut ?? false, false, 'a stepped-out player never hosts');
+  assert.equal(room.members[room.host]!.bot ?? false, false);
+});
+
+test('the host can kick players (and bots) from the lobby; nobody else can, and not mid-match', () => {
+  const room = lobby(3);
+  const host = room.host;
+  const victim = seatList(room).find((s) => s !== host)!;
+  assert.match(kick(room, victim, host).error!, /host/i, 'non-host cannot kick');
+  assert.match(kick(room, host, host).error!, /yourself/i);
+  assert.equal(kick(room, host, victim).error, undefined);
+  assert.equal(room.members[victim], null, 'kicked seat is freed');
+  // bots can be kicked too
+  const other = seatList(room).find((s) => s !== host)!;
+  leave(room, other); // turns `other` into a bot
+  assert.equal(room.members[other]!.bot, true);
+  kick(room, host, other);
+  assert.equal(room.members[other], null, 'bot removed');
+  // cannot kick during a match
+  const r2 = playing(2);
+  assert.match(kick(r2, r2.host, seatList(r2).find((s) => s !== r2.host)!).error!, /lobby/i);
 });
 
 test('a bot plays its turn through botMove', () => {

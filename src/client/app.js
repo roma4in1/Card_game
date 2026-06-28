@@ -200,6 +200,11 @@ function onMessage(msg) {
     case 'left':
       location.href = '/'; // server freed our seat — back to the landing page
       break;
+    case 'kicked':
+      if (roomCode) localStorage.removeItem(tokenKey(roomCode));
+      toast('The host removed you from the room.', 'err');
+      setTimeout(() => (location.href = '/'), 600);
+      break;
   }
 }
 
@@ -208,11 +213,25 @@ function onMessage(msg) {
 let leaving = false;
 function leaveRoom() {
   if (leaving) return;
-  if (!confirm('Leave this game? A bot will take over your seat.')) return;
+  if (!confirm('Leave this room? A bot will take over your seat.')) return;
   leaving = true;
   if (roomCode) localStorage.removeItem(tokenKey(roomCode));
   send({ type: 'leave' });
   setTimeout(() => (location.href = '/'), 200); // fallback if no 'left' arrives
+}
+
+// Leave the current game but stay in the room: a bot finishes your seat and you wait
+// in this room's lobby (same code) until the match ends. No navigation — the server
+// switches you to the lobby view.
+function backToLobby() {
+  if (!confirm('Leave this game and go back to the lobby? A bot will finish your seat.')) return;
+  send({ type: 'backToLobby' });
+}
+
+// Host removes a player or bot from the lobby.
+function kickSeat(seat, name) {
+  if (!confirm(`Remove ${name} from the room?`)) return;
+  send({ type: 'kick', target: seat });
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +337,8 @@ function render() {
 function renderLobby(s) {
   $('lobbyCode').textContent = s.room;
   $('lobbyInvite').onclick = copyInvite;
+  const lob = s.lobby || {};
+  const canKick = !!lob.canKick;
   const list = $('lobbyList');
   list.innerHTML = '';
   s.roster.forEach((p) => {
@@ -329,12 +350,25 @@ function renderLobby(s) {
       (p.host ? '<span class="badge b-host">host</span>' : '') +
       (p.bot ? '<span class="badge b-bot">🤖 bot</span>' : '') +
       `<i class="dot ${p.connected ? 'on' : ''}"></i>`;
+    // Host can remove anyone else (humans and bots).
+    if (canKick && !p.host && p.seat !== s.seat) {
+      const x = document.createElement('button');
+      x.className = 'lobby-kick';
+      x.title = `Remove ${p.name}`;
+      x.textContent = '✕';
+      x.onclick = () => kickSeat(p.seat, p.name);
+      li.appendChild(x);
+    }
     list.appendChild(li);
   });
   renderGamePicker(s);
 
   const start = $('startBtn');
-  if (s.youAreHost) {
+  if (lob.matchInProgress) {
+    // You stepped out and are waiting in the lobby while the others finish the match.
+    start.style.display = 'none';
+    $('lobbyMsg').textContent = 'A match is in progress — you’ll rejoin the lobby when it ends.';
+  } else if (s.youAreHost) {
     start.style.display = '';
     start.disabled = s.roster.length < 2;
     start.textContent = s.roster.length < 2 ? 'Waiting for players…' : `Start game (${s.roster.length})`;
@@ -2414,16 +2448,16 @@ $('ranksSheet').addEventListener('click', (e) => {
   if (e.target.id === 'ranksSheet') closeRanks(); // tap the backdrop to dismiss
 });
 
-// Leave buttons (lobby + all game screens)
+// The lobby's button fully exits the room; in-game buttons return you to this room's lobby.
 $('leaveLobbyBtn').onclick = leaveRoom;
-$('leaveBtn').onclick = leaveRoom;
-$('liLeaveBtn').onclick = leaveRoom;
-$('yzLeaveBtn').onclick = leaveRoom;
-$('sgLeaveBtn').onclick = leaveRoom;
-$('cnLeaveBtn').onclick = leaveRoom;
-$('qrLeaveBtn').onclick = leaveRoom;
-$('tecLeaveBtn').onclick = leaveRoom;
-$('mmLeaveBtn').onclick = leaveRoom;
+$('leaveBtn').onclick = backToLobby;
+$('liLeaveBtn').onclick = backToLobby;
+$('yzLeaveBtn').onclick = backToLobby;
+$('sgLeaveBtn').onclick = backToLobby;
+$('cnLeaveBtn').onclick = backToLobby;
+$('qrLeaveBtn').onclick = backToLobby;
+$('tecLeaveBtn').onclick = backToLobby;
+$('mmLeaveBtn').onclick = backToLobby;
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');
