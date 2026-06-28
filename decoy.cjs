@@ -16,20 +16,26 @@ function tierOf(mv) {
 
 const sharesPosition = (a, b) => a.positions.some((p) => b.positions.includes(p));
 
+/** Similarity of a candidate decoy to the target (higher = more alike):
+ *  +3 same nationality, +2 shared league, +2 same era, +2 same value tier. */
+function scoreDecoy(target, c) {
+  let score = 0;
+  if (c.nationality === target.nationality) score += 3;
+  if (c.leagues.some((l) => target.leagues.includes(l))) score += 2;
+  if (c.eraOfPlay === target.eraOfPlay) score += 2;
+  if (tierOf(c.marketValue) === tierOf(target.marketValue)) score += 2;
+  return score;
+}
+
 /** Pick the most-similar decoy for `target` from `pool`. `rng` is injectable for tests. */
 function pickDecoy(target, pool, rng = Math.random) {
   const candidates = pool.filter((p) => p.name !== target.name && sharesPosition(p, target));
   if (candidates.length === 0) return null;
 
-  const targetTier = tierOf(target.marketValue);
   let best = -1;
   let bestList = [];
   for (const c of candidates) {
-    let score = 0;
-    if (c.nationality === target.nationality) score += 3;
-    if (c.leagues.some((l) => target.leagues.includes(l))) score += 2;
-    if (c.eraOfPlay === target.eraOfPlay) score += 2;
-    if (tierOf(c.marketValue) === targetTier) score += 2;
+    const score = scoreDecoy(target, c);
     if (score > best) {
       best = score;
       bestList = [c];
@@ -40,7 +46,7 @@ function pickDecoy(target, pool, rng = Math.random) {
   return bestList[Math.floor(rng() * bestList.length)];
 }
 
-module.exports = { pickDecoy, tierOf };
+module.exports = { pickDecoy, tierOf, scoreDecoy, sharesPosition };
 
 // ---------------------------------------------------------------------------
 // Unit tests — run with `node decoy.cjs`

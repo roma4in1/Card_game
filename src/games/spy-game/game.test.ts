@@ -3,24 +3,28 @@
 // to prove the decoy rule is always satisfiable.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpyGame, similar, pickDecoy, type PlayerCard, type SpyState } from './game.ts';
+import { createSpyGame, type PlayerCard, type SpyState } from './game.ts';
 import { WORD_BANK } from './wordbank.ts';
+// The plugin selects decoys via decoy.cjs — assert against the same single source.
+import { pickDecoy, scoreDecoy, sharesPosition } from '../../../decoy.cjs';
 import type { GameContext, GameDef } from '../../platform/types.ts';
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 2 ** 32);
 }
-// Every pair in this bank is similar (same position + era), so a decoy always exists.
-// Two nationalities so every player has a same-nation, same-position decoy peer.
+// Every player shares the same position so a decoy always exists; two nationalities so
+// each has a same-nation, same-position peer. New schema: marketValue/status/eraOfPlay.
 function synthBank(n = 6): PlayerCard[] {
   const nats = ['France', 'Spain'];
   return Array.from({ length: n }, (_, i) => ({
     name: `P_${String.fromCharCode(65 + i)}`,
     nationality: nats[i % nats.length],
-    positions: ['MID'],
+    positions: ['CM'],
     leagues: [`L${i}`],
-    era: '2010s',
+    marketValue: 30e6,
+    status: 'active' as const,
+    eraOfPlay: '2020s',
   }));
 }
 function newSpy(numPlayers: number, seed = 1, bank = synthBank()) {
@@ -60,31 +64,72 @@ test('exactly one spy; non-spies share the target, the spy gets a different deco
   }
 });
 
-test('the decoy is always similar to the target and different (synthetic + real bank)', () => {
+test('the decoy always shares a position with the target and differs (synthetic + real bank)', () => {
   for (let seed = 1; seed <= 40; seed++) {
     const { s, bank } = newSpy(3, seed);
     assert.notEqual(s.decoyIdx, s.targetIdx);
-    assert.ok(similar(bank[s.decoyIdx], bank[s.targetIdx]), `synth seed ${seed}`);
+    assert.ok(sharesPosition(bank[s.decoyIdx], bank[s.targetIdx]), `synth seed ${seed}`);
   }
-  // real 500-player bank: the decoy rule must always be satisfiable
+  // real bank: decoy.cjs's hard position filter must always be satisfiable
   const def = createSpyGame(WORD_BANK);
   for (let seed = 1; seed <= 80; seed++) {
     const c: GameContext = { rng: lcg(seed * 7 + 1), now: 0 };
     const s = def.create({ seats: [0, 1, 2], players: [0, 1, 2].map((x) => ({ seat: x, name: 'P' + x })) }, c) as SpyState;
     assert.notEqual(s.decoyIdx, s.targetIdx);
-    assert.ok(similar(WORD_BANK[s.decoyIdx], WORD_BANK[s.targetIdx]), `real bank seed ${seed}`);
+    assert.ok(sharesPosition(WORD_BANK[s.decoyIdx], WORD_BANK[s.targetIdx]), `real bank seed ${seed}`);
   }
 });
 
-test('the decoy is the strongest match, not just any qualifier (prefers shared nationality)', () => {
-  const bank: PlayerCard[] = [
-    { name: 'TARGET', nationality: 'France', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' },
-    { name: 'STRONG', nationality: 'France', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' },
-    { name: 'WEAK', nationality: 'Japan', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' }, // qualifies, but cross-nationality
-  ];
+test('decoy.cjs picks the strongest position peer, not just any (prefers nationality/league/era/value)', () => {
+  const P = (name: string, nat: string, pos: string[], lg: string[], mv: number | null, era: string): PlayerCard =>
+    ({ name, nationality: nat, positions: pos, leagues: lg, marketValue: mv, status: mv == null ? 'retired' : 'active', eraOfPlay: era });
+  const target = P('TARGET', 'France', ['CM'], ['Ligue 1'], 40e6, '2020s');
+  const strong = P('STRONG', 'France', ['CM'], ['Ligue 1'], 45e6, '2020s'); // +3 +2 +2 +2 = 9
+  const weak = P('WEAK', 'Japan', ['CM'], ['Ligue 1'], 45e6, '2020s'); //   +0 +2 +2 +2 = 6
+  const pool = [target, strong, weak];
   for (let seed = 1; seed <= 30; seed++) {
-    assert.equal(bank[pickDecoy(bank, 0, lcg(seed))].name, 'STRONG', `seed ${seed} should avoid the weak cross-nationality match`);
+    assert.equal(pickDecoy(target, pool, lcg(seed)).name, 'STRONG', `seed ${seed} should avoid the weak cross-nationality match`);
   }
+});
+
+test('the WIRED plugin selects decoys via decoy.cjs (decoy is always a top-scoring position peer)', () => {
+  const def = createSpyGame(WORD_BANK);
+  for (let seed = 1; seed <= 60; seed++) {
+    const c: GameContext = { rng: lcg(seed * 13 + 5), now: 0 };
+    const s = def.create({ seats: [0, 1, 2], players: [0, 1, 2].map((x) => ({ seat: x, name: 'P' + x })) }, c) as SpyState;
+    const target = WORD_BANK[s.targetIdx];
+    const decoy = WORD_BANK[s.decoyIdx];
+    assert.notEqual(s.decoyIdx, s.targetIdx);
+    assert.ok(sharesPosition(decoy, target), `decoy shares a position (seed ${seed})`);
+    // The plugin must reproduce decoy.cjs's contract: a highest-scoring position peer.
+    const best = Math.max(...WORD_BANK.filter((p) => p.name !== target.name && sharesPosition(p, target)).map((p) => scoreDecoy(target, p)));
+    assert.equal(scoreDecoy(target, decoy), best, `decoy is a top-scoring peer for ${target.name} (seed ${seed})`);
+  }
+});
+
+test('regression: named targets get sensible same-position decoys (Pedri / Haaland / Buffon)', () => {
+  const find = (re: RegExp) => WORD_BANK.find((p) => re.test(p.name))!;
+  const pedri = find(/^Pedri$/);
+  const haaland = find(/Haaland/);
+  const buffon = find(/Buffon/);
+  assert.ok(pedri && haaland && buffon, 'fixtures present in the bank');
+
+  // Pedri (CM/CAM, Spain, La Liga) → a Spanish creative midfielder, never a random striker/keeper.
+  const dp = pickDecoy(pedri, WORD_BANK, lcg(7));
+  assert.ok(sharesPosition(dp, pedri), 'Pedri decoy shares a midfield position');
+  assert.equal(dp.nationality, 'Spain', 'Pedri → a Spanish player (e.g. Lamine Yamal)');
+  assert.ok(!dp.positions.includes('GK'), 'Pedri decoy is not a goalkeeper');
+
+  // Haaland (ST) → another striker, not a goalkeeper.
+  const dh = pickDecoy(haaland, WORD_BANK, lcg(7));
+  assert.ok(dh.positions.includes('ST'), 'Haaland → another striker');
+  assert.ok(!dh.positions.includes('GK'), 'Haaland decoy is not a goalkeeper');
+
+  // Buffon (GK, retired, 2010s) → another goalkeeper, and a same-era retired one.
+  const db = pickDecoy(buffon, WORD_BANK, lcg(7));
+  assert.ok(db.positions.includes('GK'), 'Buffon → another goalkeeper');
+  assert.equal(db.status, 'retired', 'Buffon → a retired keeper');
+  assert.equal(db.eraOfPlay, buffon.eraOfPlay, 'Buffon → a same-era keeper');
 });
 
 test('the word bank is injected, not hardcoded — secrets come from the supplied bank', () => {

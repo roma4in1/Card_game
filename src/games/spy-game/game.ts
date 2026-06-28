@@ -8,17 +8,20 @@
 // hidden hole cards. The server owns all randomness (rng via the per-call context).
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+// Single source of truth for decoy selection — shared with the standalone build/tests.
+import { pickDecoy, scoreDecoy, sharesPosition } from '../../../decoy.cjs';
 
 export const MAX_SEATS = 8;
 export const ROUNDS = 3;
 
-export type PositionCode = 'GK' | 'DEF' | 'MID' | 'ATT';
 export interface PlayerCard {
   name: string;
   nationality: string;
-  positions: string[]; // GK | DEF | MID | ATT
+  positions: string[]; // fine codes: GK/CB/LB/RB/CDM/CM/CAM/LW/RW/ST
   leagues: string[];
-  era: string;
+  marketValue: number | null;
+  status: 'active' | 'retired';
+  eraOfPlay: string;
 }
 
 const randInt = (rng: Rng, n: number): number => Math.floor(rng() * n);
@@ -28,15 +31,6 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
-}
-
-/** A candidate qualifies as a possible decoy if it shares the SAME nationality OR a
- *  position. This is deliberately permissive so no star is left without a decoy (a lone
- *  star of their nationality+position still has same-position peers); pickDecoy then
- *  picks the STRONGEST match — same nationality and position whenever the bank has one. */
-export function similar(a: PlayerCard, b: PlayerCard): boolean {
-  if (a.name === b.name) return false;
-  return a.nationality === b.nationality || a.positions.some((p) => b.positions.includes(p));
 }
 
 function sanitizeWord(word: unknown): string {
@@ -94,49 +88,28 @@ const nameOf = (s: SpyState, seat: number) => s.players[seat]!.name;
 const seated = (s: SpyState): number[] => s.order.filter((seat) => s.players[seat]);
 
 // ---------------------------------------------------------------------------
-// Setup (decoy selection)
+// Setup (decoy selection lives in decoy.cjs — the single source of truth)
 // ---------------------------------------------------------------------------
 
-/** How apt a candidate is as a decoy for the target — higher is more alike. Nationality
- *  and league are strong signals; positions are coarse (so weighted, but not dominant). */
-export function similarityScore(a: PlayerCard, b: PlayerCard): number {
-  const sharedPos = a.positions.filter((p) => b.positions.includes(p)).length;
-  const sharedLeagues = a.leagues.filter((l) => b.leagues.includes(l)).length;
-  return sharedPos * 2 + (a.nationality === b.nationality ? 3 : 0) + sharedLeagues * 2 + (a.era === b.era ? 1 : 0);
-}
-
-export function pickDecoy(bank: PlayerCard[], targetIdx: number, rng: Rng): number {
-  const target = bank[targetIdx];
-  const cands: number[] = [];
-  for (let i = 0; i < bank.length; i++) if (i !== targetIdx && similar(bank[i], target)) cands.push(i);
-  if (!cands.length) {
-    // Defensive fallback (a well-formed bank always has a candidate): any other player.
-    let i = randInt(rng, bank.length);
-    if (i === targetIdx) i = (i + 1) % bank.length;
-    return i;
-  }
-  // Narrow as precisely as the bank allows: same nationality, then same position within
-  // it, then the strongest by league/era (with a little variety). Each step only applies
-  // if it leaves at least one candidate, so a lone-nation/position star still gets a decoy.
-  const sameNat = cands.filter((i) => bank[i].nationality === target.nationality);
-  let pool0 = sameNat.length ? sameNat : cands;
-  const samePos = pool0.filter((i) => bank[i].positions.some((p) => target.positions.includes(p)));
-  if (samePos.length) pool0 = samePos;
-  let best = 0;
-  for (const i of pool0) best = Math.max(best, similarityScore(bank[i], target));
-  const strong = pool0.filter((i) => similarityScore(bank[i], target) >= best - 1);
-  return strong[randInt(rng, strong.length)];
+/** Choose the spy's decoy for a target, returning its bank index. Defers to decoy.cjs;
+ *  falls back to any other player only if the bank has no position-sharing peer. */
+function pickDecoyIdx(bank: PlayerCard[], targetIdx: number, rng: Rng): number {
+  const decoy = pickDecoy(bank[targetIdx], bank, rng);
+  const idx = decoy ? bank.indexOf(decoy) : -1;
+  if (idx >= 0 && idx !== targetIdx) return idx;
+  return (targetIdx + 1) % bank.length; // defensive: well-formed banks always have a peer
 }
 
 function buildShortlist(bank: PlayerCard[], targetIdx: number, decoyIdx: number, rng: Rng): number[] {
   const target = bank[targetIdx];
   const set = new Set<number>([targetIdx, decoyIdx]);
-  // Distractors are the strongest matches to the target (same nationality first), so the
-  // shortlist reads as five plausible peers rather than a nationality giveaway.
+  // Distractors are the strongest position-sharing matches (same nationality first), so the
+  // shortlist reads as five plausible peers rather than a nationality giveaway. Same hard
+  // filter and scoring as the decoy itself, reused from decoy.cjs.
   const sims: number[] = [];
-  for (let i = 0; i < bank.length; i++) if (i !== targetIdx && i !== decoyIdx && similar(bank[i], target)) sims.push(i);
+  for (let i = 0; i < bank.length; i++) if (i !== targetIdx && i !== decoyIdx && sharesPosition(bank[i], target)) sims.push(i);
   shuffle(sims, rng);
-  sims.sort((a, b) => similarityScore(bank[b], target) - similarityScore(bank[a], target));
+  sims.sort((a, b) => scoreDecoy(target, bank[b]) - scoreDecoy(target, bank[a]));
   for (const i of sims) {
     if (set.size >= 5) break;
     set.add(i);
@@ -369,7 +342,7 @@ function botMove(bank: PlayerCard[], s: SpyState, seat: number, rng: Rng): Recor
     if (s.order[s.current] !== seat) return null;
     // Clue from one of the player's OWN secret card's attributes (varies by round).
     const card = bank[p.isSpy ? s.decoyIdx : s.targetIdx];
-    const opts = [card.nationality, card.leagues[0] || card.era, card.era, card.positions[0] || 'player'];
+    const opts = [card.nationality, card.leagues[0] || card.eraOfPlay, card.eraOfPlay, card.positions[0] || 'player'];
     const word = opts[(s.round - 1) % opts.length] || 'player';
     return { type: 'submitClue', word };
   }
@@ -408,7 +381,7 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
       const order = [...setup.seats];
       const spyId = order[randInt(rng, order.length)];
       const targetIdx = randInt(rng, bank.length);
-      const decoyIdx = pickDecoy(bank, targetIdx, rng);
+      const decoyIdx = pickDecoyIdx(bank, targetIdx, rng);
 
       const players: (SpyPlayer | null)[] = new Array(MAX_SEATS).fill(null);
       for (const pi of setup.players) {
