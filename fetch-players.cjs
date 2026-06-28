@@ -150,11 +150,9 @@ async function main() {
   console.log('after Champions-League/Europe filter:', europe.length, 'of', players.length);
 
   // ---- decoy-coverage validation (same rule the server must use at match start) ----
+  // A decoy must share the SAME nationality AND a position.
   const sharePos = (a, b) => a.positions.some(x => b.positions.includes(x));
-  const shareCtx = (a, b) =>
-    a.nationality === b.nationality ||
-    a.leagues.some(l => b.leagues.includes(l)) ||
-    a.era === b.era;
+  const shareCtx = (a, b) => a.nationality === b.nationality;
 
   // Drop orphans iteratively (removing one can orphan another), until stable.
   let pool = europe;

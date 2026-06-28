@@ -30,14 +30,13 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
   return arr;
 }
 
-/** Decoy similarity rule: share ≥1 position AND ≥1 of {nationality, a league, era}. */
+/** Decoy similarity rule: must share the SAME nationality AND a position — the two core
+ *  identity signals — so a decoy is always a same-country player in the same role.
+ *  (League/era then rank the best match in pickDecoy.) */
 export function similar(a: PlayerCard, b: PlayerCard): boolean {
   if (a.name === b.name) return false;
-  const sharePos = a.positions.some((p) => b.positions.includes(p));
-  if (!sharePos) return false;
-  const shareAttr =
-    a.nationality === b.nationality || a.era === b.era || a.leagues.some((l) => b.leagues.includes(l));
-  return shareAttr;
+  if (a.nationality !== b.nationality) return false;
+  return a.positions.some((p) => b.positions.includes(p));
 }
 
 function sanitizeWord(word: unknown): string {

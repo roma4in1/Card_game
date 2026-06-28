@@ -12,10 +12,12 @@ function lcg(seed: number): () => number {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 2 ** 32);
 }
 // Every pair in this bank is similar (same position + era), so a decoy always exists.
+// Two nationalities so every player has a same-nation, same-position decoy peer.
 function synthBank(n = 6): PlayerCard[] {
+  const nats = ['France', 'Spain'];
   return Array.from({ length: n }, (_, i) => ({
     name: `P_${String.fromCharCode(65 + i)}`,
-    nationality: `Nat${i}`,
+    nationality: nats[i % nats.length],
     positions: ['MID'],
     leagues: [`L${i}`],
     era: '2010s',
