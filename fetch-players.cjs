@@ -12,7 +12,7 @@ const fs = require('fs');
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const QUERY = fs.readFileSync(__dirname + '/players.sparql', 'utf8');
-const TARGET = 500;
+const TARGET = 300; // keep the most famous/popular players (trimmed by Wikidata notability)
 
 // ---- Wikidata position labels -> four honest buckets ----
 // Wikidata's position data is coarse: the dominant labels are the generic
@@ -139,6 +139,16 @@ async function main() {
   }
   console.log('normalized players (pre-validation):', players.length);
 
+  // ---- "mainly Champions League" filter ----
+  // The CL is contested by clubs in the top UEFA leagues, so keep players who appear in
+  // one of them. Wikidata league history is patchy (Messi shows only MLS, Ronaldo only
+  // Saudi) and pre-dates some legends (Pelé), so ALSO keep the most globally famous
+  // regardless of league. `players` is in sitelink (fame) order, so index ≈ fame rank.
+  const EURO_LEAGUES = new Set(['Premier League', 'First Division', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'Eredivisie', 'Primeira Liga']);
+  const FAME_KEEP = 80; // always keep the top-80 most famous (Messi, Ronaldo, Pelé, …)
+  const europe = players.filter((p, idx) => idx < FAME_KEEP || p.leagues.some(l => EURO_LEAGUES.has(l)));
+  console.log('after Champions-League/Europe filter:', europe.length, 'of', players.length);
+
   // ---- decoy-coverage validation (same rule the server must use at match start) ----
   const sharePos = (a, b) => a.positions.some(x => b.positions.includes(x));
   const shareCtx = (a, b) =>
@@ -147,7 +157,7 @@ async function main() {
     a.era === b.era;
 
   // Drop orphans iteratively (removing one can orphan another), until stable.
-  let pool = players;
+  let pool = europe;
   for (;;) {
     const kept = pool.filter(p => pool.some(q => q !== p && sharePos(p, q) && shareCtx(p, q)));
     if (kept.length === pool.length) break;

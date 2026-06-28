@@ -230,6 +230,17 @@
     "era": "2010s"
   },
   {
+    "name": "Antoine Griezmann",
+    "nationality": "France",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Iker Casillas",
     "nationality": "Spain",
     "positions": [
@@ -242,26 +253,15 @@
     "era": "2000s"
   },
   {
-    "name": "Antoine Griezmann",
-    "nationality": "France",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Kaká",
     "nationality": "Brazil",
     "positions": [
       "MID"
     ],
     "leagues": [
-      "La Liga",
       "Campeonato Brasileiro",
-      "MLS"
+      "MLS",
+      "La Liga"
     ],
     "era": "2000s"
   },
@@ -278,17 +278,6 @@
     "era": "2000s"
   },
   {
-    "name": "Xavi Hernández",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2000s"
-  },
-  {
     "name": "Steven Gerrard",
     "nationality": "United Kingdom",
     "positions": [
@@ -297,6 +286,17 @@
     "leagues": [
       "MLS",
       "Premier League"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Xavi Hernández",
+    "nationality": "Spain",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
     ],
     "era": "2000s"
   },
@@ -331,8 +331,8 @@
       "ATT"
     ],
     "leagues": [
-      "Ligue 1",
-      "Premier League"
+      "Premier League",
+      "Ligue 1"
     ],
     "era": "1990s"
   },
@@ -361,6 +361,18 @@
     "era": "2010s"
   },
   {
+    "name": "Thomas Müller",
+    "nationality": "Germany",
+    "positions": [
+      "MID",
+      "ATT"
+    ],
+    "leagues": [
+      "MLS"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Arjen Robben",
     "nationality": "Kingdom of the Netherlands",
     "positions": [
@@ -373,18 +385,6 @@
       "Eredivisie"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Thomas Müller",
-    "nationality": "Germany",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Gerard Piqué",
@@ -471,13 +471,14 @@
     "era": "2010s"
   },
   {
-    "name": "Olivier Giroud",
-    "nationality": "France",
+    "name": "James Rodríguez",
+    "nationality": "Colombia",
     "positions": [
+      "MID",
       "ATT"
     ],
     "leagues": [
-      "Ligue 1"
+      "MLS"
     ],
     "era": "2010s"
   },
@@ -493,25 +494,13 @@
     "era": "2000s"
   },
   {
-    "name": "James Rodríguez",
-    "nationality": "Colombia",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Sadio Mané",
-    "nationality": "Senegal",
+    "name": "Olivier Giroud",
+    "nationality": "France",
     "positions": [
       "ATT"
     ],
     "leagues": [
-      "Saudi Pro League"
+      "Ligue 1"
     ],
     "era": "2010s"
   },
@@ -525,6 +514,17 @@
       "Premier League"
     ],
     "era": "2020s"
+  },
+  {
+    "name": "Sadio Mané",
+    "nationality": "Senegal",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Saudi Pro League"
+    ],
+    "era": "2010s"
   },
   {
     "name": "Thibaut Courtois",
@@ -650,6 +650,18 @@
     "era": "2000s"
   },
   {
+    "name": "Roberto Carlos",
+    "nationality": "Brazil",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "La Liga",
+      "Campeonato Brasileiro"
+    ],
+    "era": "1990s"
+  },
+  {
     "name": "Ángel Di María",
     "nationality": "Argentina",
     "positions": [
@@ -670,18 +682,6 @@
       "MLS"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Roberto Carlos",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Campeonato Brasileiro"
-    ],
-    "era": "1990s"
   },
   {
     "name": "Marcus Rashford",
@@ -790,6 +790,18 @@
     "era": "1990s"
   },
   {
+    "name": "Luís Figo",
+    "nationality": "Portugal",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Primeira Liga"
+    ],
+    "era": "1990s"
+  },
+  {
     "name": "Michael Ballack",
     "nationality": "Germany",
     "positions": [
@@ -811,18 +823,6 @@
       "Campeonato Brasileiro"
     ],
     "era": "2010s"
-  },
-  {
-    "name": "Luís Figo",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga"
-    ],
-    "era": "1990s"
   },
   {
     "name": "John Terry",
@@ -860,6 +860,19 @@
     "era": "2010s"
   },
   {
+    "name": "Rivaldo",
+    "nationality": "Brazil",
+    "positions": [
+      "ATT",
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Campeonato Brasileiro"
+    ],
+    "era": "1990s"
+  },
+  {
     "name": "Carles Puyol",
     "nationality": "Spain",
     "positions": [
@@ -881,19 +894,6 @@
       "La Liga"
     ],
     "era": "2020s"
-  },
-  {
-    "name": "Rivaldo",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Campeonato Brasileiro"
-    ],
-    "era": "1990s"
   },
   {
     "name": "Hernán Crespo",
@@ -940,22 +940,22 @@
       "MID"
     ],
     "leagues": [
+      "Ligue 1",
       "La Liga",
-      "Eredivisie",
-      "Ligue 1"
+      "Eredivisie"
     ],
     "era": "2000s"
   },
   {
-    "name": "Marco Reus",
-    "nationality": "Germany",
+    "name": "Nemanja Vidić",
+    "nationality": "Serbia",
     "positions": [
-      "MID"
+      "DEF"
     ],
     "leagues": [
-      "MLS"
+      "Premier League"
     ],
-    "era": "2010s"
+    "era": "2000s"
   },
   {
     "name": "Dennis Bergkamp",
@@ -970,26 +970,15 @@
     "era": "1990s"
   },
   {
-    "name": "Nemanja Vidić",
-    "nationality": "Serbia",
+    "name": "Edwin van der Sar",
+    "nationality": "Kingdom of the Netherlands",
     "positions": [
-      "DEF"
+      "GK"
     ],
     "leagues": [
       "Premier League"
     ],
-    "era": "2000s"
-  },
-  {
-    "name": "Riyad Mahrez",
-    "nationality": "Algeria",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
+    "era": "1990s"
   },
   {
     "name": "Robinho",
@@ -1005,17 +994,6 @@
     "era": "2000s"
   },
   {
-    "name": "Edwin van der Sar",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
     "name": "David Silva",
     "nationality": "Spain",
     "positions": [
@@ -1026,19 +1004,6 @@
       "Premier League"
     ],
     "era": "2010s"
-  },
-  {
-    "name": "Didier Deschamps",
-    "nationality": "France",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "1990s"
   },
   {
     "name": "Diego Godín",
@@ -1052,6 +1017,31 @@
       "Campeonato Brasileiro"
     ],
     "era": "2010s"
+  },
+  {
+    "name": "Pepe",
+    "nationality": "Brazil",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "La Liga",
+      "Primeira Liga"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Didier Deschamps",
+    "nationality": "France",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "Premier League",
+      "La Liga",
+      "Ligue 1"
+    ],
+    "era": "1990s"
   },
   {
     "name": "Bastian Schweinsteiger",
@@ -1079,53 +1069,6 @@
     "era": "2000s"
   },
   {
-    "name": "Son Heung-min",
-    "nationality": "South Korea",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Pepe",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Raheem Sterling",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Philippe Coutinho",
-    "nationality": "Brazil",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Pepe Reina",
     "nationality": "Spain",
     "positions": [
@@ -1136,6 +1079,17 @@
       "Premier League"
     ],
     "era": "2000s"
+  },
+  {
+    "name": "Mario Mandžukić",
+    "nationality": "Croatia",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2010s"
   },
   {
     "name": "Yaya Touré",
@@ -1152,25 +1106,14 @@
     "era": "2000s"
   },
   {
-    "name": "Mario Mandžukić",
-    "nationality": "Croatia",
+    "name": "Raheem Sterling",
+    "nationality": "United Kingdom",
     "positions": [
       "ATT"
     ],
     "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Keisuke Honda",
-    "nationality": "Japan",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
+      "Premier League",
+      "Eredivisie"
     ],
     "era": "2010s"
   },
@@ -1184,6 +1127,43 @@
       "La Liga"
     ],
     "era": "2020s"
+  },
+  {
+    "name": "Petr Čech",
+    "nationality": "Czech Republic",
+    "positions": [
+      "GK"
+    ],
+    "leagues": [
+      "Premier League",
+      "Ligue 1"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Gonzalo Higuaín",
+    "nationality": "Argentina",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League",
+      "Primera División (Argentina)",
+      "MLS"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Alan Shearer",
+    "nationality": "United Kingdom",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "1990s"
   },
   {
     "name": "Ruud van Nistelrooy",
@@ -1200,49 +1180,12 @@
   },
   {
     "name": "Sami Khedira",
-    "nationality": "Tunisia",
+    "nationality": "Germany",
     "positions": [
       "MID"
     ],
     "leagues": [
       "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Petr Čech",
-    "nationality": "Czech Republic",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Alan Shearer",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Gonzalo Higuaín",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primera División (Argentina)",
-      "MLS"
     ],
     "era": "2010s"
   },
@@ -1274,32 +1217,6 @@
     "era": "2000s"
   },
   {
-    "name": "Casemiro",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Campeonato Brasileiro",
-      "Primeira Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Víctor Valdés",
-    "nationality": "Spain",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
     "name": "Nani",
     "nationality": "Portugal",
     "positions": [
@@ -1325,15 +1242,30 @@
     "era": "2000s"
   },
   {
-    "name": "Giorgio Chiellini",
-    "nationality": "Italy",
+    "name": "Víctor Valdés",
+    "nationality": "Spain",
     "positions": [
-      "DEF"
+      "GK"
     ],
     "leagues": [
-      "MLS"
+      "La Liga",
+      "Premier League"
     ],
     "era": "2000s"
+  },
+  {
+    "name": "Casemiro",
+    "nationality": "Brazil",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League",
+      "Campeonato Brasileiro",
+      "Primeira Liga"
+    ],
+    "era": "2010s"
   },
   {
     "name": "Alexis Sánchez",
@@ -1347,15 +1279,18 @@
     "era": "2010s"
   },
   {
-    "name": "Thiago Silva",
+    "name": "Diego Costa",
     "nationality": "Brazil",
     "positions": [
-      "DEF"
+      "ATT"
     ],
     "leagues": [
+      "La Liga",
+      "Premier League",
+      "Primeira Liga",
       "Campeonato Brasileiro"
     ],
-    "era": "2000s"
+    "era": "2010s"
   },
   {
     "name": "Jordan Henderson",
@@ -1387,20 +1322,6 @@
     ],
     "leagues": [
       "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Diego Costa",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primeira Liga",
-      "Campeonato Brasileiro"
     ],
     "era": "2010s"
   },
@@ -1452,6 +1373,28 @@
     "era": "2010s"
   },
   {
+    "name": "Alisson Becker",
+    "nationality": "Brazil",
+    "positions": [
+      "GK"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Arda Turan",
+    "nationality": "Turkey",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Patrick Vieira",
     "nationality": "France",
     "positions": [
@@ -1475,28 +1418,6 @@
     "era": "2000s"
   },
   {
-    "name": "Arda Turan",
-    "nationality": "Turkey",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Alisson Becker",
-    "nationality": "Brazil",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Ashley Cole",
     "nationality": "United Kingdom",
     "positions": [
@@ -1516,17 +1437,6 @@
     ],
     "leagues": [
       "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Ivan Perišić",
-    "nationality": "Croatia",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Eredivisie"
     ],
     "era": "2010s"
   },
@@ -1553,40 +1463,26 @@
     "era": "2010s"
   },
   {
-    "name": "Deco",
-    "nationality": "Brazil",
+    "name": "Ivan Perišić",
+    "nationality": "Croatia",
     "positions": [
       "MID"
     ],
     "leagues": [
-      "La Liga",
-      "Premier League",
-      "Campeonato Brasileiro",
-      "Primeira Liga"
+      "Eredivisie"
     ],
-    "era": "2000s"
+    "era": "2010s"
   },
   {
-    "name": "Ashley Young",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF",
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Klaas-Jan Huntelaar",
-    "nationality": "Kingdom of the Netherlands",
+    "name": "Emmanuel Adebayor",
+    "nationality": "Togo",
     "positions": [
       "ATT"
     ],
     "leagues": [
       "La Liga",
-      "Eredivisie"
+      "Premier League",
+      "Ligue 1"
     ],
     "era": "2000s"
   },
@@ -1616,29 +1512,16 @@
     "era": "2000s"
   },
   {
-    "name": "Emmanuel Adebayor",
-    "nationality": "Togo",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Javier Zanetti",
-    "nationality": "Argentina",
+    "name": "Ashley Young",
+    "nationality": "United Kingdom",
     "positions": [
       "DEF",
       "MID"
     ],
     "leagues": [
-      "Primera División (Argentina)"
+      "Premier League"
     ],
-    "era": "1990s"
+    "era": "2000s"
   },
   {
     "name": "Diogo Jota",
@@ -1652,6 +1535,32 @@
       "Premier League"
     ],
     "era": "2020s"
+  },
+  {
+    "name": "Klaas-Jan Huntelaar",
+    "nationality": "Kingdom of the Netherlands",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "La Liga",
+      "Eredivisie"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Deco",
+    "nationality": "Brazil",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League",
+      "Campeonato Brasileiro",
+      "Primeira Liga"
+    ],
+    "era": "2000s"
   },
   {
     "name": "𝑝𝑢𝑡𝑜 𝑡𝑟𝑜𝑛𝑐𝑜",
@@ -1679,39 +1588,16 @@
     "era": "2000s"
   },
   {
-    "name": "Gabriel Batistuta",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "1990s"
-  },
-  {
     "name": "Patrice Evra",
     "nationality": "Senegal",
     "positions": [
       "DEF"
     ],
     "leagues": [
-      "Ligue 1",
-      "Premier League"
+      "Premier League",
+      "Ligue 1"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Hulk",
-    "nationality": "Brazil",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
   },
   {
     "name": "André Schürrle",
@@ -1760,18 +1646,6 @@
       "La Liga"
     ],
     "era": "1990s"
-  },
-  {
-    "name": "Memphis Depay",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Eric Abidal",
@@ -1844,28 +1718,6 @@
     "era": "2010s"
   },
   {
-    "name": "Takumi Minamino",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Bukayo Saka",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
     "name": "Samuel Umtiti",
     "nationality": "Cameroon",
     "positions": [
@@ -1920,6 +1772,28 @@
     ],
     "leagues": [
       "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Bukayo Saka",
+    "nationality": "United Kingdom",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2020s"
+  },
+  {
+    "name": "Takumi Minamino",
+    "nationality": "Japan",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "Ligue 1"
     ],
     "era": "2010s"
   },
@@ -1980,15 +1854,15 @@
     "era": "2010s"
   },
   {
-    "name": "Jens Lehmann",
-    "nationality": "Germany",
+    "name": "Rodri",
+    "nationality": "Spain",
     "positions": [
-      "GK"
+      "MID"
     ],
     "leagues": [
       "Premier League"
     ],
-    "era": "1990s"
+    "era": "2020s"
   },
   {
     "name": "César Azpilicueta",
@@ -2004,15 +1878,15 @@
     "era": "2010s"
   },
   {
-    "name": "Rodri",
-    "nationality": "Spain",
+    "name": "Jens Lehmann",
+    "nationality": "Germany",
     "positions": [
-      "MID"
+      "GK"
     ],
     "leagues": [
       "Premier League"
     ],
-    "era": "2020s"
+    "era": "1990s"
   },
   {
     "name": "Kai Havertz",
@@ -2025,18 +1899,6 @@
       "Premier League"
     ],
     "era": "2020s"
-  },
-  {
-    "name": "Antonio Valencia",
-    "nationality": "Ecuador",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2000s"
   },
   {
     "name": "Branislav Ivanović",
@@ -2063,18 +1925,6 @@
     "era": "2000s"
   },
   {
-    "name": "Davor Šuker",
-    "nationality": "Socialist Federal Republic of Yugoslavia",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
     "name": "Tim Cahill",
     "nationality": "Samoa",
     "positions": [
@@ -2083,6 +1933,18 @@
     "leagues": [
       "Premier League",
       "MLS"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Antonio Valencia",
+    "nationality": "Ecuador",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League"
     ],
     "era": "2000s"
   },
@@ -2100,30 +1962,27 @@
     "era": "2000s"
   },
   {
-    "name": "Ricardo Carvalho",
-    "nationality": "Portugal",
+    "name": "Gary Neville",
+    "nationality": "United Kingdom",
     "positions": [
       "DEF"
     ],
     "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primeira Liga",
-      "Ligue 1"
+      "Premier League"
     ],
-    "era": "2000s"
+    "era": "1990s"
   },
   {
-    "name": "Divock Origi kolman",
-    "nationality": "Belgium",
+    "name": "Davor Šuker",
+    "nationality": "Socialist Federal Republic of Yugoslavia",
     "positions": [
       "ATT"
     ],
     "leagues": [
-      "Premier League",
-      "Ligue 1"
+      "La Liga",
+      "Premier League"
     ],
-    "era": "2010s"
+    "era": "1990s"
   },
   {
     "name": "Dele Alli",
@@ -2135,17 +1994,6 @@
       "Premier League"
     ],
     "era": "2020s"
-  },
-  {
-    "name": "Wataru Endō",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Michael Essien",
@@ -2161,17 +2009,6 @@
     "era": "2000s"
   },
   {
-    "name": "Gary Neville",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
     "name": "Samir Nasri",
     "nationality": "Algeria",
     "positions": [
@@ -2181,18 +2018,6 @@
       "Premier League",
       "La Liga",
       "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Thiago Alcântara",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
     ],
     "era": "2010s"
   },
@@ -2223,26 +2048,64 @@
     "era": "2000s"
   },
   {
-    "name": "Nacho",
-    "nationality": "Spain",
+    "name": "Thiago Alcântara",
+    "nationality": "Brazil",
     "positions": [
-      "DEF"
+      "MID"
     ],
     "leagues": [
-      "Saudi Pro League"
+      "La Liga",
+      "Premier League"
     ],
     "era": "2010s"
   },
   {
-    "name": "Cafu",
-    "nationality": "Brazil",
+    "name": "Ricardo Carvalho",
+    "nationality": "Portugal",
     "positions": [
       "DEF"
     ],
     "leagues": [
-      "Campeonato Brasileiro"
+      "La Liga",
+      "Premier League",
+      "Primeira Liga",
+      "Ligue 1"
     ],
-    "era": "1990s"
+    "era": "2000s"
+  },
+  {
+    "name": "Divock Origi kolman",
+    "nationality": "Belgium",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League",
+      "Ligue 1"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Wataru Endō",
+    "nationality": "Japan",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Jamie Carragher",
+    "nationality": "United Kingdom",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2000s"
   },
   {
     "name": "Júlio César",
@@ -2271,55 +2134,10 @@
     "era": "2000s"
   },
   {
-    "name": "Jamie Carragher",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
     "name": "Danny Welbeck",
     "nationality": "United Kingdom",
     "positions": [
       "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Shkodran Mustafi",
-    "nationality": "Germany",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Kazuyoshi Miura",
-    "nationality": "Japan",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Bruno Fernandes",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
     ],
     "leagues": [
       "Premier League"
@@ -2364,28 +2182,6 @@
     "era": "2020s"
   },
   {
-    "name": "Marta",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Maya Yoshida",
-    "nationality": "Japan",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Freddie Ljungberg",
     "nationality": "Sweden",
     "positions": [
@@ -2411,19 +2207,6 @@
     "era": "2000s"
   },
   {
-    "name": "Leonardo Araújo",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Campeonato Brasileiro",
-      "Ligue 1"
-    ],
-    "era": "1990s"
-  },
-  {
     "name": "Kasper Schmeichel",
     "nationality": "Kingdom of Denmark",
     "positions": [
@@ -2447,6 +2230,31 @@
     "era": "2020s"
   },
   {
+    "name": "Leonardo Araújo",
+    "nationality": "Brazil",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Campeonato Brasileiro",
+      "Ligue 1"
+    ],
+    "era": "1990s"
+  },
+  {
+    "name": "Shkodran Mustafi",
+    "nationality": "Germany",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "Premier League",
+      "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Phil Foden",
     "nationality": "United Kingdom",
     "positions": [
@@ -2458,37 +2266,13 @@
     "era": "2020s"
   },
   {
-    "name": "Nicklas Bendtner",
-    "nationality": "Kingdom of Denmark",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Kevin-Prince Boateng",
-    "nationality": "Germany",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Willian",
-    "nationality": "Brazil",
+    "name": "Bruno Fernandes",
+    "nationality": "Portugal",
     "positions": [
       "MID"
     ],
     "leagues": [
-      "Campeonato Brasileiro"
+      "Premier League"
     ],
     "era": "2010s"
   },
@@ -2505,26 +2289,15 @@
     "era": "2010s"
   },
   {
-    "name": "Eiji Kawashima",
-    "nationality": "Japan",
+    "name": "Nicklas Bendtner",
+    "nationality": "Kingdom of Denmark",
     "positions": [
-      "GK"
+      "ATT"
     ],
     "leagues": [
-      "Ligue 1"
+      "Premier League"
     ],
-    "era": "2000s"
-  },
-  {
-    "name": "Daniele De Rossi",
-    "nationality": "Italy",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
+    "era": "2010s"
   },
   {
     "name": "Toby Alderweireld",
@@ -2540,18 +2313,6 @@
     "era": "2010s"
   },
   {
-    "name": "Fred",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
     "name": "Joe Hart",
     "nationality": "United Kingdom",
     "positions": [
@@ -2563,6 +2324,42 @@
     "era": "2010s"
   },
   {
+    "name": "Eiji Kawashima",
+    "nationality": "Japan",
+    "positions": [
+      "GK"
+    ],
+    "leagues": [
+      "Ligue 1"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Kevin-Prince Boateng",
+    "nationality": "Germany",
+    "positions": [
+      "ATT",
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Robbie Keane",
+    "nationality": "Ireland",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League",
+      "MLS"
+    ],
+    "era": "2000s"
+  },
+  {
     "name": "Leighton Baines",
     "nationality": "United Kingdom",
     "positions": [
@@ -2570,6 +2367,17 @@
     ],
     "leagues": [
       "Premier League"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Bruno Alves",
+    "nationality": "Portugal",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "Primeira Liga"
     ],
     "era": "2000s"
   },
@@ -2586,13 +2394,14 @@
     "era": "1990s"
   },
   {
-    "name": "Bruno Alves",
-    "nationality": "Portugal",
+    "name": "Fred",
+    "nationality": "Brazil",
     "positions": [
-      "DEF"
+      "ATT"
     ],
     "leagues": [
-      "Primeira Liga"
+      "Ligue 1",
+      "Campeonato Brasileiro"
     ],
     "era": "2000s"
   },
@@ -2620,43 +2429,10 @@
     "era": "2010s"
   },
   {
-    "name": "Hiroshi Kiyotake",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Pedrink",
     "nationality": "Spain",
     "positions": [
       "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Koke",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Federico Valverde",
-    "nationality": "Uruguay",
-    "positions": [
-      "MID"
     ],
     "leagues": [
       "La Liga"
@@ -2687,6 +2463,28 @@
     "era": "2000s"
   },
   {
+    "name": "Federico Valverde",
+    "nationality": "Uruguay",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2020s"
+  },
+  {
+    "name": "Koke",
+    "nationality": "Spain",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Trent Alexander-Arnold",
     "nationality": "United Kingdom",
     "positions": [
@@ -2699,16 +2497,15 @@
     "era": "2020s"
   },
   {
-    "name": "Claudio Bravo",
-    "nationality": "Chile",
+    "name": "Hiroshi Kiyotake",
+    "nationality": "Japan",
     "positions": [
-      "GK"
+      "MID"
     ],
     "leagues": [
-      "La Liga",
-      "Premier League"
+      "La Liga"
     ],
-    "era": "2000s"
+    "era": "2010s"
   },
   {
     "name": "Dimitar Berbatov",
@@ -2719,18 +2516,6 @@
     "leagues": [
       "Premier League",
       "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Robbie Keane",
-    "nationality": "Ireland",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS"
     ],
     "era": "2000s"
   },
@@ -2772,27 +2557,27 @@
     "era": "2010s"
   },
   {
-    "name": "Mateo Kovačić",
-    "nationality": "Croatia",
+    "name": "Claudio Bravo",
+    "nationality": "Chile",
+    "positions": [
+      "GK"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Roy Keane",
+    "nationality": "Ireland",
     "positions": [
       "MID"
     ],
     "leagues": [
       "Premier League"
     ],
-    "era": "2010s"
-  },
-  {
-    "name": "Khvicha Kvaratskhelia",
-    "nationality": "Georgia",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2020s"
+    "era": "1990s"
   },
   {
     "name": "Asamoah Gyan",
@@ -2805,6 +2590,18 @@
       "Ligue 1"
     ],
     "era": "2000s"
+  },
+  {
+    "name": "Khvicha Kvaratskhelia",
+    "nationality": "Georgia",
+    "positions": [
+      "ATT",
+      "MID"
+    ],
+    "leagues": [
+      "Ligue 1"
+    ],
+    "era": "2020s"
   },
   {
     "name": "Αrda Güler",
@@ -2829,6 +2626,17 @@
     "era": "2010s"
   },
   {
+    "name": "Gaku Shibasaki",
+    "nationality": "Japan",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Jack Wilshere",
     "nationality": "United Kingdom",
     "positions": [
@@ -2836,18 +2644,6 @@
     ],
     "leagues": [
       "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Oscar",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Campeonato Brasileiro"
     ],
     "era": "2010s"
   },
@@ -2863,17 +2659,6 @@
     "era": "2010s"
   },
   {
-    "name": "Gaku Shibasaki",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Benjamin Pavard",
     "nationality": "France",
     "positions": [
@@ -2885,16 +2670,42 @@
     "era": "2020s"
   },
   {
-    "name": "Kolo Touré",
-    "nationality": "Ivory Coast",
+    "name": "Oscar",
+    "nationality": "Brazil",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "Premier League",
+      "Campeonato Brasileiro"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Mateo Kovačić",
+    "nationality": "Croatia",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Nicolás Otamendi",
+    "nationality": "Argentina",
     "positions": [
       "DEF"
     ],
     "leagues": [
+      "La Liga",
       "Premier League",
-      "Ligue 1"
+      "Primeira Liga",
+      "Primera División (Argentina)",
+      "Campeonato Brasileiro"
     ],
-    "era": "2000s"
+    "era": "2010s"
   },
   {
     "name": "Alexandre Pato",
@@ -2911,24 +2722,14 @@
     "era": "2010s"
   },
   {
-    "name": "Diego Milito",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Darijo Srna",
-    "nationality": "Croatia",
+    "name": "Kolo Touré",
+    "nationality": "Ivory Coast",
     "positions": [
       "DEF"
     ],
     "leagues": [
-      "Premier League"
+      "Premier League",
+      "Ligue 1"
     ],
     "era": "2000s"
   },
@@ -2940,6 +2741,17 @@
     ],
     "leagues": [
       "La Liga"
+    ],
+    "era": "2000s"
+  },
+  {
+    "name": "Darijo Srna",
+    "nationality": "Croatia",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "Premier League"
     ],
     "era": "2000s"
   },
@@ -2956,29 +2768,6 @@
     "era": "2000s"
   },
   {
-    "name": "Roy Keane",
-    "nationality": "Ireland",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Hiroki Sakai",
-    "nationality": "Japan",
-    "positions": [
-      "DEF",
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Thiago Motta",
     "nationality": "Brazil",
     "positions": [
@@ -2987,51 +2776,6 @@
     "leagues": [
       "La Liga",
       "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Takuma ano",
-    "nationality": "Japan",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Gavi",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Cole Palmer",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Alessandro Nesta",
-    "nationality": "Italy",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "MLS"
     ],
     "era": "2000s"
   },
@@ -3048,6 +2792,40 @@
     "era": "2010s"
   },
   {
+    "name": "Takuma ano",
+    "nationality": "Japan",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Cole Palmer",
+    "nationality": "United Kingdom",
+    "positions": [
+      "MID",
+      "ATT"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2020s"
+  },
+  {
+    "name": "Gavi",
+    "nationality": "Spain",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "2020s"
+  },
+  {
     "name": "Tomáš Rosický",
     "nationality": "Czech Republic",
     "positions": [
@@ -3057,17 +2835,6 @@
       "Premier League"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Chris Smalling",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Richarlison",
@@ -3081,6 +2848,29 @@
     "era": "2020s"
   },
   {
+    "name": "Hiroki Sakai",
+    "nationality": "Japan",
+    "positions": [
+      "DEF",
+      "MID"
+    ],
+    "leagues": [
+      "Ligue 1"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Kepa Arrizabalaga",
+    "nationality": "Spain",
+    "positions": [
+      "GK"
+    ],
+    "leagues": [
+      "Premier League"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Jadon Sancho",
     "nationality": "United Kingdom",
     "positions": [
@@ -3092,13 +2882,15 @@
     "era": "2020s"
   },
   {
-    "name": "Kepa Arrizabalaga",
-    "nationality": "Spain",
+    "name": "Bojan Krkić",
+    "nationality": "Serbia",
     "positions": [
-      "GK"
+      "ATT"
     ],
     "leagues": [
-      "Premier League"
+      "La Liga",
+      "Eredivisie",
+      "MLS"
     ],
     "era": "2010s"
   },
@@ -3127,19 +2919,6 @@
     "era": "2000s"
   },
   {
-    "name": "Bojan Krkić",
-    "nationality": "Serbia",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Eredivisie",
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Giovanni van Bronckhorst",
     "nationality": "Kingdom of the Netherlands",
     "positions": [
@@ -3151,21 +2930,6 @@
       "Eredivisie"
     ],
     "era": "1990s"
-  },
-  {
-    "name": "Nicolás Otamendi",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primeira Liga",
-      "Primera División (Argentina)",
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Rafael Márquez",
@@ -3192,19 +2956,6 @@
     "era": "1990s"
   },
   {
-    "name": "Marcos Rojo",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "Primeira Liga",
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Juan Román Riquelme",
     "nationality": "Argentina",
     "positions": [
@@ -3215,17 +2966,6 @@
       "Primera División (Argentina)"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Gen Shōji",
-    "nationality": "Japan",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Gary Cahill",
@@ -3262,6 +3002,19 @@
     "era": "2020s"
   },
   {
+    "name": "Marcos Rojo",
+    "nationality": "Argentina",
+    "positions": [
+      "DEF"
+    ],
+    "leagues": [
+      "Premier League",
+      "Primeira Liga",
+      "Primera División (Argentina)"
+    ],
+    "era": "2010s"
+  },
+  {
     "name": "Rui Patrício",
     "nationality": "Portugal",
     "positions": [
@@ -3273,15 +3026,15 @@
     "era": "2010s"
   },
   {
-    "name": "João Félix",
-    "nationality": "Portugal",
+    "name": "Emiliano Martínez",
+    "nationality": "Argentina",
     "positions": [
-      "ATT"
+      "GK"
     ],
     "leagues": [
-      "Saudi Pro League"
+      "Premier League"
     ],
-    "era": "2020s"
+    "era": "2010s"
   },
   {
     "name": "Rodrygo",
@@ -3295,13 +3048,13 @@
     "era": "2020s"
   },
   {
-    "name": "Emiliano Martínez",
-    "nationality": "Argentina",
+    "name": "Gen Shōji",
+    "nationality": "Japan",
     "positions": [
-      "GK"
+      "DEF"
     ],
     "leagues": [
-      "Premier League"
+      "Ligue 1"
     ],
     "era": "2010s"
   },
@@ -3317,6 +3070,45 @@
       "Ligue 1"
     ],
     "era": "1990s"
+  },
+  {
+    "name": "Henrik Larsson",
+    "nationality": "Sweden",
+    "positions": [
+      "ATT"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League",
+      "Eredivisie"
+    ],
+    "era": "1990s"
+  },
+  {
+    "name": "Ibrahim Afellay",
+    "nationality": "Kingdom of the Netherlands",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Eredivisie"
+    ],
+    "era": "2010s"
+  },
+  {
+    "name": "Daley Blind",
+    "nationality": "Kingdom of the Netherlands",
+    "positions": [
+      "DEF",
+      "MID"
+    ],
+    "leagues": [
+      "La Liga",
+      "Premier League",
+      "Eredivisie"
+    ],
+    "era": "2010s"
   },
   {
     "name": "Roman Pavlyuchenko",
@@ -3343,17 +3135,16 @@
     "era": "2000s"
   },
   {
-    "name": "Henrik Larsson",
-    "nationality": "Sweden",
+    "name": "Milan Baroš",
+    "nationality": "Czechoslovakia",
     "positions": [
       "ATT"
     ],
     "leagues": [
-      "La Liga",
-      "Premier League",
-      "Eredivisie"
+      "Ligue 1",
+      "Premier League"
     ],
-    "era": "1990s"
+    "era": "2000s"
   },
   {
     "name": "Raul Meireles",
@@ -3368,30 +3159,6 @@
     "era": "2000s"
   },
   {
-    "name": "Milan Baroš",
-    "nationality": "Czechoslovakia",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Ibrahim Afellay",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Antonio Cassano",
     "nationality": "Italy",
     "positions": [
@@ -3401,20 +3168,6 @@
       "La Liga"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Daley Blind",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "DEF",
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Claude Makelélé",
@@ -3458,84 +3211,6 @@
     "era": "2000s"
   },
   {
-    "name": "Kingsley Coman",
-    "nationality": "France",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Vedran Ćorluka",
-    "nationality": "Croatia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Julián Alvarez",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Daniel Sturridge",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Tito Vilanova",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "João Moutinh0",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Primeira Liga",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Bernardo Silva",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
     "name": "Shinji Ono",
     "nationality": "Japan",
     "positions": [
@@ -3545,1783 +3220,6 @@
       "Eredivisie"
     ],
     "era": "2000s"
-  },
-  {
-    "name": "Adil Rami",
-    "nationality": "Morocco",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "La Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Florent Malouda",
-    "nationality": "France",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Bixente Lizarazu",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Carlos Vela",
-    "nationality": "Mexico",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Ivica Vastić",
-    "nationality": "Austria",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Bundesliga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Frenkie de Jong",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Eredivisie"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Gabriel Jesus",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Federico Chiesa",
-    "nationality": "Italy",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Cody Gakpo",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Paulinho",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Campeonato Brasileiro",
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Adriano",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Edgar Davids",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Junichi Inamoto",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Ryan Babel",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Rui Costa",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Primeira Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Fernando Gago",
-    "nationality": "Argentina",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Granit Xhaka",
-    "nationality": "Switzerland",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Landon Donovan",
-    "nationality": "United States",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Sunil Chhetri",
-    "nationality": "India",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Tim Howard",
-    "nationality": "United States",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Sergi Roberto",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Daisuke Matsui",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Eduardo Camavinga",
-    "nationality": "Democratic Republic of the Congo",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Alessandro Santos",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Bundesliga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Jack Grealish",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Eric Dier",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Paul Gascoigne",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "William Gallas",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "John Stones",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID",
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Jan Oblak",
-    "nationality": "Slovenia",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Serge Gnabry",
-    "nationality": "Ivory Coast",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Unai Emery",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Ferran Torres",
-    "nationality": "Spain",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Martín Demichelis",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)",
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Simon Mignolet",
-    "nationality": "Belgium",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Salomon Kalou",
-    "nationality": "Ivory Coast",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1",
-      "Campeonato Brasileiro",
-      "Eredivisie"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Miralem Pjanić",
-    "nationality": "Bosnia and Herzegovina",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Nuri Şahin",
-    "nationality": "Germany",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Eredivisie",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Peter Crouch",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Yuri Zhirkov",
-    "nationality": "Russia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "John Arne Riise",
-    "nationality": "Norway",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Jermain Defoe",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Gareth Barry",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Clint Dempsey",
-    "nationality": "United States",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Jesse Lingard",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "Campeonato Brasileiro"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Nacho Monreal",
-    "nationality": "Spain",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Jari Litmanen",
-    "nationality": "Finland",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga",
-      "Eredivisie"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Steve Mandanda",
-    "nationality": "Democratic Republic of the Congo",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Mark Milligan",
-    "nationality": "Australia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Georginio Wijnaldum",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Ahmed Musa",
-    "nationality": "Nigeria",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Koji Nakata",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Alexander Isak",
-    "nationality": "Sweden",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "John O'Shea",
-    "nationality": "Ireland",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Matthijs de Ligt",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Raphinha",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Mason Mount",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Declan Rice",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Ryo Miyaichi",
-    "nationality": "Japan",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Maarten Stekelenburg",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League",
-      "Eredivisie",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Daniel Agger",
-    "nationality": "Kingdom of Denmark",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Darren Fletcher",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Glen Johnson",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Javier Saviola",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)",
-      "Primeira Liga",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Jasper Cillessen",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "André Ayew",
-    "nationality": "France",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Gareth Southgate",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Rüştü Reçber",
-    "nationality": "Turkey",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Fernando Muslera",
-    "nationality": "Uruguay",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Gervinho",
-    "nationality": "Ivory Coast",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Simon Kjær",
-    "nationality": "Kingdom of Denmark",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Aleksandar Kolarov",
-    "nationality": "Serbia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Héctor Bellerín",
-    "nationality": "Spain",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primeira Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Frank de Boer",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Eredivisie"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Filipe Luís",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Campeonato Brasileiro",
-      "Eredivisie"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Youri Djorkaeff",
-    "nationality": "France",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "MLS"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Andreas Christensen",
-    "nationality": "Kingdom of Denmark",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Ezequiel Garay",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga",
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Takefusa Kubo",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Lucas Digne",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Marko Marin",
-    "nationality": "Germany",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga",
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Lúcio",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Gianluca Zambrotta",
-    "nationality": "Italy",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Danny Rose",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Claudio Pizarro",
-    "nationality": "Peru",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Domagoj Vida",
-    "nationality": "Croatia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Paulo Ferreira",
-    "nationality": "Portugal",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Dida",
-    "nationality": "Brazil",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Sokratis Papastathopoulos",
-    "nationality": "Greece",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Stefan de Vrij",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Eredivisie"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Giorgos Karagounis",
-    "nationality": "Greece",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Esteban Cambiasso",
-    "nationality": "Argentina",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Giovani dos Santos",
-    "nationality": "Mexico",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "MLS",
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Bryan Ruiz",
-    "nationality": "Costa Rica",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Eredivisie",
-      "Premier League",
-      "Primeira Liga",
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "João Cancelo",
-    "nationality": "Portugal",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Yannick Carrasco",
-    "nationality": "Belgium",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Stephan Lichtsteiner",
-    "nationality": "Switzerland",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Ross Barkley",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Phil Jagielka",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "John Heitinga",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League",
-      "La Liga",
-      "Eredivisie"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Laurent Koscielny",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Iago Aspas",
-    "nationality": "Spain",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Éver Banega",
-    "nationality": "Argentina",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)",
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "José Antonio Reyes",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Owen Hargreaves",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Haris Seferovic",
-    "nationality": "Switzerland",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Lucas Hernandez",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Tsuneyasu Miyamoto",
-    "nationality": "Japan",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Bundesliga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Mattia De Sciglio",
-    "nationality": "Italy",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Dani Olmo",
-    "nationality": "Spain",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Éric Maxim Choupo-Moting",
-    "nationality": "Cameroon",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Wagner Lopes",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Éder Militão",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Aurélien Tchouaméni",
-    "nationality": "France",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Jules Koundé",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Julen Lopetegui",
-    "nationality": "Spain",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Robert Enke",
-    "nationality": "German Democratic Republic",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Mark Schwarzer",
-    "nationality": "Australia",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Niko Kovač",
-    "nationality": "Croatia",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Bundesliga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Vincent Aboubakar",
-    "nationality": "Cameroon",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Primeira Liga",
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Nigel de Jong",
-    "nationality": "Kingdom of the Netherlands",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Eredivisie",
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Hernanes",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Joe Cole",
-    "nationality": "United Kingdom",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Gilberto Silva",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League",
-      "Campeonato Brasileiro"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Eiður Guðjohnsen",
-    "nationality": "Iceland",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Eredivisie",
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Walter Samuel",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Martín Cáceres",
-    "nationality": "Uruguay",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Martin Škrtel",
-    "nationality": "Slovakia",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Joan Capdevila",
-    "nationality": "Spain",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Nwankwo Kanu",
-    "nationality": "Nigeria",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "Eredivisie"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Obafemi Martins",
-    "nationality": "Nigeria",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "MLS",
-      "La Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Sōta Hirayama",
-    "nationality": "Japan",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Eredivisie"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Zinho",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro",
-      "NASL"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Fernando Hierro",
-    "nationality": "Spain",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Naohiro Takahara",
-    "nationality": "Japan",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Nico Williams",
-    "nationality": "Ghana",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2020s"
-  },
-  {
-    "name": "Danijel Subašić",
-    "nationality": "Croatia",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Masato Kudō",
-    "nationality": "Japan",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Paulo Futre",
-    "nationality": "Portugal",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Primeira Liga",
-      "Ligue 1"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Ander Herrera",
-    "nationality": "Spain",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Primera División (Argentina)"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Pablo Zabaleta",
-    "nationality": "Argentina",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Primera División (Argentina)"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Alexandre Lacazette",
-    "nationality": "France",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Saudi Pro League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Hatem Ben Arfa",
-    "nationality": "Tunisia",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Emmanuel Petit",
-    "nationality": "France",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "1990s"
-  },
-  {
-    "name": "Alessandro Florenzi",
-    "nationality": "Italy",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Jonny Evans",
-    "nationality": "United Kingdom",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Kazuyuki Toda",
-    "nationality": "Japan",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Hamit Altıntop",
-    "nationality": "Turkey",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "David Ospina",
-    "nationality": "Colombia",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "Primera División (Argentina)",
-      "Saudi Pro League",
-      "Premier League"
-    ],
-    "era": "2010s"
-  },
-  {
-    "name": "Akira Kaji",
-    "nationality": "Japan",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "2000s"
-  },
-  {
-    "name": "Marquinhos",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "2010s"
   },
   {
     "name": "Pelé",
@@ -5479,18 +3377,6 @@
     "era": "1960s"
   },
   {
-    "name": "Garrincha",
-    "nationality": "Brazil",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1950s"
-  },
-  {
     "name": "Jürgen Klinsmann",
     "nationality": "Germany",
     "positions": [
@@ -5526,17 +3412,6 @@
     "era": "1980s"
   },
   {
-    "name": "Arthur Antunes Coimbra",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1970s"
-  },
-  {
     "name": "Michael Laudrup",
     "nationality": "Kingdom of Denmark",
     "positions": [
@@ -5561,17 +3436,6 @@
     "era": "1980s"
   },
   {
-    "name": "Dunga",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1980s"
-  },
-  {
     "name": "Mario Kempes",
     "nationality": "Argentina",
     "positions": [
@@ -5585,17 +3449,6 @@
     "era": "1970s"
   },
   {
-    "name": "Gheorghe Hagi",
-    "nationality": "Romania",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga"
-    ],
-    "era": "1980s"
-  },
-  {
     "name": "Oleh Blokhin",
     "nationality": "Soviet Union",
     "positions": [
@@ -5605,6 +3458,17 @@
       "Premier League"
     ],
     "era": "1970s"
+  },
+  {
+    "name": "Gheorghe Hagi",
+    "nationality": "Romania",
+    "positions": [
+      "MID"
+    ],
+    "leagues": [
+      "La Liga"
+    ],
+    "era": "1980s"
   },
   {
     "name": "Ronald Koeman",
@@ -5667,41 +3531,6 @@
     "era": "1970s"
   },
   {
-    "name": "Sócrates",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT",
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1970s"
-  },
-  {
-    "name": "Luiz Felipe Scolari",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1970s"
-  },
-  {
-    "name": "Rivelino",
-    "nationality": "Brazil",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro",
-      "Saudi Pro League"
-    ],
-    "era": "1970s"
-  },
-  {
     "name": "Paul Breitner",
     "nationality": "Germany",
     "positions": [
@@ -5711,18 +3540,6 @@
       "La Liga"
     ],
     "era": "1970s"
-  },
-  {
-    "name": "Mário Zagallo",
-    "nationality": "Brazil",
-    "positions": [
-      "MID",
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1950s"
   },
   {
     "name": "Vicente del Bosque",
@@ -5736,18 +3553,6 @@
     "era": "1970s"
   },
   {
-    "name": "Bobby Robson",
-    "nationality": "United Kingdom",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League",
-      "NASL"
-    ],
-    "era": "1950s"
-  },
-  {
     "name": "Kenny Dalglish",
     "nationality": "United Kingdom",
     "positions": [
@@ -5757,142 +3562,5 @@
       "Premier League"
     ],
     "era": "1970s"
-  },
-  {
-    "name": "Carlos Valderrama",
-    "nationality": "Colombia",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "MLS"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Dragan Stojković",
-    "nationality": "Socialist Federal Republic of Yugoslavia",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Rudi Völler",
-    "nationality": "Germany",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Just Fontaine",
-    "nationality": "France",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1"
-    ],
-    "era": "1950s"
-  },
-  {
-    "name": "Gordon Banks",
-    "nationality": "United Kingdom",
-    "positions": [
-      "GK"
-    ],
-    "leagues": [
-      "NASL"
-    ],
-    "era": "1960s"
-  },
-  {
-    "name": "Laurent Blanc",
-    "nationality": "France",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "La Liga",
-      "Premier League",
-      "Ligue 1"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Jorginho",
-    "nationality": "Brazil",
-    "positions": [
-      "DEF"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Oleh Protasov",
-    "nationality": "Soviet Union",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Premier League"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Careca",
-    "nationality": "Brazil",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Campeonato Brasileiro"
-    ],
-    "era": "1980s"
-  },
-  {
-    "name": "Raymond Kopa",
-    "nationality": "France",
-    "positions": [
-      "MID"
-    ],
-    "leagues": [
-      "La Liga",
-      "Ligue 1"
-    ],
-    "era": "1950s"
-  },
-  {
-    "name": "Roger Milla",
-    "nationality": "Cameroon",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Ligue 1",
-      "NASL"
-    ],
-    "era": "1970s"
-  },
-  {
-    "name": "Ramón Díaz",
-    "nationality": "Argentina",
-    "positions": [
-      "ATT"
-    ],
-    "leagues": [
-      "Primera División (Argentina)",
-      "Ligue 1"
-    ],
-    "era": "1980s"
   }
 ]
