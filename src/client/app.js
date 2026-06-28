@@ -958,7 +958,7 @@ function renderYzLog(s) {
 // Spy Game — hidden-role football clue game
 // ---------------------------------------------------------------------------
 
-const SG_PHASE_LABEL = { clues: 'Clues', voting: 'Voting', spyGuess: "Spy's guess", done: 'Reveal' };
+const SG_PHASE_LABEL = { clues: 'Clues', interlude: 'Vote?', voting: 'Voting', spyGuess: "Spy's guess", done: 'Reveal' };
 const sgName = (s, seat) => {
   const p = (s.players || []).find((x) => x.seat === seat);
   return p ? p.name : `Seat ${seat + 1}`;
@@ -998,8 +998,27 @@ function renderSgActions(s) {
     return;
   }
   if (s.phase === 'clues') return renderSgCluePhase(area, s);
+  if (s.phase === 'interlude') return renderSgInterlude(area, s);
   if (s.phase === 'voting') return renderSgVoting(area, s);
   if (s.phase === 'spyGuess') return renderSgGuess(area, s);
+}
+
+function renderSgInterlude(area, s) {
+  const il = s.interlude;
+  if (!il) {
+    area.appendChild(callout('Players are deciding whether to vote…', true));
+    return;
+  }
+  if (il.youDecided) {
+    area.appendChild(callout(`Locked in${il.yourChoice ? ' — you called a vote' : ''} · waiting for ${il.waiting} more`, true));
+    return;
+  }
+  area.appendChild(prompt(`Round <b>${il.round}</b> done — accuse the <b>spy</b> now, or keep clueing? <i>(majority decides)</i>`));
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.appendChild(actBtn('🗳️ Vote now', 'btn btn-gold', () => send({ type: 'interludeVote', wantVote: true })));
+  row.appendChild(actBtn('Keep clueing', 'btn btn-neutral', () => send({ type: 'interludeVote', wantVote: false })));
+  area.appendChild(row);
 }
 
 function renderSgCluePhase(area, s) {

@@ -3,7 +3,7 @@
 // to prove the decoy rule is always satisfiable.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpyGame, similar, type PlayerCard, type SpyState } from './game.ts';
+import { createSpyGame, similar, pickDecoy, type PlayerCard, type SpyState } from './game.ts';
 import { WORD_BANK } from './wordbank.ts';
 import type { GameContext, GameDef } from '../../platform/types.ts';
 
@@ -32,10 +32,13 @@ function newSpy(numPlayers: number, seed = 1, bank = synthBank()) {
 const act = (def: GameDef<SpyState>, s: SpyState, c: GameContext, seat: number, msg: Record<string, unknown>) =>
   def.act(s, seat, msg, c) ?? {};
 
-// Submit a clue for whoever is on turn until the clue phase ends.
+// Submit clues and skip every end-of-round interlude (no early vote) until voting.
 function runClues(def: GameDef<SpyState>, s: SpyState, c: GameContext) {
   let guard = 0;
-  while (s.phase === 'clues' && guard++ < 100) act(def, s, c, s.order[s.current], { type: 'submitClue', word: 'clue' });
+  while ((s.phase === 'clues' || s.phase === 'interlude') && guard++ < 100) {
+    if (s.phase === 'interlude') for (const seat of s.order) act(def, s, c, seat, { type: 'interludeVote', wantVote: false });
+    else act(def, s, c, s.order[s.current], { type: 'submitClue', word: 'clue' });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +74,17 @@ test('the decoy is always similar to the target and different (synthetic + real 
   }
 });
 
+test('the decoy is the strongest match, not just any qualifier (prefers shared nationality)', () => {
+  const bank: PlayerCard[] = [
+    { name: 'TARGET', nationality: 'France', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' },
+    { name: 'STRONG', nationality: 'France', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' },
+    { name: 'WEAK', nationality: 'Japan', positions: ['MID'], leagues: ['Ligue 1'], era: '2000s' }, // qualifies, but cross-nationality
+  ];
+  for (let seed = 1; seed <= 30; seed++) {
+    assert.equal(bank[pickDecoy(bank, 0, lcg(seed))].name, 'STRONG', `seed ${seed} should avoid the weak cross-nationality match`);
+  }
+});
+
 test('the word bank is injected, not hardcoded — secrets come from the supplied bank', () => {
   const bank: PlayerCard[] = synthBank(4).map((c, i) => ({ ...c, name: `ZZ_${i}` }));
   const { s, def } = newSpy(3, 5, bank);
@@ -84,7 +98,7 @@ test('the word bank is injected, not hardcoded — secrets come from the supplie
 function assertNoLeak(def: GameDef<SpyState>, s: SpyState, bank: PlayerCard[]) {
   const target = bank[s.targetIdx].name;
   const decoy = bank[s.decoyIdx].name;
-  const preResolve = s.phase === 'clues' || s.phase === 'voting';
+  const preResolve = s.phase === 'clues' || s.phase === 'interlude' || s.phase === 'voting';
   for (const seat of s.order) {
     const v = def.view(s, seat) as any;
     const json = JSON.stringify(v);
@@ -125,6 +139,28 @@ test('the clue phase runs exactly 3 rounds × N and rejects out-of-turn clues', 
   runClues(def, s, c);
   assert.equal(s.clueLog.length, 3 * 3, '3 clues per player');
   assert.equal(s.phase, 'voting');
+});
+
+test('after each round players may call an optional early vote (majority decides)', () => {
+  const { def, s, c } = newSpy(3, 3);
+  while (s.phase === 'clues' && s.round === 1) act(def, s, c, s.order[s.current], { type: 'submitClue', word: 'x' });
+  assert.equal(s.phase, 'interlude', 'interlude after round 1');
+  // minority (1 of 3) wants a vote → keep clueing
+  act(def, s, c, s.order[0], { type: 'interludeVote', wantVote: true });
+  act(def, s, c, s.order[1], { type: 'interludeVote', wantVote: false });
+  act(def, s, c, s.order[2], { type: 'interludeVote', wantVote: false });
+  assert.equal(s.phase, 'clues');
+  assert.equal(s.round, 2);
+  // round 2 → majority calls a vote → straight to voting (round 3 skipped)
+  while (s.phase === 'clues' && s.round === 2) act(def, s, c, s.order[s.current], { type: 'submitClue', word: 'y' });
+  assert.equal(s.phase, 'interlude');
+  act(def, s, c, s.order[0], { type: 'interludeVote', wantVote: true });
+  act(def, s, c, s.order[1], { type: 'interludeVote', wantVote: true });
+  assert.equal(s.phase, 'interlude', 'waits for everyone to decide');
+  act(def, s, c, s.order[2], { type: 'interludeVote', wantVote: false });
+  assert.equal(s.phase, 'voting', 'majority → early vote');
+  assert.equal(s.clueLog.length, 6, 'only 2 rounds of clues happened');
+  assert.match(act(def, s, c, s.order[0], { type: 'interludeVote', wantVote: true }).error!, /call a vote/i);
 });
 
 // ---------------------------------------------------------------------------

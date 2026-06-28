@@ -44,7 +44,7 @@ function sanitizeWord(word: unknown): string {
   return String(word ?? '').trim().replace(/\s+/g, ' ').slice(0, 30);
 }
 
-type Phase = 'clues' | 'voting' | 'spyGuess' | 'done';
+type Phase = 'clues' | 'interlude' | 'voting' | 'spyGuess' | 'done';
 
 interface SpyPlayer {
   name: string;
@@ -53,6 +53,7 @@ interface SpyPlayer {
   secret: string; // own football player NAME (target for non-spies, decoy for the spy)
   hasVoted: boolean;
   vote: number | null; // seat voted for
+  wantsVote: boolean | null; // interlude choice (secret): call an early vote, or keep clueing
 }
 
 interface Clue {
@@ -97,15 +98,33 @@ const seated = (s: SpyState): number[] => s.order.filter((seat) => s.players[sea
 // Setup (decoy selection)
 // ---------------------------------------------------------------------------
 
-function pickDecoy(bank: PlayerCard[], targetIdx: number, rng: Rng): number {
+/** How apt a candidate is as a decoy for the target — higher is more alike. Nationality
+ *  and league are strong signals; positions are coarse (so weighted, but not dominant). */
+export function similarityScore(a: PlayerCard, b: PlayerCard): number {
+  const sharedPos = a.positions.filter((p) => b.positions.includes(p)).length;
+  const sharedLeagues = a.leagues.filter((l) => b.leagues.includes(l)).length;
+  return sharedPos * 2 + (a.nationality === b.nationality ? 3 : 0) + sharedLeagues * 2 + (a.era === b.era ? 1 : 0);
+}
+
+export function pickDecoy(bank: PlayerCard[], targetIdx: number, rng: Rng): number {
   const target = bank[targetIdx];
   const cands: number[] = [];
   for (let i = 0; i < bank.length; i++) if (i !== targetIdx && similar(bank[i], target)) cands.push(i);
-  if (cands.length) return cands[randInt(rng, cands.length)];
-  // Defensive fallback (a well-formed bank always has a candidate): any other player.
-  let i = randInt(rng, bank.length);
-  if (i === targetIdx) i = (i + 1) % bank.length;
-  return i;
+  if (!cands.length) {
+    // Defensive fallback (a well-formed bank always has a candidate): any other player.
+    let i = randInt(rng, bank.length);
+    if (i === targetIdx) i = (i + 1) % bank.length;
+    return i;
+  }
+  // Same nationality is the strongest plausibility signal, so restrict to it when any
+  // qualifier shares it (a 450-player bank almost always has same-nation peers).
+  const sameNat = cands.filter((i) => bank[i].nationality === target.nationality);
+  const pool0 = sameNat.length ? sameNat : cands;
+  // Within that, pick among the strongest (within 2 points of the best) for some variety.
+  let best = 0;
+  for (const i of pool0) best = Math.max(best, similarityScore(bank[i], target));
+  const strong = pool0.filter((i) => similarityScore(bank[i], target) >= best - 2);
+  return strong[randInt(rng, strong.length)];
 }
 
 function buildShortlist(bank: PlayerCard[], targetIdx: number, decoyIdx: number, rng: Rng): number[] {
@@ -176,14 +195,41 @@ function submitClue(s: SpyState, seat: number, word: unknown): ActionResult {
   s.current += 1;
   if (s.current >= s.order.length) {
     s.current = 0;
-    s.round += 1;
-    if (s.round > ROUNDS) {
+    if (s.round >= ROUNDS) {
       s.phase = 'voting';
-      log(s, 'Clue phase over — vote for the spy.');
+      log(s, 'Final clues in — vote for the spy.');
     } else {
-      log(s, `Round ${s.round}.`);
+      // optional vote: the table decides whether to accuse now or keep clueing
+      s.phase = 'interlude';
+      for (const seat of seated(s)) s.players[seat]!.wantsVote = null;
+      log(s, `Round ${s.round} done — call a vote now, or keep clueing?`);
     }
   }
+  return ok;
+}
+
+function resolveInterlude(s: SpyState) {
+  const seats = seated(s);
+  if (!seats.every((seat) => s.players[seat]!.wantsVote !== null)) return; // wait for everyone
+  const wants = seats.filter((seat) => s.players[seat]!.wantsVote === true).length;
+  if (wants * 2 > seats.length) {
+    s.phase = 'voting';
+    log(s, `The table calls an early vote (${wants}/${seats.length}) — accuse the spy.`);
+  } else {
+    s.round += 1;
+    s.current = 0;
+    s.phase = 'clues';
+    log(s, `No early vote — on to round ${s.round}.`);
+  }
+}
+
+function interludeVote(s: SpyState, seat: number, wantVote: unknown): ActionResult {
+  if (s.phase !== 'interlude') return fail('Not the moment to call a vote.');
+  const p = s.players[seat];
+  if (!p) return fail('Not in this match.');
+  p.wantsVote = !!wantVote;
+  log(s, `${p.name} weighs in.`); // keep the choice itself secret
+  resolveInterlude(s);
   return ok;
 }
 
@@ -254,6 +300,15 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
   if (s.phase === 'clues' && me) {
     v.turn = { yourTurn: s.order[s.current] === seat, activeSeat, round: s.round };
   }
+  if (s.phase === 'interlude' && me) {
+    // Each choice is secret; we only expose how many are still deciding.
+    v.interlude = {
+      round: s.round,
+      youDecided: me.wantsVote !== null,
+      yourChoice: me.wantsVote,
+      waiting: seated(s).filter((x) => s.players[x]!.wantsVote === null).length,
+    };
+  }
   if (s.phase === 'voting' && me) {
     v.voting = {
       youVoted: me.hasVoted,
@@ -313,6 +368,10 @@ function botMove(bank: PlayerCard[], s: SpyState, seat: number, rng: Rng): Recor
     const word = opts[(s.round - 1) % opts.length] || 'player';
     return { type: 'submitClue', word };
   }
+  if (s.phase === 'interlude') {
+    if (p.wantsVote !== null) return null;
+    return { type: 'interludeVote', wantVote: false }; // bots prefer to keep clueing
+  }
   if (s.phase === 'voting') {
     if (p.hasVoted) return null;
     const others = s.order.filter((x) => x !== seat);
@@ -356,6 +415,7 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
           secret: bank[isSpy ? decoyIdx : targetIdx].name,
           hasVoted: false,
           vote: null,
+          wantsVote: null,
         };
       }
       const s: SpyState = {
@@ -373,6 +433,8 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
       switch (msg.type) {
         case 'submitClue':
           return submitClue(s, seat, msg.word);
+        case 'interludeVote':
+          return interludeVote(s, seat, msg.wantVote);
         case 'castVote':
           return castVote(bank, s, seat, msg.target, ctx.rng);
         case 'spyGuess':
