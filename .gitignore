@@ -4,3 +4,8 @@ node_modules/
 # macOS / editor cruft
 .DS_Store
 *.log
+
+# Raw Transfermarkt scraper dumps — large build-time inputs for build-wordbank.cjs.
+# Kept locally to regenerate players.json; the committed players.json is what the app uses.
+raw-players.json
+legends-raw.json
