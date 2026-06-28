@@ -246,7 +246,7 @@ test('a tied vote → no one caught → spy wins', () => {
 
 test('the spy caught → spyGuess opens; wrong guess → non-spies win, right guess → spy wins', () => {
   // wrong guess
-  let { def, s, c } = toVoting(4, 11);
+  let { def, s, c, bank } = toVoting(4, 11);
   let spy = s.spyId;
   for (const seat of s.order) {
     const target = seat === spy ? s.order.find((x) => x !== spy)! : spy; // everyone else votes the spy
@@ -254,21 +254,42 @@ test('the spy caught → spyGuess opens; wrong guess → non-spies win, right gu
   }
   assert.equal(s.phase, 'spyGuess');
   assert.equal(s.caughtId, spy);
-  assert.ok(s.shortlist.includes(s.targetIdx), 'true target is on the shortlist');
-  assert.match(act(def, s, c, s.order.find((x) => x !== spy)!, { type: 'spyGuess', choice: s.targetIdx }).error!, /caught spy/i);
-  const wrong = s.shortlist.find((i) => i !== s.targetIdx)!;
-  act(def, s, c, spy, { type: 'spyGuess', choice: wrong });
+  // a non-spy cannot guess
+  assert.match(act(def, s, c, s.order.find((x) => x !== spy)!, { type: 'spyGuess', guess: bank[s.targetIdx].name }).error!, /caught spy/i);
+  // the spy types a (real, but wrong) player name
+  const wrongName = bank[(s.targetIdx + 1) % bank.length].name;
+  act(def, s, c, spy, { type: 'spyGuess', guess: wrongName });
   assert.deepEqual(def.result(s).winners.sort(), s.order.filter((x) => x !== spy), 'wrong guess → non-spies win');
 
   // right guess
-  ({ def, s, c } = toVoting(4, 11));
+  ({ def, s, c, bank } = toVoting(4, 11));
   spy = s.spyId;
   for (const seat of s.order) {
     const target = seat === spy ? s.order.find((x) => x !== spy)! : spy;
     act(def, s, c, seat, { type: 'castVote', target });
   }
-  act(def, s, c, spy, { type: 'spyGuess', choice: s.targetIdx });
+  act(def, s, c, spy, { type: 'spyGuess', guess: bank[s.targetIdx].name });
   assert.deepEqual(def.result(s).winners, [spy], 'right guess → spy steals the win');
+});
+
+test('the caught spy guesses by typing a name (case-insensitive); an unknown name loses', () => {
+  const catchSpy = (seed: number) => {
+    const g = toVoting(4, seed);
+    for (const seat of g.s.order) act(g.def, g.s, g.c, seat, { type: 'castVote', target: seat === g.s.spyId ? g.s.order.find((x) => x !== g.s.spyId)! : g.s.spyId });
+    assert.equal(g.s.phase, 'spyGuess');
+    return g;
+  };
+  // typed with different case/whitespace still matches the target
+  let g = catchSpy(11);
+  act(g.def, g.s, g.c, g.s.spyId, { type: 'spyGuess', guess: '  ' + g.bank[g.s.targetIdx].name.toUpperCase() + ' ' });
+  assert.equal(g.s.guessCorrect, true);
+  assert.deepEqual(g.def.result(g.s).winners, [g.s.spyId]);
+  // a name that isn't in the bank is simply wrong
+  g = catchSpy(12);
+  act(g.def, g.s, g.c, g.s.spyId, { type: 'spyGuess', guess: 'Nobody McNotreal' });
+  assert.equal(g.s.guessCorrect, false);
+  assert.equal(g.s.guessName, 'Nobody McNotreal');
+  assert.deepEqual(g.def.result(g.s).winners.sort(), g.s.order.filter((x) => x !== g.s.spyId));
 });
 
 test('you cannot vote for yourself, vote twice, or vote outside the voting phase', () => {

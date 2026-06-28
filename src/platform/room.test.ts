@@ -139,7 +139,7 @@ test('the host stepping out hands the host to another human', () => {
   assert.equal(room.members[room.host]!.bot ?? false, false);
 });
 
-test('the host can kick players (and bots) from the lobby; nobody else can, and not mid-match', () => {
+test('the host can kick players (and bots) from the lobby; nobody else can', () => {
   const room = lobby(3);
   const host = room.host;
   const victim = seatList(room).find((s) => s !== host)!;
@@ -153,9 +153,17 @@ test('the host can kick players (and bots) from the lobby; nobody else can, and 
   assert.equal(room.members[other]!.bot, true);
   kick(room, host, other);
   assert.equal(room.members[other], null, 'bot removed');
-  // cannot kick during a match
-  const r2 = playing(2);
-  assert.match(kick(r2, r2.host, seatList(r2).find((s) => s !== r2.host)!).error!, /lobby/i);
+});
+
+test('mid-match the host kick hands the seat to a bot so play continues (human is booted)', () => {
+  const room = playing(3, 4);
+  const host = room.host;
+  const victim = seatList(room).find((s) => s !== host)!;
+  assert.match(kick(room, victim, host).error!, /host/i, 'non-host cannot kick');
+  assert.equal(kick(room, host, victim).error, undefined);
+  assert.ok(room.members[victim], 'seat is still occupied (not freed mid-match)');
+  assert.equal(room.members[victim]!.bot, true, 'a bot finishes the kicked seat');
+  assert.equal(room.phase, 'playing', 'the match continues');
 });
 
 test('a bot plays its turn through botMove', () => {

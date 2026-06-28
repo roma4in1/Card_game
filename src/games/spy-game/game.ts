@@ -68,8 +68,9 @@ export interface SpyState {
   clueLog: Clue[];
   caughtId: number | null; // seat caught by the vote (null = tie/no plurality)
   votesRevealed: boolean;
-  shortlist: number[]; // word-bank indices offered to a caught spy
-  guessIdx: number | null; // what the spy guessed
+  shortlist: number[]; // word-bank indices (the bot's candidate pool when caught)
+  guessIdx: number | null; // bank index the spy's guess resolved to (null if not a known player)
+  guessName: string | null; // the exact name the spy typed
   guessCorrect: boolean | null;
   over: boolean;
   winners: number[]; // seats on the winning side
@@ -226,13 +227,18 @@ function castVote(bank: PlayerCard[], s: SpyState, seat: number, target: unknown
   return ok;
 }
 
-function spyGuess(s: SpyState, seat: number, choice: unknown): ActionResult {
+const normName = (n: string) => n.trim().toLowerCase().replace(/\s+/g, ' ');
+
+function spyGuess(bank: PlayerCard[], s: SpyState, seat: number, guess: unknown): ActionResult {
   if (s.phase !== 'spyGuess') return fail('No guess to make.');
   if (seat !== s.spyId) return fail('Only the caught spy guesses.');
-  const c = Number(choice);
-  if (!s.shortlist.includes(c)) return fail('Pick from the shortlist.');
-  s.guessIdx = c;
-  s.guessCorrect = c === s.targetIdx;
+  const typed = String(guess ?? '').trim().slice(0, 60);
+  if (!typed) return fail('Type the player you think it is.');
+  s.guessName = typed;
+  // Match the typed name against the bank; correct only if it's the real target.
+  const idx = bank.findIndex((p) => normName(p.name) === normName(typed));
+  s.guessIdx = idx >= 0 ? idx : null;
+  s.guessCorrect = idx === s.targetIdx;
   resolve(s, s.guessCorrect); // a correct guess steals the win
   return ok;
 }
@@ -298,7 +304,8 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
   if (s.phase === 'spyGuess') {
     v.caughtId = s.caughtId; // the spy was outed by the vote — public now
     if (me && me.isSpy) {
-      v.guess = { needsYou: true, options: s.shortlist.map((i) => ({ id: i, name: bank[i].name })) };
+      // The caught spy now searches the whole bank by name (no multiple choice).
+      v.guess = { needsYou: true, allNames: bank.map((p) => p.name) };
     } else {
       v.guess = { needsYou: false, waitingOnSpy: true, caughtName: s.caughtId != null ? nameOf(s, s.caughtId) : null };
     }
@@ -320,7 +327,7 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
       target: bank[s.targetIdx].name,
       decoy: bank[s.decoyIdx].name,
       caughtId: s.caughtId,
-      guess: s.guessIdx != null ? bank[s.guessIdx].name : null,
+      guess: s.guessName ?? (s.guessIdx != null ? bank[s.guessIdx].name : null),
       guessCorrect: s.guessCorrect,
       spyWon: s.winners.includes(s.spyId),
       winners: s.winners,
@@ -357,7 +364,7 @@ function botMove(bank: PlayerCard[], s: SpyState, seat: number, rng: Rng): Recor
   }
   if (s.phase === 'spyGuess') {
     if (seat !== s.spyId) return null;
-    return { type: 'spyGuess', choice: s.shortlist[randInt(rng, s.shortlist.length)] };
+    return { type: 'spyGuess', guess: bank[s.shortlist[randInt(rng, s.shortlist.length)]].name };
   }
   return null;
 }
@@ -399,7 +406,7 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
       const s: SpyState = {
         players, order, spyId, targetIdx, decoyIdx,
         phase: 'clues', round: 1, current: 0, clueLog: [],
-        caughtId: null, votesRevealed: false, shortlist: [], guessIdx: null, guessCorrect: null,
+        caughtId: null, votesRevealed: false, shortlist: [], guessIdx: null, guessName: null, guessCorrect: null,
         over: false, winners: [], log: [],
       };
       log(s, 'Match started. Round 1 — give a one-word clue on your turn.');
@@ -416,7 +423,7 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
         case 'castVote':
           return castVote(bank, s, seat, msg.target, ctx.rng);
         case 'spyGuess':
-          return spyGuess(s, seat, msg.choice);
+          return spyGuess(bank, s, seat, msg.guess);
       }
     },
 

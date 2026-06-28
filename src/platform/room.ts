@@ -237,13 +237,19 @@ export function backToLobby(room: Room, seat: number): ActionResult {
   return ok;
 }
 
-/** Host removes a player (or a bot) from the lobby, freeing their seat. */
+/** Host removes a player. In the lobby the seat is freed; mid-match a bot takes the seat
+ *  so play continues and the booted human is dropped (the server closes their socket). */
 export function kick(room: Room, seat: number, target: number): ActionResult {
-  if (room.phase !== 'lobby') return fail('You can only remove players from the lobby.');
   if (seat !== room.host) return fail('Only the host can remove players.');
   if (target === seat) return fail('You cannot remove yourself.');
   const m = room.members[target];
   if (!m) return ok;
+  if (room.phase === 'playing' && room.game) {
+    if (m.bot) return ok; // already AI-controlled; can't free a live seat mid-match
+    m.bot = true; // a bot finishes the seat; the human is booted by the server
+    log(room, `${m.name} was removed by the host — a bot took their seat.`);
+    return ok;
+  }
   log(room, `${m.name} was removed by the host.`);
   room.members[target] = null;
   return ok;

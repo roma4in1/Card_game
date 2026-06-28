@@ -265,6 +265,7 @@ function ensureScreen(id) {
 function render() {
   if (!state) return;
   const s = state;
+  renderPlayersSheet(); // keep the players panel fresh if it's open (any screen)
   if (s.phase === 'lobby') {
     ensureScreen('lobby');
     renderLobby(s);
@@ -1121,13 +1122,23 @@ function renderSgVoteStatus(s) {
 function renderSgGuess(area, s) {
   const g = s.guess || {};
   if (g.needsYou) {
-    area.appendChild(prompt('🕵️ You were <b>caught</b>! Guess the Detectives’ player to steal the win:'));
-    const grid = document.createElement('div');
-    grid.className = 'sg-guessgrid';
-    (g.options || []).forEach((o) => {
-      grid.appendChild(actBtn(o.name, 'btn btn-gold sg-guessbtn', () => send({ type: 'spyGuess', choice: o.id })));
-    });
-    area.appendChild(grid);
+    area.appendChild(prompt('🕵️ You were <b>caught</b>! Name the Detectives’ player to steal the win:'));
+    const form = document.createElement('form');
+    form.className = 'sg-clueform';
+    const names = g.allNames || [];
+    const listId = 'sgGuessNames';
+    form.innerHTML =
+      `<input id="sgGuessInput" type="text" placeholder="Search a player…" autocomplete="off" list="${listId}" maxlength="60" />` +
+      `<datalist id="${listId}">${names.map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
+    const btn = actBtn('Guess', 'btn btn-gold', null);
+    btn.type = 'submit';
+    form.appendChild(btn);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const val = form.querySelector('#sgGuessInput').value.trim();
+      if (val) send({ type: 'spyGuess', guess: val });
+    };
+    area.appendChild(form);
   } else {
     area.appendChild(callout(`${escapeHtml(g.caughtName || 'The spy')} was caught — waiting for their guess…`, true));
   }
@@ -2446,6 +2457,47 @@ $('ranksBtn').onclick = openRanks;
 $('ranksClose').onclick = closeRanks;
 $('ranksSheet').addEventListener('click', (e) => {
   if (e.target.id === 'ranksSheet') closeRanks(); // tap the backdrop to dismiss
+});
+
+// Players panel — view the roster anywhere; the host can remove players (in-game too).
+function renderPlayersSheet() {
+  if ($('playersSheet').classList.contains('hidden') || !state) return;
+  const s = state;
+  const roster = s.roster || [];
+  const youAreHost = !!s.youAreHost;
+  const inGame = s.phase && s.phase !== 'lobby';
+  $('playersSub').textContent = youAreHost
+    ? (inGame ? 'Remove a player — a bot finishes their seat.' : 'Remove a player or bot from the room.')
+    : 'Everyone currently in this room.';
+  const list = $('playersList');
+  list.innerHTML = '';
+  roster.forEach((p) => {
+    const li = document.createElement('li');
+    li.className = 'lobby-row';
+    li.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="lobby-name">${escapeHtml(p.name)}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      (p.host ? '<span class="badge b-host">host</span>' : '') +
+      (p.bot ? '<span class="badge b-bot">🤖 bot</span>' : '') +
+      `<i class="dot ${p.connected ? 'on' : ''}"></i>`;
+    // Host can remove others; mid-match only humans (a bot already fills the seat).
+    if (youAreHost && !p.host && p.seat !== s.seat && !(inGame && p.bot)) {
+      const x = document.createElement('button');
+      x.className = 'lobby-kick';
+      x.title = `Remove ${p.name}`;
+      x.textContent = '✕';
+      x.onclick = () => kickSeat(p.seat, p.name);
+      li.appendChild(x);
+    }
+    list.appendChild(li);
+  });
+}
+function openPlayers() { $('playersSheet').classList.remove('hidden'); renderPlayersSheet(); }
+function closePlayers() { $('playersSheet').classList.add('hidden'); }
+document.querySelectorAll('.players-btn').forEach((b) => (b.onclick = openPlayers));
+$('playersClose').onclick = closePlayers;
+$('playersSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'playersSheet') closePlayers();
 });
 
 // The lobby's button fully exits the room; in-game buttons return you to this room's lobby.

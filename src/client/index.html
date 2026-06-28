@@ -70,6 +70,7 @@
         <div class="phase-pill" id="phaseChip">—</div>
         <button id="ranksBtn" class="rank-pill" title="Hand rankings">Ranks</button>
         <button id="leaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="copyLink2" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -117,6 +118,7 @@
         <div class="phase-pill" id="liRound">Round 1</div>
         <button id="liRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="liLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="liCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -172,6 +174,7 @@
         <div class="phase-pill" id="yzRound">Round 1</div>
         <button id="yzRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="yzLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="yzCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -214,6 +217,7 @@
         <div class="phase-pill" id="sgPhase">Clues</div>
         <button id="sgRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="sgLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="sgCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -252,6 +256,7 @@
         <div class="phase-pill" id="cnTurn">—</div>
         <button id="cnRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="cnLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="cnCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -291,6 +296,7 @@
         <div class="phase-pill" id="qrTurn">—</div>
         <button id="qrRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="qrLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="qrCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -329,6 +335,7 @@
         <div class="phase-pill" id="tecTurn">—</div>
         <button id="tecRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="tecLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="tecCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -367,6 +374,7 @@
         <div class="phase-pill" id="mmTurn">—</div>
         <button id="mmRulesBtn" class="rank-pill" title="How to play">Rules</button>
         <button id="mmLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
         <button id="mmCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
@@ -423,6 +431,17 @@
       </div>
     </div>
 
+
+    <div id="playersSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Players</h3>
+          <button id="playersClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub" id="playersSub">The host can remove a player — a bot finishes their seat.</p>
+        <ul id="playersList" class="lobby-list"></ul>
+      </div>
+    </div>
 
     <div id="toast" class="toast"></div>
 
