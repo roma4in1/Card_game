@@ -78,6 +78,7 @@ function shape(rec, isLegend) {
     return null;
   }
   const retired = rec.isRetired === true || rec._legend === true;
+  const imageUrl = typeof rec.imageUrl === 'string' && !/default|notfound/i.test(rec.imageUrl) ? rec.imageUrl : null;
   return {
     name,
     nationality,
@@ -86,6 +87,7 @@ function shape(rec, isLegend) {
     marketValue: isLegend ? null : (typeof rec.marketValue === 'number' ? rec.marketValue : null),
     status: retired ? 'retired' : 'active',
     eraOfPlay: isLegend ? (rec._eraOfPlay || null) : '2020s',
+    imageUrl, // Transfermarkt portrait (hotlinked); null when unavailable → card falls back to text
   };
 }
 

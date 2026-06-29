@@ -1111,6 +1111,17 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pcard.bronze { --c1: var(--tier-bronze-1); --c2: var(--tier-bronze-2); }
 .pcard.icon { --c1: var(--tier-special-1); --c2: #4a4030; color: #f6efda; }
 .pcard.special { --c1: var(--tier-special-1); --c2: var(--tier-special-2); color: #f6efda; }
+/* portrait photo (when available) sits behind a foreground layer with a dark scrim */
+.pc-fg { position: relative; z-index: 2; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pcard:not(.has-photo) > .pc-fg { height: 100%; }
+.pc-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; z-index: 0; }
+.pcard.has-photo { color: #fff; box-shadow: var(--e2), inset 0 0 0 2.5px var(--c2, var(--tier-gold-2)); }
+.pcard.has-photo::before { z-index: 1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, transparent 32%, transparent 42%, rgba(0, 0, 0, 0.55) 72%, rgba(0, 0, 0, 0.86) 100%); }
+.pcard.has-photo::after { opacity: 0.35; }
+.pcard.has-photo .pc-pos, .pcard.has-photo .pc-flag, .pcard.has-photo .pc-name, .pcard.has-photo .pc-stat b { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7); }
+.pcard.has-photo .pc-div { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); }
+.pcard.has-photo .pc-tier { background: rgba(0, 0, 0, 0.4); }
+
 .pc-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .pc-col { display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1; }
 .pc-pos { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.5rem; }

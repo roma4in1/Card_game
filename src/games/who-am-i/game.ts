@@ -22,6 +22,7 @@ export interface PlayerCard {
   marketValue: number | null;
   status: 'active' | 'retired';
   eraOfPlay: string;
+  imageUrl?: string | null;
 }
 
 // nationality → continent (covers every nation in the bank; UEFA nations count as Europe).

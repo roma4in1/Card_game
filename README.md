@@ -1,89 +1,120 @@
-# Win or die 🃏❤️
+# Game Hub 🎲🃏⚽
 
-A two-player online card game of betting and bluffing — poker's nerve with a
-rock-paper-scissors twist. Each player opens a link on their phone browser (no
-app install) and plays from anywhere. The server is the authoritative referee:
-it owns the deck and every hidden card, so neither phone can ever peek at the
-other's hand.
+A multiplayer party-game hub you play from your phone browser — no app install.
+One person creates a room, everyone opens the link, and the host picks any of **ten**
+games. The server is the authoritative referee: it owns every secret (decks, hidden
+cards, secret players) so no client can ever peek.
 
-TypeScript end to end — a Node + `ws` server and a vanilla HTML/CSS/JS client
-served as static files. **No build step.** Node runs the `.ts` server directly
-via native type stripping.
+TypeScript end to end — a Node + `ws` server and a vanilla HTML/CSS/JS client served
+as static files. **No build step:** Node runs the `.ts` files directly via native type
+stripping.
 
 ---
 
-## How to play
+## The games
 
-Two players, 35 chips each. A round runs in 10 steps:
-
-1. Each posts a 1-chip blind (pot starts at 2); a dice roll picks who acts first.
-2. Deal 2 hole cards to each player.
-3. Reveal 1 shared community card (counts in **both** hands).
-4. **Betting round 1** — call / raise / fold, no raise cap, all-in allowed.
-5. Deal a 3rd hole card to each (3 hole + 1 shared = a 4-card hand).
-6. Both players **simultaneously** pick one card to reveal (never the liar). The
-   server buffers both choices and reveals them together.
-7. **Discussion** — free-text chat. Lie or tell the truth.
-8. **Betting round 2.**
-9. Resolve any liar cards, reveal hands, evaluate, award the pot.
-10. Next round. A draw carries the pot into the next round. The match ends when a
-    player can't post the next blind.
-
-### The deck (49 cards)
-
-18 scissor · 12 rock · 12 paper · 6 love · 1 liar.
-
-The deck is a **finite, persistent set**: each round deals 7 cards (4 hole + 1
-shared + 2 more hole) and those cards stay out — so what's already been played
-thins the deck and rewards paying attention. Only when fewer than 7 cards remain
-is a fresh, reshuffled 49-card deck dealt. The table shows the count remaining.
-
-### Hand ranking (1 = strongest, 9 = weakest)
-
-| Rank | Name | Hand |
+| Game | Players | What it is |
 | --- | --- | --- |
-| 1 | Love Wins All | 4 loves |
-| 2 | Three Love | 3 loves + 1 any |
-| 3 | Four Card | Quad (non-love) |
-| 4 | Mix | 1 love + rock + paper + scissor (one of each) |
-| 5 | Two Love | 2 loves + 2 any non-love |
-| 6 | Two Pair | Two pair (non-love) |
-| 7 | Triple | Triple (non-love) |
-| 8 | One Pair | One pair (non-love) |
-| 9 | One Love | 1 love + 3 non-love (anything except one-of-each) |
+| **Win or Die** | 2–8 | Poker-style betting & bluffing with rock-paper-scissors hands. Last player standing. |
+| **Lock In** | 2–8 | Press-your-luck with 9 dice — lock a number, set one aside per roll, bank before you bust. |
+| **Yahtzee** | 1–8 | Roll five dice up to three times, fill all 13 categories. Highest total wins. |
+| **Spy Game** | 3–8 | Hidden-role football clues: everyone shares a secret player — except the spy (two spies at 6+). |
+| **Codenames** | 4–8 | Two teams, one secret key. Spymasters clue; operatives find their agents, dodge the assassin. |
+| **Quoridor** | 2–4 | Race your pawn to the far side, or wall off your rivals. Pure strategy. |
+| **Tectonic Shift** | 2–4 | Slide pawns across a shrinking hex board, banking the land you leave behind. |
+| **Memory Match** | 2–4 | Concentration with a word↔picture twist, each player in their own language (en/fr/ko). |
+| **Who Am I?** | 2–6 | Football 20-questions — the server answers yes/no from real data; race to name the player. |
+| **Guess the Player** | 1–6 | Wordle for footballers: guess real players, get attribute hints (value ↑/↓, position, nationality…). |
 
-Suits use the physical game's colours and hand-signs: **rock** = red ✊,
-**paper** = yellow ✋, **scissor** = blue ✌️, **love** = green 🤟 (the ASL "I love
-you" sign), **liar** = pink (crossed fingers). The in-game **Ranks** button opens
-this full hierarchy at any time, and each round opens with an animated dice roll
-for act order.
+Five of these are powered by a shared **football player bank** (Spy Game, Who Am I?,
+Guess the Player, and the decoy engine) — see [The player bank](#the-player-bank).
 
-**Love presence dominates structure.** Count loves first: 2 loves is always rank
-5; a single love only escapes to rank 4 if the other three are exactly
-rock+paper+scissor — a love next to a pair or a triple is still rank 9.
+---
 
-### Tiebreaks
+## Architecture
 
-Rock-paper-scissor is a **cycle** (rock > scissor > paper > rock) — there is no
-globally strongest suit. Same-rank hands are broken by:
+The hub is a **game-agnostic room** plus a set of **game plugins**. The room
+(`src/platform/room.ts`) owns everything that isn't a game's rules — the lobby, seats,
+host, chat, game selection, host options, reconnection, bots, leave/kick, "play again."
+It knows nothing game-specific.
 
-1. Sub-hierarchy of the non-love remainder: quad > two-pair > triple > pair >
-   singles. Higher structure wins.
-2. Otherwise cancel the cards both hands share, then compare the survivors by the
-   cyclic rock-paper-scissor rule.
-3. If everything cancels, it's a draw. **Ranks 1 (Four Loves), 4 (Mix) and 9 (One
-   Love) are always draws** — any two such hands tie and the pot carries to the
-   next round.
+Each game is a plugin implementing the **`GameDef`** contract (`src/platform/types.ts`):
 
-### The liar card
+```ts
+interface GameDef<S> {
+  id; name; blurb; minPlayers; maxPlayers; options?;
+  create(setup, ctx): S;                       // start a match → opaque state
+  act(state, seat, msg, ctx): { error? } | void; // apply an action (untrusted input)
+  tick?(state, ctx): boolean;                  // timers / clocks (~2 Hz)
+  view(state, seat): {...};                    // PRIVATE per-seat snapshot (redacted)
+  result(state): { over, winners };
+  bot?(state, seat, ctx): msg | null;          // play a seat taken over by AI
+}
+```
 
-- **As the shared card:** a per-player wildcard — each player independently sets
-  its value at showdown.
-- **In your hole:** after the step-6 reveal it lets you set *both* of your still-
-  hidden cards to any values at showdown.
-- It can never be the card you reveal in step 6 (the server enforces this).
-- It's resolved at showdown, after all betting, and only ever shown as its chosen
-  value.
+Games register in `src/platform/registry.ts`; the server (`src/server.ts`) is a thin
+transport that validates WebSocket messages, routes them to the room, and broadcasts
+each seat's private `view` after every change.
+
+### Why it's safe (and testable)
+
+- **Authoritative server.** All randomness and all secrets live server-side. `view` is
+  per-seat and redacted — a player never receives another's hidden cards, the spy's
+  decoy, or the secret target until it's legitimately revealed.
+- **Pure game state.** Each plugin's `state` is plain JSON with the RNG injected via
+  `ctx`, so every game is unit-tested deterministically (`node --test`, 177 tests).
+- **Bots & resilience.** Any seat can be driven by the game's `bot` — used when a player
+  leaves or is kicked, so turn-based games never stall. Reconnection: each player gets a
+  `localStorage` token and resumes their exact seat after a drop.
+
+### Hub features (every game gets these for free)
+
+- **Lobby & host** — the host picks the game and tunes **options** (e.g. turn timer,
+  rounds, guess limit, Memory Match pairs).
+- **Turn timer** — opt-in per-turn countdown (Spy / Quoridor / Codenames / Who Am I? /
+  Guess the Player); on timeout the game's bot acts so play continues.
+- **Leave → lobby, kick, play again** — a player can step back to the room lobby (a bot
+  finishes their seat); the host can remove anyone (incl. bots), mid-match too; and after
+  a match the host can **Play again** (same game) or send everyone **back to the lobby**.
+
+---
+
+## The player bank
+
+The football games share one dataset, `players.json` — ~710 players, each:
+
+```json
+{ "name", "nationality", "positions": ["ST"], "leagues": ["Premier League"],
+  "marketValue": 180000000, "status": "active", "eraOfPlay": "2020s", "imageUrl": "…" }
+```
+
+- **Built from Transfermarkt dumps** by `build-wordbank.cjs`: it shapes the raw scraper
+  output (`raw-players.json` + `legends-raw.json`, kept out of git), maps positions to
+  fine codes, caps actives at a **€20m market-value** floor, keeps a curated set of
+  legends, and validates that every player has a same-position peer. The raw dumps are
+  `.gitignore`d; the committed `players.json` is what the app actually loads.
+- **`decoy.cjs`** is the single source of truth for similarity: `pickDecoy(target, pool)`
+  picks the most-alike player (position filter, then nationality/league/era/value-tier
+  scoring). Spy Game and Guess the Player both consume it so feedback and decoys stay
+  consistent.
+- **Player cards.** Reveals render a FUT/Panini-style card — position, nationality flag,
+  league, value tier (Bronze→Gold→ICON), and the player's **portrait photo**
+  (`imageUrl`, hotlinked from Transfermarkt; cards fall back to a clean gradient+text
+  card if an image is missing or fails to load).
+
+> Note: portraits are hotlinked from Transfermarkt's CDN — fine for a personal project,
+> but it's a third-party dependency (and their imagery). To self-host or drop photos,
+> change `imageUrl` handling in `build-wordbank.cjs`.
+
+---
+
+## Visual system
+
+Vanilla CSS, no framework. A token layer (`:root` in `src/client/style.css`) defines
+spacing/radius/elevation scales, semantic colors, and a **per-game accent**. Polish
+includes the player card, Wordle-style tile-flip reveals, win confetti, screen
+transitions, backdrop-blurred sheets, and inline SVG icons — all gated behind
+`prefers-reduced-motion`.
 
 ---
 
@@ -91,90 +122,58 @@ globally strongest suit. Same-rank hands are broken by:
 
 ```text
 src/
-  evaluator.ts        Pure hand evaluation: evaluate(cards) + compare(a, b). No I/O.
-  evaluator.test.ts   Unit tests for every rank transition and tiebreak case.
-  cards.ts            Deck construction, shuffling (injectable RNG), liar resolution.
-  liar.test.ts        Liar-resolution strategy (win-max) over every configuration.
-  engine.ts           Pure game engine: rooms, phase machine, betting, simultaneous
-                      reveal, liar resolution, chip accounting. No network I/O;
-                      deterministic via an injectable RNG.
-  engine.test.ts      Deterministic unit tests: betting, all-in refunds, draw
-                      carry, reveal buffering, elimination, chip conservation.
-  server.ts           Thin transport: static files, WebSocket plumbing, dispatch.
-  server.test.ts      End-to-end test: two ws clients play a full round.
+  platform/
+    types.ts        The GameDef contract + lobby summaries.
+    room.ts         Game-agnostic room: lobby, host, options, bots, leave/kick, restart.
+    registry.ts     The list of hostable games.
+    turn-timer.ts   Shared opt-in per-turn countdown helper.
+    room.test.ts
+  games/
+    win-or-die/  lock-in/  yahtzee/  spy-game/  codenames/
+    quoridor/  tectonic/  memory-match/  who-am-i/  guess-player/
+        game.ts        Pure plugin (rules + per-seat view). game.test.ts alongside.
+        wordbank.ts / conceptbank.ts   Loads injected data for data-driven games.
+  server.ts         Thin transport: static files, WebSocket plumbing, broadcast, tick.
   client/
-    index.html        Mobile-first single page.
-    style.css
-    app.js            Thin renderer — shows only the server's private view.
+    index.html      Mobile-first single page (one screen per game).
+    style.css       The visual system.
+    app.js          Thin renderer — shows only the server's private view.
+build-wordbank.cjs  Builds players.json from the Transfermarkt dumps.
+decoy.cjs           Shared player-similarity / decoy selection (+ its own tests).
+players.json        The committed football player bank.
 ```
-
-The game rules live entirely in `engine.ts` and are pure (no sockets), so they
-can be unit-tested deterministically; `server.ts` only moves bytes.
-
-### Anti-cheat guarantees
-
-- Every action is validated server-side. The client cannot deal, resolve a
-  winner, or see the opponent's hidden cards or the deck.
-- Each client only ever receives its own hand plus public info (pot, chips,
-  shared card, revealed cards, claims) and whose turn it is.
-- Step-6 reveals are buffered: a player's chosen card is withheld until **both**
-  have locked in, then broadcast together.
-- The integration test asserts the opponent's hole cards are never present in any
-  message and that chips are conserved (always 70 total).
-
-### Reconnection
-
-On join each player gets a secret token, stored in `localStorage`. If the phone
-drops its connection, the client auto-reconnects and replays the token to resume
-its seat — same chips, same hand, same round.
 
 ---
 
 ## Run locally
 
-Requires **Node 24+** (for native TypeScript execution — no build step).
+Requires **Node 24+** (native TypeScript execution — no build step).
 
 ```bash
 npm install
-npm test          # runs evaluator unit tests + the server integration test
-npm start         # starts the server on http://localhost:3000
+npm test          # all game-engine + platform unit tests (node --test)
+npm start         # serve on http://localhost:3000
 ```
 
-Open <http://localhost:3000>, click **Create a game**, then open the room link
-(e.g. `http://localhost:3000/r/ABCD`) in a second browser/phone to take seat 2.
-To play across two real phones locally, expose the port (e.g. `npx localtunnel
---port 3000` or `ngrok http 3000`) and share that URL.
+Open <http://localhost:3000>, create a room, and share the room link
+(`http://localhost:3000/r/ABCD`) with other phones/browsers to join. To play across real
+phones, expose the port (`npx localtunnel --port 3000` or `ngrok http 3000`).
+`npm run dev` runs with `--watch` for auto-reload.
 
-`npm run dev` runs the server with `--watch` for auto-reload during development.
+To rebuild the player bank you need the raw dumps locally, then: `node build-wordbank.cjs`.
 
 ---
 
 ## Deploy (Render — free tier)
 
-Render's free Web Service keeps a long-lived Node process running and proxies
-WebSocket upgrades, which is exactly what this server needs.
+Render's free Web Service keeps a long-lived Node process and proxies WebSocket
+upgrades — exactly what this needs.
 
-1. Push this repo to GitHub.
-2. In the [Render dashboard](https://dashboard.render.com/) → **New → Blueprint**,
-   point it at your repo. Render reads [`render.yaml`](render.yaml) and creates
-   the service automatically. (Or **New → Web Service** manually with:
-   Runtime `Node`, Build `npm install`, Start `npm start`, Health check
-   `/healthz`.)
-3. Render sets `PORT` itself; the server reads `process.env.PORT`.
-4. Deploy. Your game is live at `https://<your-service>.onrender.com` — share
-   `https://<your-service>.onrender.com/r/ABCD`. The client auto-detects HTTPS
+1. Push to GitHub.
+2. Render dashboard → **New → Blueprint** at your repo (reads [`render.yaml`](render.yaml)),
+   or **New → Web Service**: Runtime `Node`, Build `npm install`, Start `npm start`,
+   Health check `/healthz`.
+3. Render sets `PORT`; the server reads `process.env.PORT`. The client auto-detects HTTPS
    and connects over `wss://`.
 
-> Free instances sleep after inactivity and take a few seconds to wake on the
-> first request — fine for a casual game.
-
-### Alternatives
-
-The app is a single stateless-per-room Node process, so it also runs as-is on:
-
-- **Railway** — New Project → Deploy from repo; it auto-detects `npm start` and
-  injects `PORT`.
-- **Fly.io** — `fly launch` (Node builder), ensure the internal port matches
-  `PORT`; Fly proxies WebSockets by default.
-
-No database is needed — game state lives in memory per room.
+Also runs as-is on Railway or Fly.io. No database — room state lives in memory.

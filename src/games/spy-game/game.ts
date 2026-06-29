@@ -23,6 +23,7 @@ export interface PlayerCard {
   marketValue: number | null;
   status: 'active' | 'retired';
   eraOfPlay: string;
+  imageUrl?: string | null;
 }
 
 const randInt = (rng: Rng, n: number): number => Math.floor(rng() * n);

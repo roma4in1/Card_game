@@ -278,21 +278,28 @@ function pcTier(p) {
 function playerCardEl(p, opts = {}) {
   const t = pcTier(p);
   const el = document.createElement('div');
-  el.className = 'pcard ' + t.cls + (opts.small ? ' sm' : '') + (opts.pop ? ' pop' : '');
+  el.className = 'pcard ' + t.cls + (opts.small ? ' sm' : '') + (opts.pop ? ' pop' : '') + (p.imageUrl ? ' has-photo' : '');
   const val = p.marketValue == null ? '—' : '€' + Math.round(p.marketValue / 1e6) + 'm';
   const league = (p.leagues && p.leagues[0] && (LEAGUE_SHORT[p.leagues[0]] || p.leagues[0])) || (p.status === 'retired' ? 'Legend' : '—');
+  // The portrait is hotlinked; on a load error we drop the class so the gradient card shows.
+  const photo = p.imageUrl
+    ? `<img class="pc-photo" src="${escapeHtml(p.imageUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.pcard').classList.remove('has-photo'); this.remove();">`
+    : '';
   el.innerHTML =
-    `<div class="pc-top"><div class="pc-col">` +
-      `<div class="pc-pos">${escapeHtml((p.positions && p.positions[0]) || '?')}</div>` +
-      `<div class="pc-flag" title="${escapeHtml(p.nationality)}">${flagEmoji(p.nationality)}</div>` +
-      `<div class="pc-league">${escapeHtml(league)}</div>` +
-    `</div><div class="pc-tier">${t.label}</div></div>` +
-    `<div class="pc-name">${escapeHtml(p.name)}</div>` +
-    `<div class="pc-div"></div>` +
-    `<div class="pc-stats">` +
-      `<span class="pc-stat"><b>${escapeHtml(val)}</b><i>value</i></span>` +
-      `<span class="pc-stat"><b>${escapeHtml(p.eraOfPlay || '—')}</b><i>era</i></span>` +
-      `<span class="pc-stat"><b>${escapeHtml(p.nationality)}</b><i>nation</i></span>` +
+    photo +
+    `<div class="pc-fg">` +
+      `<div class="pc-top"><div class="pc-col">` +
+        `<div class="pc-pos">${escapeHtml((p.positions && p.positions[0]) || '?')}</div>` +
+        `<div class="pc-flag" title="${escapeHtml(p.nationality)}">${flagEmoji(p.nationality)}</div>` +
+        `<div class="pc-league">${escapeHtml(league)}</div>` +
+      `</div><div class="pc-tier">${t.label}</div></div>` +
+      `<div class="pc-name">${escapeHtml(p.name)}</div>` +
+      `<div class="pc-div"></div>` +
+      `<div class="pc-stats">` +
+        `<span class="pc-stat"><b>${escapeHtml(val)}</b><i>value</i></span>` +
+        `<span class="pc-stat"><b>${escapeHtml(p.eraOfPlay || '—')}</b><i>era</i></span>` +
+        `<span class="pc-stat"><b>${escapeHtml(p.nationality)}</b><i>nation</i></span>` +
+      `</div>` +
     `</div>`;
   return el;
 }
