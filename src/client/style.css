@@ -325,10 +325,11 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .gp-opp.solved .gp-oppstat { color: #1a4; }
 
 .gp-grid { display: flex; flex-direction: column; gap: 5px; }
-.gp-row { display: grid; grid-template-columns: 1.6fr 1fr 0.9fr 1fr 1fr 0.8fr 0.9fr; gap: 4px; }
-.gp-head .gp-cell { background: none; border: none; color: var(--faint); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 800; padding: 0 4px; }
-.gp-cell { display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px 4px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; background: var(--surface-2); color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-cell.gp-name { justify-content: flex-start; text-align: left; font-family: 'Outfit', sans-serif; font-weight: 800; padding-left: 9px; }
+.gp-row { display: grid; grid-template-columns: 1.7fr 1fr 1.05fr 1fr 1fr 0.7fr 0.9fr; gap: 4px; align-items: stretch; }
+.gp-head .gp-cell { background: none; border: none; color: var(--faint); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 800; padding: 0 2px; }
+/* Wrap rather than clip: names and multi-position codes don't fit one line on mobile. */
+.gp-cell { display: flex; align-items: center; justify-content: center; text-align: center; padding: 7px 3px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; line-height: 1.12; background: var(--surface-2); color: var(--ink); min-width: 0; overflow-wrap: anywhere; word-break: break-word; hyphens: none; }
+.gp-cell.gp-name { justify-content: flex-start; text-align: left; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.78rem; padding-left: 8px; }
 .gp-cell.hit { background: #1f7a44; color: #fff; }
 .gp-cell.partial { background: #b5912a; color: #1a1300; }
 .gp-cell.miss { background: var(--surface-2); color: var(--muted); }

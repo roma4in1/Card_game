@@ -105,6 +105,14 @@ test('hitting the guess limit without solving knocks you out (no winner if nobod
   assert.deepEqual(def.result(s).winners, [], 'nobody solved → no winner');
 });
 
+test('the secret target always has a market value (the value hint works; retired players are never the answer)', () => {
+  const def = createGuessPlayer(BANK) as GameDef<GPState>;
+  for (let seed = 1; seed <= 60; seed++) {
+    const s = def.create({ seats: [0], players: [{ seat: 0, name: 'P0' }], options: { rounds: 1 } }, { rng: lcg(seed), now: 0 }) as GPState;
+    assert.notEqual(BANK[s.targetIdx].marketValue, null, `seed ${seed} drew a valued target`);
+  }
+});
+
 test('the optional round timer resolves the round when time runs out', () => {
   const def = createGuessPlayer(BANK) as GameDef<GPState>;
   const s = def.create({ seats: [0, 1], players: [0, 1].map((x) => ({ seat: x, name: 'P' + x })), options: { rounds: 1, limit: 0, roundSecs: 30 } }, { rng: lcg(1), now: 1000 }) as GPState;

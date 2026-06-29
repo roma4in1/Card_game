@@ -2382,13 +2382,15 @@ function renderGpActions(s) {
   area.appendChild(actBtn('Give up', 'btn btn-quiet', () => { if (confirm('Give up this round?')) send({ type: 'giveUp' }); }));
 }
 
-const GP_VALUE_ARROW = { higher: '↑', lower: '↓', equal: '=', unknown: '?' };
-function gpValueText(g) {
-  const v = g.marketValue == null ? 'retired' : '€' + Math.round(g.marketValue / 1e6) + 'm';
-  const arrow = GP_VALUE_ARROW[g.fb.value] || '';
-  return `${v} ${arrow}`.trim();
+// Value cell text + colour. Retired guess (no value) → "—"; otherwise the value with a
+// directional arrow toward the target (= same tier). Never an ambiguous "?".
+function gpValueCell(g) {
+  if (g.marketValue == null) return { text: '—', cls: 'miss' };
+  const v = '€' + Math.round(g.marketValue / 1e6) + 'm';
+  if (g.fb.value === 'unknown') return { text: v, cls: 'miss' }; // can't compare (shouldn't happen: targets are valued)
+  const arrow = { higher: '↑', lower: '↓', equal: '=' }[g.fb.value] || '';
+  return { text: `${v} ${arrow}`.trim(), cls: g.fb.value === 'equal' ? 'hit' : 'dir' };
 }
-function gpValueClass(dir) { return dir === 'equal' ? 'hit' : dir === 'unknown' ? 'miss' : 'dir'; }
 
 function renderGpGrid(s) {
   const box = $('gpGrid');
@@ -2411,12 +2413,13 @@ function renderGpGrid(s) {
     const row = document.createElement('div');
     row.className = 'gp-row' + (g.fb.exact ? ' solved' : '');
     const cell = (text, cls) => `<span class="gp-cell ${cls}">${escapeHtml(text)}</span>`;
+    const val = gpValueCell(g);
     row.innerHTML =
       cell(g.name, 'gp-name') +
       cell(g.nationality, g.fb.nationality) +
       cell(g.positions.join('/'), g.fb.position) +
       cell(g.leagues.length ? g.leagues.join('/') : '—', g.fb.league) +
-      cell(gpValueText(g), gpValueClass(g.fb.value)) +
+      cell(val.text, val.cls) +
       cell(g.eraOfPlay, g.fb.era) +
       cell(g.status, g.fb.status);
     box.appendChild(row);

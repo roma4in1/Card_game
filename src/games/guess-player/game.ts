@@ -121,6 +121,10 @@ function matchWinners(s: GPState): number[] {
 export function createGuessPlayer(playerBank: PlayerCard[]): GameDef<GPState> {
   const bank = playerBank;
   const byName = new Map(bank.map((p, i) => [normName(p.name), i]));
+  // Targets are only players WITH a market value, so the value ↑/↓ hint always works.
+  // (Retired/null-value players can still be guessed — they just aren't the answer.)
+  const valuedIdx = bank.map((_, i) => i).filter((i) => bank[i].marketValue != null);
+  const pickTarget = (rng: Rng) => (valuedIdx.length ? valuedIdx[randInt(rng, valuedIdx.length)] : randInt(rng, bank.length));
 
   function endRound(s: GPState) {
     s.roundDeadline = 0;
@@ -155,7 +159,7 @@ export function createGuessPlayer(playerBank: PlayerCard[]): GameDef<GPState> {
   }
 
   function startRound(s: GPState, ctx: GameContext) {
-    s.targetIdx = randInt(ctx.rng, bank.length);
+    s.targetIdx = pickTarget(ctx.rng);
     s.guesses = s.order.map(() => []);
     s.solvedIn = s.order.map(() => null);
     s.solveSeq = s.order.map(() => null);
