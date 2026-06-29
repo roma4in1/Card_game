@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, backToLobby, kick, leave, botMove, hasHumans, viewFor,
+  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, restart, backToLobby, kick, leave, botMove, hasHumans, viewFor,
   type Room,
 } from './room.ts';
 
@@ -240,6 +240,21 @@ test('rematch only returns to the lobby once the match is over', () => {
   assert.equal(room.phase, 'lobby');
   assert.equal(room.game, null);
   // Same members are still seated and can start again.
+  assert.equal(room.members.filter(Boolean).length, 2);
+});
+
+test('restart replays the same game with the same players (host only, only once over)', () => {
+  const room = playing(2, 11);
+  assert.match(restart(room, room.host).error!, /not over/i, 'cannot restart mid-match');
+  const c = { rng: room.rng, now: 0 };
+  let guard = 0;
+  while (!room.game!.def.result(room.game!.state).over && guard++ < 2_000_000) autoStep(room, c);
+  assert.match(restart(room, seatList(room).find((s) => s !== room.host)!).error!, /host/i, 'non-host cannot restart');
+  const before = room.game;
+  assert.equal(restart(room, room.host).error, undefined);
+  assert.equal(room.phase, 'playing', 'stays in a match — no trip to the lobby');
+  assert.notEqual(room.game, before, 'a fresh game was built');
+  assert.ok(!room.game!.def.result(room.game!.state).over, 'the new match is live');
   assert.equal(room.members.filter(Boolean).length, 2);
 });
 

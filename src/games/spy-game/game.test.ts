@@ -64,6 +64,19 @@ test('exactly one spy; non-spies share the target, the spy gets a different deco
   }
 });
 
+test('6+ players get two spies, both sharing the same decoy; identities never leak', () => {
+  const { def, s, bank } = newSpy(6, 3);
+  const spies = s.order.filter((seat) => s.players[seat]!.isSpy);
+  assert.equal(spies.length, 2, 'two spies at 6 players');
+  assert.deepEqual([...s.spyIds].sort((a, b) => a - b), [...spies].sort((a, b) => a - b));
+  const decoy = bank[s.decoyIdx].name;
+  for (const seat of spies) assert.equal(s.players[seat]!.secret, decoy, 'both spies share the decoy');
+  // the count is public, but who the spies are is not
+  const v = def.view(s, s.order[0]) as any;
+  assert.equal(v.spyCount, 2);
+  assert.ok(!('spyIds' in v), 'spy seats are not exposed mid-game');
+});
+
 test('the decoy always shares a position with the target and differs (synthetic + real bank)', () => {
   for (let seed = 1; seed <= 40; seed++) {
     const { s, bank } = newSpy(3, seed);
@@ -138,6 +151,71 @@ test('the word bank is injected, not hardcoded — secrets come from the supplie
   for (const seat of s.order) assert.match(def.view(s, seat).you.secret, /^ZZ_/);
 });
 
+test('two spies: detectives must catch BOTH (each guessing wrong); a wrong catch or any correct guess wins for the spies', () => {
+  const drive = (seed: number) => {
+    const g = newSpy(6, seed);
+    assert.equal(g.s.spyIds.length, 2, 'two spies at 6 players');
+    runClues(g.def, g.s, g.c);
+    assert.equal(g.s.phase, 'voting');
+    return g;
+  };
+  const otherNonSpy = (s: SpyState, except: number) => s.order.find((x) => !s.spyIds.includes(x) && x !== except)!;
+  // Force the active table to vote `target` out (target votes elsewhere so it's a clean plurality).
+  const voteOut = (g: ReturnType<typeof newSpy>, target: number) => {
+    for (const seat of g.s.order.filter((x) => !g.s.caughtSpies.includes(x))) {
+      act(g.def, g.s, g.c, seat, { type: 'castVote', target: seat === target ? otherNonSpy(g.s, target) : target });
+    }
+  };
+
+  // (a) catch both spies, both guess wrong → detectives win
+  let g = drive(5);
+  const nonSpies = g.s.order.filter((x) => !g.s.spyIds.includes(x)).sort((a, b) => a - b);
+  voteOut(g, g.s.spyIds[0]);
+  assert.equal(g.s.phase, 'spyGuess');
+  act(g.def, g.s, g.c, g.s.caughtId!, { type: 'spyGuess', guess: 'Nope McNope' });
+  assert.equal(g.s.phase, 'voting', 'one spy down — keep hunting');
+  assert.equal(g.s.caughtSpies.length, 1);
+  assert.match(act(g.def, g.s, g.c, g.s.caughtSpies[0], { type: 'castVote', target: g.s.spyIds[1] }).error!, /caught/i);
+  voteOut(g, g.s.spyIds[1]);
+  act(g.def, g.s, g.c, g.s.caughtId!, { type: 'spyGuess', guess: 'Nope McNope' });
+  assert.equal(g.s.over, true);
+  assert.deepEqual(g.def.result(g.s).winners.slice().sort((a, b) => a - b), nonSpies, 'both caught & wrong → detectives win');
+
+  // (b) catching a NON-spy at any point → spies win immediately
+  g = drive(6);
+  voteOut(g, g.s.order.find((x) => !g.s.spyIds.includes(x))!);
+  assert.equal(g.s.over, true);
+  assert.deepEqual(g.def.result(g.s).winners.slice().sort((a, b) => a - b), g.s.spyIds.slice().sort((a, b) => a - b), 'wrong catch → spies win');
+
+  // (c) a caught spy guessing RIGHT → spies win
+  g = drive(7);
+  voteOut(g, g.s.spyIds[0]);
+  act(g.def, g.s, g.c, g.s.caughtId!, { type: 'spyGuess', guess: g.bank[g.s.targetIdx].name });
+  assert.equal(g.s.over, true);
+  assert.deepEqual(g.def.result(g.s).winners.slice().sort((a, b) => a - b), g.s.spyIds.slice().sort((a, b) => a - b), 'correct guess → spies win');
+});
+
+test('the opt-in turn timer arms a countdown and auto-acts when a turn runs out', () => {
+  const def = createSpyGame(synthBank());
+  const s = def.create(
+    { seats: [0, 1, 2], players: [0, 1, 2].map((x) => ({ seat: x, name: 'P' + x })), options: { timer: 15 } },
+    { rng: lcg(2), now: 1000 },
+  ) as SpyState;
+  // first tick arms the deadline; the view now carries a countdown
+  assert.equal(def.tick!(s, { rng: lcg(2), now: 1000 }), true);
+  const v = def.view(s, 0) as any;
+  assert.ok(v.timer && v.timer.secs === 15 && v.timer.deadline > 0, 'countdown armed in the view');
+  const before = s.clueLog.length;
+  assert.equal(def.tick!(s, { rng: lcg(2), now: 14000 }), false, 'no change before the deadline');
+  assert.equal(def.tick!(s, { rng: lcg(2), now: 16000 }), true, 'fires at the deadline');
+  assert.equal(s.clueLog.length, before + 1, 'the stalling player was auto-clued');
+
+  // with the timer off, tick never fires and the view has no countdown
+  const s0 = def.create({ seats: [0, 1, 2], players: [0, 1, 2].map((x) => ({ seat: x, name: 'P' + x })) }, { rng: lcg(2), now: 0 }) as SpyState;
+  assert.equal(def.tick!(s0, { rng: lcg(2), now: 999999 }), false);
+  assert.equal((def.view(s0, 0) as any).timer, null);
+});
+
 // ---------------------------------------------------------------------------
 // Redaction (the core invariant)
 // ---------------------------------------------------------------------------
@@ -156,7 +234,7 @@ function assertNoLeak(def: GameDef<SpyState>, s: SpyState, bank: PlayerCard[]) {
       assert.equal(v.you.secret, target, 'non-spy sees the target');
       assert.ok(!json.includes(decoy), `non-spy must not see the decoy in ${s.phase}`);
       if (preResolve) {
-        assert.ok(!('spyId' in v) && !('caughtId' in v), `no spyId/caughtId leak in ${s.phase}`);
+        assert.ok(!('spyIds' in v) && !('caughtId' in v), `no spyId/caughtId leak in ${s.phase}`);
         for (const pp of v.players) assert.ok(!('isSpy' in pp) && !('secret' in pp), 'roster carries no role/secret');
       }
     }
@@ -223,7 +301,7 @@ function toVoting(numPlayers: number, seed: number) {
 
 test('a non-spy caught → spy wins', () => {
   const { def, s, c } = toVoting(4, 11);
-  const spy = s.spyId;
+  const spy = s.spyIds[0];
   const victim = s.order.find((x) => x !== spy)!; // pile votes onto a non-spy
   for (const seat of s.order) {
     const target = seat === victim ? s.order.find((x) => x !== victim)! : victim;
@@ -241,13 +319,13 @@ test('a tied vote → no one caught → spy wins', () => {
   act(def, s, c, s.order[2], { type: 'castVote', target: s.order[0] });
   assert.equal(s.caughtId, null, 'no strict plurality');
   assert.equal(s.over, true);
-  assert.deepEqual(def.result(s).winners, [s.spyId]);
+  assert.deepEqual(def.result(s).winners, [s.spyIds[0]]);
 });
 
 test('the spy caught → spyGuess opens; wrong guess → non-spies win, right guess → spy wins', () => {
   // wrong guess
   let { def, s, c, bank } = toVoting(4, 11);
-  let spy = s.spyId;
+  let spy = s.spyIds[0];
   for (const seat of s.order) {
     const target = seat === spy ? s.order.find((x) => x !== spy)! : spy; // everyone else votes the spy
     act(def, s, c, seat, { type: 'castVote', target });
@@ -263,7 +341,7 @@ test('the spy caught → spyGuess opens; wrong guess → non-spies win, right gu
 
   // right guess
   ({ def, s, c, bank } = toVoting(4, 11));
-  spy = s.spyId;
+  spy = s.spyIds[0];
   for (const seat of s.order) {
     const target = seat === spy ? s.order.find((x) => x !== spy)! : spy;
     act(def, s, c, seat, { type: 'castVote', target });
@@ -275,21 +353,21 @@ test('the spy caught → spyGuess opens; wrong guess → non-spies win, right gu
 test('the caught spy guesses by typing a name (case-insensitive); an unknown name loses', () => {
   const catchSpy = (seed: number) => {
     const g = toVoting(4, seed);
-    for (const seat of g.s.order) act(g.def, g.s, g.c, seat, { type: 'castVote', target: seat === g.s.spyId ? g.s.order.find((x) => x !== g.s.spyId)! : g.s.spyId });
+    for (const seat of g.s.order) act(g.def, g.s, g.c, seat, { type: 'castVote', target: seat === g.s.spyIds[0] ? g.s.order.find((x) => x !== g.s.spyIds[0])! : g.s.spyIds[0] });
     assert.equal(g.s.phase, 'spyGuess');
     return g;
   };
   // typed with different case/whitespace still matches the target
   let g = catchSpy(11);
-  act(g.def, g.s, g.c, g.s.spyId, { type: 'spyGuess', guess: '  ' + g.bank[g.s.targetIdx].name.toUpperCase() + ' ' });
+  act(g.def, g.s, g.c, g.s.spyIds[0], { type: 'spyGuess', guess: '  ' + g.bank[g.s.targetIdx].name.toUpperCase() + ' ' });
   assert.equal(g.s.guessCorrect, true);
-  assert.deepEqual(g.def.result(g.s).winners, [g.s.spyId]);
+  assert.deepEqual(g.def.result(g.s).winners, [g.s.spyIds[0]]);
   // a name that isn't in the bank is simply wrong
   g = catchSpy(12);
-  act(g.def, g.s, g.c, g.s.spyId, { type: 'spyGuess', guess: 'Nobody McNotreal' });
+  act(g.def, g.s, g.c, g.s.spyIds[0], { type: 'spyGuess', guess: 'Nobody McNotreal' });
   assert.equal(g.s.guessCorrect, false);
   assert.equal(g.s.guessName, 'Nobody McNotreal');
-  assert.deepEqual(g.def.result(g.s).winners.sort(), g.s.order.filter((x) => x !== g.s.spyId));
+  assert.deepEqual(g.def.result(g.s).winners.sort(), g.s.order.filter((x) => x !== g.s.spyIds[0]));
 });
 
 test('you cannot vote for yourself, vote twice, or vote outside the voting phase', () => {
@@ -326,6 +404,6 @@ test('a full match plays to a decided winner via the bot', () => {
   assert.equal(out.over, true);
   assert.ok(out.winners.length >= 1);
   // winners are exactly one side
-  const spyWon = out.winners.includes(s.spyId);
+  const spyWon = out.winners.includes(s.spyIds[0]);
   assert.equal(spyWon ? out.winners.length : out.winners.length, spyWon ? 1 : s.order.length - 1);
 });

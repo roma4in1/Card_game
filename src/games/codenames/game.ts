@@ -7,6 +7,7 @@
 // reveals (rng via the per-call context), so operative clients can't see the key.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
 
 export const MAX_SEATS = 8;
 export const GRID = 25;
@@ -66,6 +67,7 @@ export interface CNState {
   clueLog: ClueEntry[];
   winner: Team | null;
   endReason: 'all-agents' | 'assassin' | null;
+  timer: Timer; // opt-in per-turn countdown
   over: boolean;
   log: string[];
 }
@@ -91,6 +93,9 @@ function win(s: CNState, team: Team, reason: 'all-agents' | 'assassin') {
   s.over = true;
   log(s, reason === 'assassin' ? `💀 The assassin! ${team.toUpperCase()} wins.` : `🎉 ${team.toUpperCase()} found all their agents and wins!`);
 }
+
+// --- turn timer: signature of the current turn, and what timing out does (pass the turn) ---
+const cnTurnKey = (s: CNState): string => (s.over ? '' : `${s.turnTeam}:${s.phase}`);
 
 function endTurn(s: CNState) {
   s.turnTeam = other(s.turnTeam);
@@ -196,6 +201,7 @@ function viewState(s: CNState, seat: number | null): Record<string, unknown> {
     grid,
     turnTeam: s.turnTeam,
     startingTeam: s.startingTeam,
+    timer: timerView(s.timer),
     currentClue: s.currentClue,
     guessesUsed: s.guessesUsed,
     guessesLeft: s.phase === 'guess' ? Math.max(0, s.guessLimit - s.guessesUsed) : 0,
@@ -260,8 +266,9 @@ export function createCodenames(wordBank: string[]): GameDef<CNState> {
     blurb: 'Two teams, one secret key. Spymasters give one-word clues; operatives find their agents — avoid the assassin.',
     minPlayers: 4,
     maxPlayers: MAX_SEATS,
+    options: [TIMER_OPTION],
 
-    create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): CNState {
+    create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): CNState {
       const rng = ctx.rng;
       // Split players into balanced teams; the first of each team is the spymaster.
       const shuffled = shuffle([...setup.seats], rng);
@@ -310,6 +317,7 @@ export function createCodenames(wordBank: string[]): GameDef<CNState> {
         clueLog: [],
         winner: null,
         endReason: null,
+        timer: initTimer(setup.options?.timer),
         over: false,
         log: [],
       };
@@ -328,6 +336,11 @@ export function createCodenames(wordBank: string[]): GameDef<CNState> {
         case 'stopGuessing':
           return stopGuessing(s, seat);
       }
+    },
+
+    tick(s, ctx) {
+      // On timeout the team forfeits its turn (use-it-or-lose-it), for both phases.
+      return runTimer(s.timer, () => cnTurnKey(s), ctx.now, () => endTurn(s));
     },
 
     onDisconnect(s, seat) {

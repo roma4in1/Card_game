@@ -26,6 +26,20 @@ const doClue = (g: ReturnType<typeof newCN>, number = 2, word = 'X') =>
   act(g.def, g.s, g.c, g.s.teams[g.s.turnTeam].spymaster!, { type: 'giveClue', word, number });
 const firstUnrevealed = (s: CNState) => s.grid.findIndex((c) => !c.revealed);
 
+test('the opt-in turn timer forfeits the turn on timeout', () => {
+  const def = createCodenames(bank());
+  const seats = [0, 1, 2, 3];
+  const players = seats.map((x) => ({ seat: x, name: 'P' + x }));
+  const s = def.create({ seats, players, options: { timer: 30 } }, { rng: lcg(1), now: 0 }) as CNState;
+  assert.equal(def.tick!(s, { rng: lcg(1), now: 0 }), true, 'first tick arms the clock');
+  assert.ok((def.view(s, 0) as any).timer.deadline > 0, 'countdown armed');
+  const team = s.turnTeam;
+  assert.equal(def.tick!(s, { rng: lcg(1), now: 29000 }), false, 'no change before the deadline');
+  def.tick!(s, { rng: lcg(1), now: 31000 }); // past the deadline → the turn passes
+  assert.notEqual(s.turnTeam, team, 'the turn forfeited to the other team');
+  assert.equal(s.phase, 'clue');
+});
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------

@@ -148,10 +148,33 @@ export function startMatch(room: Room, seat: number): ActionResult {
   const reason = def.validateStart?.(joined);
   if (reason) return fail(reason);
 
+  buildGame(room, def, joined);
+  log(room, `${def.name} started with ${joined.length} players.`);
+  return ok;
+}
+
+/** Instantiate the chosen game for the given seats and enter the playing phase. */
+function buildGame(room: Room, def: GameDef, joined: number[]) {
   const players = joined.map((s) => ({ seat: s, name: room.members[s]!.name }));
   room.game = { def, state: def.create({ seats: joined, players, options: room.options }, ctxFor(room)) };
   room.phase = 'playing';
-  log(room, `${def.name} started with ${joined.length} players.`);
+}
+
+/** Host replays the SAME game with the same players once the match is over —
+ *  no trip back to the lobby. Players who stepped out are brought back in. */
+export function restart(room: Room, seat: number): ActionResult {
+  if (seat !== room.host) return fail('Only the host can restart.');
+  if (room.phase !== 'playing' || !room.game) return fail('No match to restart.');
+  if (!room.game.def.result(room.game.state).over) return fail('The match is not over yet.');
+  for (const s of seats(room)) {
+    const m = room.members[s]!;
+    if (m.steppedOut) { m.steppedOut = false; m.bot = false; }
+  }
+  const def = GAMES[room.gameId];
+  const joined = connectedSeats(room);
+  if (joined.length < def.minPlayers) return fail(`Need at least ${def.minPlayers} players.`);
+  buildGame(room, def, joined);
+  log(room, `${def.name} — playing again.`);
   return ok;
 }
 

@@ -285,6 +285,12 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .lobby-name { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lobby-kick { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 0.8rem; line-height: 1; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
 .lobby-kick:hover { color: #fff; background: var(--love-soft, #e8536b); border-color: var(--love-soft, #e8536b); }
+
+/* Shared per-turn countdown chip (Spy / Quoridor / Codenames timers) — top-right,
+   tucked under the topbar buttons so it never overlaps the player pills. */
+.turn-timer { position: fixed; top: 60px; right: 12px; z-index: 40; padding: 6px 13px; border-radius: 999px; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.02em; color: var(--ink); background: var(--surface-2, #1b2030); border: 1.5px solid var(--line-strong, #36405a); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+.turn-timer.urgent { color: #fff; background: var(--love-soft, #e8536b); border-color: var(--love-soft, #e8536b); animation: timerPulse 0.7s ease-in-out infinite; }
+@keyframes timerPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .avatar.sm { width: 30px; height: 30px; border-radius: 9px; font-size: 0.85rem; }
 
 /* status badges */

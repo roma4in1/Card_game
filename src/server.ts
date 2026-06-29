@@ -21,6 +21,7 @@ import {
   setConnected,
   act,
   rematch,
+  restart,
   backToLobby,
   kick,
   leave,
@@ -169,6 +170,8 @@ function dispatch(room: Room, seat: number, msg: Record<string, unknown>): { err
       return startMatch(room, seat);
     case 'rematch':
       return rematch(room, seat);
+    case 'restart':
+      return restart(room, seat);
     case 'backToLobby':
       return backToLobby(room, seat);
     default:

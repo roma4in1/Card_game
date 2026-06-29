@@ -10,6 +10,7 @@
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
 // Single source of truth for decoy selection — shared with the standalone build/tests.
 import { pickDecoy, scoreDecoy, sharesPosition } from '../../../decoy.cjs';
+import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
 
 export const MAX_SEATS = 8;
 export const ROUNDS = 3;
@@ -59,19 +60,21 @@ interface Clue {
 export interface SpyState {
   players: (SpyPlayer | null)[]; // length MAX_SEATS
   order: number[];
-  spyId: number;
+  spyIds: number[]; // one spy, or two in 6+ player games (all share the decoy)
   targetIdx: number; // word-bank index of the shared target
   decoyIdx: number; // word-bank index of the spy's decoy
   phase: Phase;
   round: number; // 1..3
   current: number; // index into order for whose clue
   clueLog: Clue[];
-  caughtId: number | null; // seat caught by the vote (null = tie/no plurality)
+  caughtId: number | null; // seat caught by the current vote (null = tie/no plurality, or between rounds)
+  caughtSpies: number[]; // spies already voted out AND who then guessed wrong (eliminated)
   votesRevealed: boolean;
   shortlist: number[]; // word-bank indices (the bot's candidate pool when caught)
   guessIdx: number | null; // bank index the spy's guess resolved to (null if not a known player)
   guessName: string | null; // the exact name the spy typed
   guessCorrect: boolean | null;
+  timer: Timer; // opt-in per-turn countdown
   over: boolean;
   winners: number[]; // seats on the winning side
   log: string[];
@@ -87,6 +90,8 @@ function log(s: SpyState, msg: string) {
 }
 const nameOf = (s: SpyState, seat: number) => s.players[seat]!.name;
 const seated = (s: SpyState): number[] => s.order.filter((seat) => s.players[seat]);
+// Players still in the game (eliminated spies no longer vote or can be voted for).
+const active = (s: SpyState): number[] => seated(s).filter((seat) => !s.caughtSpies.includes(seat));
 
 // ---------------------------------------------------------------------------
 // Setup (decoy selection lives in decoy.cjs — the single source of truth)
@@ -130,14 +135,16 @@ function buildShortlist(bank: PlayerCard[], targetIdx: number, decoyIdx: number,
 function resolve(s: SpyState, spyWon: boolean) {
   s.over = true;
   s.phase = 'done';
-  s.winners = spyWon ? [s.spyId] : s.order.filter((seat) => seat !== s.spyId);
-  log(s, spyWon ? '🕵️ The spy wins!' : '🎯 The non-spies win!');
+  const nonSpies = s.order.filter((seat) => !s.spyIds.includes(seat));
+  s.winners = spyWon ? [...s.spyIds] : nonSpies;
+  const many = s.spyIds.length > 1;
+  log(s, spyWon ? (many ? '🕵️ The spies win!' : '🕵️ The spy wins!') : '🎯 The detectives win!');
 }
 
 function tally(bank: PlayerCard[], s: SpyState, rng: Rng) {
   s.votesRevealed = true;
   const counts = new Map<number, number>();
-  for (const seat of seated(s)) {
+  for (const seat of active(s)) {
     const v = s.players[seat]!.vote;
     if (v != null) counts.set(v, (counts.get(v) ?? 0) + 1);
   }
@@ -149,10 +156,10 @@ function tally(bank: PlayerCard[], s: SpyState, rng: Rng) {
   }
   const caught = leaders.length === 1 ? leaders[0] : null; // strict plurality only
   s.caughtId = caught;
-  if (caught === s.spyId) {
+  if (caught != null && s.spyIds.includes(caught)) {
     s.phase = 'spyGuess';
     s.shortlist = buildShortlist(bank, s.targetIdx, s.decoyIdx, rng);
-    log(s, `${nameOf(s, s.spyId)} was caught — they get one guess at the target.`);
+    log(s, `${nameOf(s, caught)} was caught — they get one guess at the target.`);
   } else {
     // a non-spy was caught, or a tie → the spy slips away
     log(s, caught === null ? 'A tied vote — no one is caught.' : `${nameOf(s, caught)} was caught, but they were not the spy.`);
@@ -216,14 +223,15 @@ function castVote(bank: PlayerCard[], s: SpyState, seat: number, target: unknown
   if (s.phase !== 'voting') return fail('Not the voting phase.');
   const p = s.players[seat];
   if (!p) return fail('Not in this match.');
+  if (s.caughtSpies.includes(seat)) return fail('You were caught — you can no longer vote.');
   if (p.hasVoted) return fail('You already voted.');
   const t = Number(target);
-  if (!s.order.includes(t)) return fail('Vote for a seated player.');
+  if (!active(s).includes(t)) return fail('Vote for a player still in the game.');
   if (t === seat) return fail('You cannot vote for yourself.');
   p.vote = t;
   p.hasVoted = true;
   log(s, `${p.name} cast a vote.`);
-  if (seated(s).every((x) => s.players[x]!.hasVoted)) tally(bank, s, rng);
+  if (active(s).every((x) => s.players[x]!.hasVoted)) tally(bank, s, rng);
   return ok;
 }
 
@@ -231,7 +239,7 @@ const normName = (n: string) => n.trim().toLowerCase().replace(/\s+/g, ' ');
 
 function spyGuess(bank: PlayerCard[], s: SpyState, seat: number, guess: unknown): ActionResult {
   if (s.phase !== 'spyGuess') return fail('No guess to make.');
-  if (seat !== s.spyId) return fail('Only the caught spy guesses.');
+  if (seat !== s.caughtId) return fail('Only the caught spy guesses.');
   const typed = String(guess ?? '').trim().slice(0, 60);
   if (!typed) return fail('Type the player you think it is.');
   s.guessName = typed;
@@ -239,7 +247,24 @@ function spyGuess(bank: PlayerCard[], s: SpyState, seat: number, guess: unknown)
   const idx = bank.findIndex((p) => normName(p.name) === normName(typed));
   s.guessIdx = idx >= 0 ? idx : null;
   s.guessCorrect = idx === s.targetIdx;
-  resolve(s, s.guessCorrect); // a correct guess steals the win
+  const caught = s.caughtId!;
+  if (s.guessCorrect) {
+    resolve(s, true); // any caught spy guessing right steals the win for the spy team
+    return ok;
+  }
+  // Wrong: this spy is out for good. Detectives must still catch every spy.
+  s.caughtSpies.push(caught);
+  if (s.spyIds.every((id) => s.caughtSpies.includes(id))) {
+    resolve(s, false); // all spies caught and none guessed right → detectives win
+  } else {
+    const left = s.spyIds.length - s.caughtSpies.length;
+    log(s, `${nameOf(s, caught)} guessed wrong and is out — ${left} spy still hidden. Vote again.`);
+    for (const seat of active(s)) { s.players[seat]!.hasVoted = false; s.players[seat]!.vote = null; }
+    s.caughtId = null;
+    s.votesRevealed = false;
+    s.shortlist = [];
+    s.phase = 'voting';
+  }
   return ok;
 }
 
@@ -259,6 +284,7 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
       connected: p.connected,
       hasVoted: s.phase === 'voting' ? p.hasVoted : false,
       isTurn: !s.over && seatNo === activeSeat,
+      eliminated: s.caughtSpies.includes(seatNo), // a caught spy who guessed wrong (revealed, out)
     };
   });
 
@@ -271,6 +297,9 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
     clueLog: s.clueLog,
     players,
     activeSeat,
+    spyCount: s.spyIds.length, // public: how many spies are in play (1, or 2 in 6+ games)
+    caughtSpies: s.caughtSpies, // public: spies already caught & eliminated (revealed)
+    timer: timerView(s.timer),
     log: s.log.slice(-15),
     matchWinner: null,
     winners: s.over ? s.winners : null,
@@ -297,13 +326,14 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
     v.voting = {
       youVoted: me.hasVoted,
       yourVote: me.vote,
-      waiting: seated(s).filter((x) => !s.players[x]!.hasVoted).length,
-      options: s.order.filter((x) => x !== seat).map((x) => ({ seat: x, name: nameOf(s, x) })),
+      youOut: s.caughtSpies.includes(seat!), // a caught spy can't vote in later rounds
+      waiting: active(s).filter((x) => !s.players[x]!.hasVoted).length,
+      options: active(s).filter((x) => x !== seat).map((x) => ({ seat: x, name: nameOf(s, x) })),
     };
   }
   if (s.phase === 'spyGuess') {
     v.caughtId = s.caughtId; // the spy was outed by the vote — public now
-    if (me && me.isSpy) {
+    if (me && me.isSpy && seat === s.caughtId) {
       // The caught spy now searches the whole bank by name (no multiple choice).
       v.guess = { needsYou: true, allNames: bank.map((p) => p.name) };
     } else {
@@ -322,19 +352,53 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
   // Full reveal once the match is over.
   if (s.over) {
     v.reveal = {
-      spyId: s.spyId,
-      spyName: nameOf(s, s.spyId),
+      spyIds: s.spyIds,
+      spyNames: s.spyIds.map((id) => nameOf(s, id)),
       target: bank[s.targetIdx].name,
       decoy: bank[s.decoyIdx].name,
       caughtId: s.caughtId,
       guess: s.guessName ?? (s.guessIdx != null ? bank[s.guessIdx].name : null),
       guessCorrect: s.guessCorrect,
-      spyWon: s.winners.includes(s.spyId),
+      spyWon: s.spyIds.some((id) => s.winners.includes(id)),
       winners: s.winners,
       votes: s.order.map((x) => ({ seat: x, name: nameOf(s, x), vote: s.players[x]!.vote })),
     };
   }
   return v;
+}
+
+// ---------------------------------------------------------------------------
+// Turn timer — signature of the current turn, and what happens if it runs out
+// ---------------------------------------------------------------------------
+
+function turnKey(s: SpyState): string {
+  if (s.over) return '';
+  if (s.phase === 'clues') return `clues:${s.current}:${s.round}`;
+  if (s.phase === 'interlude') return `interlude:${s.round}`;
+  if (s.phase === 'voting') return `voting:${s.caughtSpies.length}`;
+  if (s.phase === 'spyGuess') return `spyGuess:${s.caughtId}`;
+  return '';
+}
+
+// On timeout, the bot acts for whoever is holding things up (everyone pending, for the
+// simultaneous phases), so the match always advances.
+function forceTimeout(bank: PlayerCard[], s: SpyState, rng: Rng) {
+  if (s.phase === 'clues') {
+    const seat = s.order[s.current];
+    const mv = botMove(bank, s, seat, rng);
+    if (mv && mv.type === 'submitClue') submitClue(s, seat, mv.word);
+  } else if (s.phase === 'interlude') {
+    for (const seat of seated(s)) if (s.players[seat]!.wantsVote === null) interludeVote(s, seat, false);
+  } else if (s.phase === 'voting') {
+    for (const seat of active(s)) {
+      if (s.players[seat]!.hasVoted) continue;
+      const others = active(s).filter((x) => x !== seat);
+      castVote(bank, s, seat, others[randInt(rng, others.length)], rng);
+    }
+  } else if (s.phase === 'spyGuess' && s.caughtId != null) {
+    const mv = botMove(bank, s, s.caughtId, rng);
+    if (mv && mv.type === 'spyGuess') spyGuess(bank, s, s.caughtId, mv.guess);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +427,7 @@ function botMove(bank: PlayerCard[], s: SpyState, seat: number, rng: Rng): Recor
     return { type: 'castVote', target: others[randInt(rng, others.length)] };
   }
   if (s.phase === 'spyGuess') {
-    if (seat !== s.spyId) return null;
+    if (seat !== s.caughtId) return null;
     return { type: 'spyGuess', guess: bank[s.shortlist[randInt(rng, s.shortlist.length)]].name };
   }
   return null;
@@ -382,17 +446,20 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
     blurb: 'Hidden-role football clues: everyone shares a secret player — except the spy. Find them, or bluff.',
     minPlayers: 3,
     maxPlayers: MAX_SEATS,
+    options: [TIMER_OPTION],
 
-    create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): SpyState {
+    create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): SpyState {
       const rng = ctx.rng;
       const order = [...setup.seats];
-      const spyId = order[randInt(rng, order.length)];
+      // Two spies once the table is 6+; both share the same decoy for cover.
+      const numSpies = order.length >= 6 ? 2 : 1;
+      const spyIds = shuffle([...order], rng).slice(0, numSpies);
       const targetIdx = randInt(rng, bank.length);
       const decoyIdx = pickDecoyIdx(bank, targetIdx, rng);
 
       const players: (SpyPlayer | null)[] = new Array(MAX_SEATS).fill(null);
       for (const pi of setup.players) {
-        const isSpy = pi.seat === spyId;
+        const isSpy = spyIds.includes(pi.seat);
         players[pi.seat] = {
           name: pi.name,
           connected: true,
@@ -404,9 +471,10 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
         };
       }
       const s: SpyState = {
-        players, order, spyId, targetIdx, decoyIdx,
+        players, order, spyIds, targetIdx, decoyIdx,
         phase: 'clues', round: 1, current: 0, clueLog: [],
-        caughtId: null, votesRevealed: false, shortlist: [], guessIdx: null, guessName: null, guessCorrect: null,
+        caughtId: null, caughtSpies: [], votesRevealed: false, shortlist: [], guessIdx: null, guessName: null, guessCorrect: null,
+        timer: initTimer(setup.options?.timer),
         over: false, winners: [], log: [],
       };
       log(s, 'Match started. Round 1 — give a one-word clue on your turn.');
@@ -425,6 +493,10 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
         case 'spyGuess':
           return spyGuess(bank, s, seat, msg.guess);
       }
+    },
+
+    tick(s, ctx) {
+      return runTimer(s.timer, () => turnKey(s), ctx.now, () => forceTimeout(bank, s, ctx.rng));
     },
 
     onDisconnect(s, seat) {

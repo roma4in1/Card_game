@@ -234,6 +234,13 @@ function kickSeat(seat, name) {
   send({ type: 'kick', target: seat });
 }
 
+// End-of-match buttons: the host can replay the same game instantly, and anyone can
+// return to the lobby to pick something else.
+function appendEndButtons(box, s) {
+  if (s.youAreHost) box.appendChild(actBtn('🔄 Play again', 'btn btn-primary btn-lg', () => send({ type: 'restart' })));
+  box.appendChild(actBtn('Back to lobby', s.youAreHost ? 'btn btn-quiet btn-lg' : 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -262,10 +269,39 @@ function ensureScreen(id) {
   }
 }
 
+// Per-turn countdown chip. Skew-free: we restart a local count from `secs` each time the
+// server arms a new `deadline` (the value just signals "a fresh turn started").
+let _timerInterval = null;
+let _timerDeadline = 0;
+function updateTurnTimer(s) {
+  const chip = $('turnTimer');
+  const t = s && !s.over && s.phase !== 'lobby' && s.phase !== 'done' ? s.timer : null;
+  if (!t || !t.deadline) {
+    chip.classList.add('hidden');
+    if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+    _timerDeadline = 0;
+    return;
+  }
+  if (t.deadline === _timerDeadline) return; // same turn — local countdown already running
+  _timerDeadline = t.deadline;
+  if (_timerInterval) clearInterval(_timerInterval);
+  const start = Date.now();
+  const tickDisplay = () => {
+    const remain = Math.max(0, Math.ceil(t.secs - (Date.now() - start) / 1000));
+    chip.textContent = '⏱ ' + remain + 's';
+    chip.classList.toggle('urgent', remain <= 5);
+    chip.classList.remove('hidden');
+    if (remain <= 0 && _timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+  };
+  tickDisplay();
+  _timerInterval = setInterval(tickDisplay, 250);
+}
+
 function render() {
   if (!state) return;
   const s = state;
   renderPlayersSheet(); // keep the players panel fresh if it's open (any screen)
+  updateTurnTimer(s); // drive the per-turn countdown chip
   if (s.phase === 'lobby') {
     ensureScreen('lobby');
     renderLobby(s);
@@ -667,7 +703,7 @@ function renderLIOver(s) {
     tbl.appendChild(row);
   });
   box.appendChild(tbl);
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -975,7 +1011,7 @@ function renderYzOver(s) {
     tbl.appendChild(row);
   });
   box.appendChild(tbl);
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -1018,11 +1054,14 @@ function renderSgRole(s) {
     return;
   }
   const spy = you.isSpy;
+  const twoSpies = s.spyCount === 2;
   el.className = 'sg-role ' + (spy ? 'is-spy' : 'is-detective');
   el.innerHTML =
-    `<div class="sg-roletag">${spy ? '🕵️ You are the SPY' : '🔎 You are a Detective'}</div>` +
+    `<div class="sg-roletag">${spy ? '🕵️ You are a SPY' : '🔎 You are a Detective'}</div>` +
     `<div class="sg-secret"><span class="sg-secretlbl">Your player</span><b>${escapeHtml(you.secret || '?')}</b></div>` +
-    `<div class="sg-rolehint">${spy ? 'Blend in — your player is a decoy, not the others’ one.' : 'Clue your player without tipping off the spy.'}</div>`;
+    `<div class="sg-rolehint">${spy
+      ? 'Blend in — your player is a decoy, not the others’ one.' + (twoSpies ? ' There’s a second spy too.' : '')
+      : 'Clue your player without tipping off the spy' + (twoSpies ? 's — there are <b>2</b> this game.' : '.')}</div>`;
 }
 
 function renderSgActions(s) {
@@ -1087,7 +1126,9 @@ function renderSgCluePhase(area, s) {
 function renderSgVoting(area, s) {
   const v = s.voting || {};
   const bots = botSeatSet(s);
-  if (v.youVoted) {
+  if (v.youOut) {
+    area.appendChild(callout('You were caught — spectating while the others hunt the remaining spy.', true));
+  } else if (v.youVoted) {
     area.appendChild(callout(`Vote locked in — waiting for ${v.waiting} more`, true));
   } else {
     area.appendChild(prompt('Who is the <b>spy</b>? Cast your secret vote.'));
@@ -1108,7 +1149,7 @@ function renderSgVoting(area, s) {
 function renderSgVoteStatus(s) {
   const box = document.createElement('div');
   box.className = 'sg-votestatus';
-  (s.players || []).forEach((p) => {
+  (s.players || []).filter((p) => !p.eliminated).forEach((p) => {
     const chip = document.createElement('span');
     chip.className = 'sg-vchip' + (p.hasVoted ? ' voted' : '');
     chip.style.background = seatColor(p.seat);
@@ -1152,11 +1193,13 @@ function renderSgReveal(s) {
   const youWin = (s.winners || []).includes(s.seat);
   box.appendChild(banner(youWin ? '🏆 You win!' : 'You lose', youWin ? 'win' : 'lose'));
 
+  const spyList = (r.spyNames || []).map((n) => `<b>${escapeHtml(n)}</b>`).join(' & ');
+  const spyWord = (r.spyNames || []).length > 1 ? 'spies' : 'spy';
   const sub = document.createElement('div');
   sub.className = 'sg-revealsub';
   sub.innerHTML = r.spyWon
-    ? `🕵️ <b>${escapeHtml(r.spyName)}</b> was the spy and got away${r.guess ? ` — guessed <b>${escapeHtml(r.guess)}</b> ${r.guessCorrect ? '✓ correct!' : ''}` : ''}.`
-    : `🎯 The Detectives caught <b>${escapeHtml(r.spyName)}</b>${r.guess ? `, who wrongly guessed ${escapeHtml(r.guess)}` : ''}.`;
+    ? `🕵️ The ${spyWord} (${spyList}) got away${r.guess ? ` — guessed <b>${escapeHtml(r.guess)}</b> ${r.guessCorrect ? '✓ correct!' : ''}` : ''}.`
+    : `🎯 The Detectives caught a spy${r.guess ? `, who wrongly guessed ${escapeHtml(r.guess)}` : ''}. ${spyWord === 'spies' ? `The ${spyWord} were ${spyList}.` : ''}`;
   box.appendChild(sub);
 
   const cards = document.createElement('div');
@@ -1166,12 +1209,13 @@ function renderSgReveal(s) {
     `<div class="sg-rcard spy"><span>Spy’s decoy</span><b>${escapeHtml(r.decoy)}</b></div>`;
   box.appendChild(cards);
 
-  box.appendChild(renderSgVotes(s, r.votes, r.spyId));
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  box.appendChild(renderSgVotes(s, r.votes, r.spyIds || []));
+  appendEndButtons(box, s);
   return box;
 }
 
-function renderSgVotes(s, votes, spyId) {
+function renderSgVotes(s, votes, spyIds) {
+  const spies = Array.isArray(spyIds) ? spyIds : [spyIds];
   const box = document.createElement('div');
   box.className = 'sg-votes';
   const title = document.createElement('div');
@@ -1183,7 +1227,7 @@ function renderSgVotes(s, votes, spyId) {
     row.className = 'sg-voterow';
     const to = vt.vote != null ? sgName(s, vt.vote) : '—';
     row.innerHTML =
-      `<span style="color:${seatColor(vt.seat)}">${escapeHtml(vt.name)}${vt.seat === spyId ? ' 🕵️' : ''}</span>` +
+      `<span style="color:${seatColor(vt.seat)}">${escapeHtml(vt.name)}${spies.includes(vt.seat) ? ' 🕵️' : ''}</span>` +
       `<span class="sg-arrow">→</span><b>${escapeHtml(to)}</b>`;
     box.appendChild(row);
   });
@@ -1387,7 +1431,7 @@ function renderCnOver(s) {
   sub.className = 'cn-oversub';
   sub.textContent = s.endReason === 'assassin' ? 'The other team tapped the assassin 💀' : `${wTeam} contacted all their agents.`;
   box.appendChild(sub);
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -1567,7 +1611,7 @@ function renderQrOver(s) {
   const youWin = (s.winners || []).includes(s.seat);
   const w = (s.pawns || []).find((p) => p.pid === s.winner);
   box.appendChild(banner(youWin ? '🏆 You win!' : `${w ? escapeHtml(w.name) : 'Someone'} wins`, youWin ? 'win' : 'lose'));
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -1737,7 +1781,7 @@ function renderTecOver(s) {
     tbl.appendChild(row);
   });
   box.appendChild(tbl);
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -1878,7 +1922,7 @@ function renderMMOver(s) {
     tbl.appendChild(row);
   });
   box.appendChild(tbl);
-  box.appendChild(actBtn('Back to lobby', 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+  appendEndButtons(box, s);
   return box;
 }
 
@@ -2068,14 +2112,7 @@ function renderActions(s) {
   if (s.matchWinner != null) {
     const win = s.matchWinner === s.seat;
     area.appendChild(banner(win ? '🏆 You win the match!' : 'Match over.', win ? 'win' : 'lose'));
-    const rm = s.rematch || { youReady: false };
-    const btn = actBtn(
-      rm.youReady ? 'Waiting for others…' : 'Rematch',
-      'btn btn-primary btn-lg',
-      () => send({ type: 'rematch' }),
-    );
-    btn.disabled = rm.youReady;
-    area.appendChild(btn);
+    appendEndButtons(area, s);
     return;
   }
 

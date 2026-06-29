@@ -12,6 +12,19 @@ function newQ(np: number): QState {
   return quoridor.create({ seats, players }, ctx) as QState;
 }
 const act = (s: QState, seat: number, msg: Record<string, unknown>) => quoridor.act(s, seat, msg, ctx) ?? {};
+
+test('the opt-in turn timer auto-moves the active player on timeout', () => {
+  const seats = [0, 1];
+  const players = seats.map((s) => ({ seat: s, name: 'P' + s }));
+  const s = quoridor.create({ seats, players, options: { timer: 30 } }, ctx) as QState;
+  assert.equal(quoridor.tick!(s, { rng: () => 0.5, now: 0 }), true, 'first tick arms the clock');
+  assert.ok((quoridor.view(s, 0) as any).timer.deadline > 0, 'countdown armed');
+  const startTurn = s.turn;
+  const startPawn = s.pawns[startTurn].join(',');
+  assert.equal(quoridor.tick!(s, { rng: () => 0.5, now: 29000 }), false, 'no change before the deadline');
+  quoridor.tick!(s, { rng: () => 0.5, now: 31000 }); // past the deadline → bot moves the pawn
+  assert.notEqual(s.pawns[startTurn].join(','), startPawn, 'the stalling pawn was auto-moved');
+});
 const view = (s: QState, seat: number) => quoridor.view(s, seat) as any;
 const activeMoves = (s: QState): [number, number][] => view(s, s.order[s.turn]).legal.moves;
 const hasCell = (cells: [number, number][], r: number, c: number) => cells.some((m) => m[0] === r && m[1] === c);

@@ -13,6 +13,7 @@
 //     V at (r,c) blocks the edges (r,c)|(r,c+1) and (r+1,c)|(r+1,c+1).
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo } from '../../platform/types.ts';
+import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
 
 export const N = 9; // board size
 export type Cell = [number, number];
@@ -47,6 +48,7 @@ export interface QState {
   turnStage: 'start' | 'moved'; // 'moved' = pawn already moved this turn, may still wall or end
   winner: number | null; // player-index
   over: boolean;
+  timer: Timer; // opt-in per-turn countdown
   moveLog: string[];
   log: string[];
 }
@@ -292,6 +294,7 @@ function viewState(s: QState, seat: number | null): Record<string, unknown> {
     turn: s.turn,
     turnStage: s.turnStage,
     activeSeat: s.over ? null : s.order[s.turn],
+    timer: timerView(s.timer),
     legal,
     you:
       myPid >= 0
@@ -317,6 +320,16 @@ function viewState(s: QState, seat: number | null): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 // Bot — walk the shortest path toward the goal (move-only; never traps itself)
 // ---------------------------------------------------------------------------
+
+// --- turn timer: signature of the current turn, and the auto-move on timeout ---
+const qTurnKey = (s: QState): string => (s.over ? '' : `${s.turn}:${s.turnStage}`);
+function qForceTimeout(s: QState) {
+  const pid = s.turn;
+  const mv = botMove(s, s.order[pid]);
+  if (!mv) return;
+  if (mv.type === 'movePawn') movePawn(s, pid, mv.toCell);
+  else if (mv.type === 'endTurn') endTurn(s, pid);
+}
 
 function botMove(s: QState, seat: number): Record<string, unknown> | null {
   if (s.over) return null;
@@ -346,12 +359,13 @@ export const quoridor: GameDef<QState> = {
   blurb: 'Race your pawn to the far side — or wall off your rivals. Pure strategy, no luck.',
   minPlayers: 2,
   maxPlayers: 4,
+  options: [TIMER_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 || seats.length === 3 || seats.length === 4 ? null : 'Quoridor is for 2, 3 or 4 players.';
   },
 
-  create(setup: { seats: number[]; players: PlayerInfo[] }): QState {
+  create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }): QState {
     const np = setup.seats.length;
     const cfg = SETUP[np];
     const players: (QPlayer | null)[] = new Array(8).fill(null);
@@ -369,6 +383,7 @@ export const quoridor: GameDef<QState> = {
       turnStage: 'start',
       winner: null,
       over: false,
+      timer: initTimer(setup.options?.timer),
       moveLog: [],
       log: [],
     };
@@ -388,6 +403,10 @@ export const quoridor: GameDef<QState> = {
       case 'endTurn':
         return endTurn(s, pid);
     }
+  },
+
+  tick(s, ctx) {
+    return runTimer(s.timer, () => qTurnKey(s), ctx.now, () => qForceTimeout(s));
   },
 
   onDisconnect(s, seat) {
