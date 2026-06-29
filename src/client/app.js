@@ -2759,6 +2759,15 @@ function pkUpdateArrow(svgEl, me, aim) {
   if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
   if (hd) hd.setAttribute('points', g.head);
 }
+// keep the power slider + readout in sync when a drag sets the power
+function pkSyncSlider() {
+  if (!_pkAim) return;
+  const sl = $('pkActions').querySelector('.pk-slider');
+  const vl = $('pkActions').querySelector('.pk-powerval');
+  const pct = Math.round(_pkAim.power * 100);
+  if (sl) sl.value = pct;
+  if (vl) vl.textContent = pct + '%';
+}
 
 // Draw the 3D-perspective ice + penguins (+ optional aim arrow). `positions` overrides during replay.
 function drawPkBoard(s, opts) {
@@ -2848,10 +2857,14 @@ function pkAttachInput(s, svgEl) {
     if (!moved) return;
     const p = toPhys(e);
     const dx = p.x - me.x, dy = p.y - me.y;
-    if (Math.hypot(dx, dy) < 0.02) return;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.02) return;
+    // one motion sets BOTH: direction = angle, drag length = power
     _pkAim = _pkAim || { angle: 0, power: 0.5 };
     _pkAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    _pkAim.power = Math.min(1, dist / 0.85);
     pkUpdateArrow(svgEl, me, _pkAim); // update in place — don't rebuild mid-drag
+    pkSyncSlider();
   };
   svgEl.onpointerup = () => {
     if (st && !moved && onSeat != null) {
@@ -2923,7 +2936,7 @@ function renderPkActions(s) {
     area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
     return;
   }
-  area.appendChild(prompt('Drag on the ice to <b>aim</b>, set the <b>power</b> below, then lock it in. <i>(tap a penguin to see who it is)</i>'));
+  area.appendChild(prompt('Drag from your penguin to <b>aim &amp; power up</b> in one motion (or fine-tune power below). <i>(tap a penguin to see who it is)</i>'));
   const aim = _pkAim || { angle: 0, power: 0.5 };
   const meter = document.createElement('div');
   meter.className = 'pk-powerbar';
@@ -3011,6 +3024,14 @@ function ifUpdateArrow(svgEl, me, aim) {
   if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
   if (hd) hd.setAttribute('points', g.head);
 }
+function ifSyncSlider() {
+  if (!_ifAim) return;
+  const sl = $('ifActions').querySelector('.pk-slider');
+  const vl = $('ifActions').querySelector('.pk-powerval');
+  const pct = Math.round(_ifAim.power * 100);
+  if (sl) sl.value = pct;
+  if (vl) vl.textContent = pct + '%';
+}
 
 function drawIfBoard(s, opts) {
   const board = $('ifBoard');
@@ -3087,10 +3108,14 @@ function ifAttachInput(s, svgEl) {
     if (!moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 6) moved = true;
     if (!moved) return;
     const p = toPhys(e); const dx = p.x - me.x, dy = p.y - me.y;
-    if (Math.hypot(dx, dy) < 0.02) return;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.02) return;
+    // one motion sets BOTH: direction = angle, drag length = power
     _ifAim = _ifAim || { angle: 0, power: 0.5 };
     _ifAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    _ifAim.power = Math.min(1, dist / 0.85);
     ifUpdateArrow(svgEl, me, _ifAim);
+    ifSyncSlider();
   };
   svgEl.onpointerup = () => {
     // tap on an opponent while Freeze is armed = pick the target
@@ -3139,7 +3164,7 @@ function renderIfActions(s) {
     area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
     return;
   }
-  area.appendChild(prompt('Drag to <b>aim</b> your player, set <b>power</b>, then lock in.'));
+  area.appendChild(prompt('Drag to <b>aim &amp; power up</b> in one motion (or fine-tune power below), then lock in.'));
   // power-ups you've banked
   if ((you.powerUps || []).length) {
     const purow = document.createElement('div');
