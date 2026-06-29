@@ -348,6 +348,63 @@ function maybeConfetti(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Turn alerts — buzz / chime / tab-title flash when it becomes your turn
+// ---------------------------------------------------------------------------
+let _soundOff = localStorage.getItem('soundOff') === '1';
+let _wasMyTurn = false;
+let _audioCtx = null;
+function unlockAudio() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  } catch { /* no audio */ }
+}
+window.addEventListener('pointerdown', unlockAudio); // browsers need a gesture to start audio
+function chime() {
+  if (_soundOff || !_audioCtx) return;
+  const t0 = _audioCtx.currentTime;
+  [880, 1320].forEach((f, i) => {
+    const o = _audioCtx.createOscillator();
+    const g = _audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const t = t0 + i * 0.11;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g).connect(_audioCtx.destination);
+    o.start(t);
+    o.stop(t + 0.2);
+  });
+}
+const _origTitle = document.title;
+function flashTitle(on) { document.title = on ? '🔔 Your turn!' : _origTitle; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) flashTitle(false); });
+
+function myTurnNow(s) {
+  if (!s || s.over || s.phase === 'lobby' || s.phase === 'done' || s.phase === 'roundOver') return false;
+  const y = s.you || {};
+  if (y.isTurn || y.yourTurn || y.canFlip) return true;
+  if (s.turn && s.turn.yourTurn) return true;
+  if (s.betting && s.betting.yourTurn) return true;
+  if (typeof s.activeSeat === 'number' && s.activeSeat === s.seat) return true;
+  return false;
+}
+function maybeTurnAlert(s) {
+  const mine = myTurnNow(s);
+  if (mine && !_wasMyTurn) {
+    // rising edge — it just became your turn
+    if (!_soundOff) {
+      try { if (navigator.vibrate) navigator.vibrate(60); } catch { /* ignore */ }
+      chime();
+    }
+    if (document.hidden) flashTitle(true);
+  }
+  if (!mine) flashTitle(false);
+  _wasMyTurn = mine;
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
@@ -409,6 +466,7 @@ function render() {
   renderPlayersSheet(); // keep the players panel fresh if it's open (any screen)
   updateTurnTimer(s); // drive the per-turn countdown chip
   maybeConfetti(s); // celebrate a win once
+  maybeTurnAlert(s); // buzz/chime/flash when it becomes your turn
   if (s.phase === 'lobby') {
     ensureScreen('lobby');
     renderLobby(s);
@@ -1578,6 +1636,7 @@ function renderCnLog(s) {
 
 let qrMode = 'move'; // 'move' | 'wall'
 let qrWallOrient = 'H'; // 'H' | 'V'
+let qrPendingWall = null; // {r,c,o} a tapped-but-not-yet-confirmed wall
 const QR_GOAL_ARROW = { top: '↑', bottom: '↓', left: '←', right: '→' };
 // Visual top = board row 8. Tracks: cell c → 2c+1, cell row r → 2(8-r)+1; grooves are the even tracks.
 const qrCellStyle = (r, c) => ({ gridRow: String(2 * (8 - r) + 1), gridColumn: String(2 * c + 1) });
@@ -1661,10 +1720,12 @@ function renderQrBoard(s) {
   if (yourTurn && mode === 'wall' && you.canWall) {
     for (const w of s.legal?.walls || []) {
       if (w.o !== qrWallOrient) continue;
+      const sel = qrPendingWall && qrPendingWall.r === w.r && qrPendingWall.c === w.c && qrPendingWall.o === w.o;
       const slot = document.createElement('div');
-      slot.className = 'qr-wallslot ' + (w.o === 'H' ? 'h' : 'v');
+      slot.className = 'qr-wallslot ' + (w.o === 'H' ? 'h' : 'v') + (sel ? ' sel' : '');
       Object.assign(slot.style, qrWallStyle(w));
-      slot.onclick = () => send({ type: 'placeWall', slot: [w.r, w.c], orientation: w.o });
+      // Tap selects (shows a preview) rather than placing — confirm in the action area.
+      slot.onclick = () => { qrPendingWall = { r: w.r, c: w.c, o: w.o }; render(); };
       board.appendChild(slot);
     }
   }
@@ -1684,6 +1745,7 @@ function renderQrActions(s) {
   }
   if (!you.isTurn) {
     qrMode = 'move'; // reset for the start of your next turn
+    qrPendingWall = null;
     const active = (s.pawns || []).find((p) => p.isTurn);
     area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to play`, true));
     return;
@@ -1692,15 +1754,33 @@ function renderQrActions(s) {
   const orientRow = () => {
     const orow = document.createElement('div');
     orow.className = 'btn-row';
-    orow.appendChild(actBtn('Horizontal', 'btn ' + (qrWallOrient === 'H' ? 'btn-gold' : 'btn-neutral'), () => ((qrWallOrient = 'H'), render())));
-    orow.appendChild(actBtn('Vertical', 'btn ' + (qrWallOrient === 'V' ? 'btn-gold' : 'btn-neutral'), () => ((qrWallOrient = 'V'), render())));
+    const set = (o) => () => { qrWallOrient = o; qrPendingWall = null; render(); }; // switching orientation drops the preview
+    orow.appendChild(actBtn('Horizontal', 'btn ' + (qrWallOrient === 'H' ? 'btn-gold' : 'btn-neutral'), set('H')));
+    orow.appendChild(actBtn('Vertical', 'btn ' + (qrWallOrient === 'V' ? 'btn-gold' : 'btn-neutral'), set('V')));
     return orow;
+  };
+  // Confirm/cancel for a previewed wall (shown in both wall flows below).
+  const confirmRow = () => {
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.appendChild(actBtn('Place wall ✓', 'btn btn-primary', () => {
+      const w = qrPendingWall; qrPendingWall = null;
+      send({ type: 'placeWall', slot: [w.r, w.c], orientation: w.o });
+    }));
+    row.appendChild(actBtn('Cancel', 'btn btn-quiet', () => { qrPendingWall = null; render(); }));
+    return row;
   };
 
   if (you.canEndTurn) {
     // already moved this turn — optionally place a wall, then end the turn
     if (you.canWall) {
-      area.appendChild(prompt(`You moved. Optionally place a <b>${qrWallOrient === 'H' ? 'horizontal' : 'vertical'}</b> wall, or end your turn.`));
+      if (qrPendingWall) {
+        area.appendChild(prompt('Place this <b>wall</b>, or cancel and pick another groove.'));
+        area.appendChild(orientRow());
+        area.appendChild(confirmRow());
+        return;
+      }
+      area.appendChild(prompt(`You moved. Optionally place a <b>${qrWallOrient === 'H' ? 'horizontal' : 'vertical'}</b> wall — tap a groove — or end your turn.`));
       area.appendChild(orientRow());
     } else {
       area.appendChild(prompt('You moved. No walls left — end your turn.'));
@@ -1715,8 +1795,8 @@ function renderQrActions(s) {
   // start of turn — choose to move (then optionally wall) or place a wall outright
   const bar = document.createElement('div');
   bar.className = 'btn-row qr-modebar';
-  bar.appendChild(actBtn('♟ Move', 'btn ' + (qrMode === 'move' ? 'btn-good' : 'btn-neutral'), () => ((qrMode = 'move'), render())));
-  const wallBtn = actBtn('🧱 Wall', 'btn ' + (qrMode === 'wall' ? 'btn-good' : 'btn-neutral'), () => ((qrMode = 'wall'), render()));
+  bar.appendChild(actBtn('♟ Move', 'btn ' + (qrMode === 'move' ? 'btn-good' : 'btn-neutral'), () => { qrMode = 'move'; qrPendingWall = null; render(); }));
+  const wallBtn = actBtn('🧱 Wall', 'btn ' + (qrMode === 'wall' ? 'btn-good' : 'btn-neutral'), () => { qrMode = 'wall'; qrPendingWall = null; render(); });
   if (!you.canWall) {
     wallBtn.disabled = true;
     wallBtn.title = 'No walls left';
@@ -1726,9 +1806,13 @@ function renderQrActions(s) {
 
   if (qrMode === 'move') {
     area.appendChild(prompt('Tap a highlighted cell to move — you can place a wall afterwards.'));
+  } else if (qrPendingWall) {
+    area.appendChild(prompt('Place this <b>wall</b>, or cancel and pick another groove.'));
+    area.appendChild(orientRow());
+    area.appendChild(confirmRow());
   } else {
     area.appendChild(orientRow());
-    area.appendChild(prompt(`Tap a groove to place a <b>${qrWallOrient === 'H' ? 'horizontal' : 'vertical'}</b> wall (ends your turn without moving).`));
+    area.appendChild(prompt(`Pick orientation, then <b>tap a glowing groove</b> to preview a wall (ends your turn without moving).`));
   }
 }
 
@@ -2977,6 +3061,23 @@ function renderPlayersSheet() {
     }
     list.appendChild(li);
   });
+
+  // Turn-alert toggle (sound + vibration when it's your turn).
+  const opt = document.createElement('li');
+  opt.className = 'lobby-row';
+  opt.innerHTML = `<span class="lobby-name">🔔 Turn alerts (sound &amp; buzz)</span>`;
+  const tog = document.createElement('button');
+  tog.className = 'btn ' + (_soundOff ? 'btn-quiet' : 'btn-good');
+  tog.textContent = _soundOff ? 'Off' : 'On';
+  tog.style.padding = '6px 16px';
+  tog.onclick = () => {
+    _soundOff = !_soundOff;
+    localStorage.setItem('soundOff', _soundOff ? '1' : '0');
+    if (!_soundOff) { unlockAudio(); chime(); }
+    renderPlayersSheet();
+  };
+  opt.appendChild(tog);
+  list.appendChild(opt);
 }
 function openPlayers() { $('playersSheet').classList.remove('hidden'); renderPlayersSheet(); }
 function closePlayers() { $('playersSheet').classList.add('hidden'); }
