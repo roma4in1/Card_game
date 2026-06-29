@@ -191,6 +191,7 @@ function onMessage(msg) {
       break;
     case 'error':
       toast(msg.message, 'err');
+      shakeGuessInput();
       break;
     case 'full':
       hideOverlay();
@@ -239,6 +240,104 @@ function kickSeat(seat, name) {
 function appendEndButtons(box, s) {
   if (s.youAreHost) box.appendChild(actBtn('🔄 Play again', 'btn btn-primary btn-lg', () => send({ type: 'restart' })));
   box.appendChild(actBtn('Back to lobby', s.youAreHost ? 'btn btn-quiet btn-lg' : 'btn btn-primary btn-lg', () => send({ type: 'rematch' })));
+}
+
+// ---------------------------------------------------------------------------
+// Player card (FUT/Panini) — shared by the football games
+// ---------------------------------------------------------------------------
+const COUNTRY_ISO = {
+  Algeria: 'DZ', Argentina: 'AR', Austria: 'AT', Belgium: 'BE', 'Bosnia-Herzegovina': 'BA', Brazil: 'BR', Bulgaria: 'BG',
+  'Burkina Faso': 'BF', Cameroon: 'CM', Canada: 'CA', Chile: 'CL', Colombia: 'CO', 'Costa Rica': 'CR', "Cote d'Ivoire": 'CI',
+  Croatia: 'HR', 'Czech Republic': 'CZ', 'DR Congo': 'CD', Denmark: 'DK', Ecuador: 'EC', Egypt: 'EG', France: 'FR', Georgia: 'GE',
+  Germany: 'DE', Ghana: 'GH', Greece: 'GR', Guinea: 'GN', Hungary: 'HU', Iceland: 'IS', Ireland: 'IE', Italy: 'IT', Japan: 'JP',
+  'Korea, South': 'KR', Kosovo: 'XK', Liberia: 'LR', Mali: 'ML', Mexico: 'MX', Montenegro: 'ME', Morocco: 'MA', Netherlands: 'NL',
+  Nigeria: 'NG', Norway: 'NO', Panama: 'PA', Paraguay: 'PY', Poland: 'PL', Portugal: 'PT', Russia: 'RU', Senegal: 'SN', Serbia: 'RS',
+  Slovakia: 'SK', Slovenia: 'SI', Spain: 'ES', Sweden: 'SE', Switzerland: 'CH', 'The Gambia': 'GM', 'Türkiye': 'TR', Ukraine: 'UA',
+  'United States': 'US', Uruguay: 'UY', Uzbekistan: 'UZ',
+};
+const COUNTRY_FLAG_SPECIAL = {
+  England: '🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}',
+  Scotland: '🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}',
+  Wales: '🏴\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}',
+  'Northern Ireland': '🇬🇧',
+};
+function flagEmoji(country) {
+  if (COUNTRY_FLAG_SPECIAL[country]) return COUNTRY_FLAG_SPECIAL[country];
+  const iso = COUNTRY_ISO[country];
+  return iso ? iso.replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0))) : '🏳️';
+}
+const LEAGUE_SHORT = { 'Premier League': 'PL', 'La Liga': 'La Liga', 'Serie A': 'Serie A', Bundesliga: 'Bundesliga', 'Ligue 1': 'Ligue 1', Eredivisie: 'Eredivisie', 'Primeira Liga': 'Primeira', 'First Division': 'First Div' };
+function pcTier(p) {
+  if (p.status === 'retired' || p.marketValue == null) return { cls: 'icon', label: 'ICON' };
+  const m = p.marketValue;
+  if (m >= 120e6) return { cls: 'special', label: 'TOP' };
+  if (m >= 60e6) return { cls: 'gold', label: 'GOLD' };
+  if (m >= 25e6) return { cls: 'silver', label: 'SILVER' };
+  return { cls: 'bronze', label: 'BRONZE' };
+}
+function playerCardEl(p, opts = {}) {
+  const t = pcTier(p);
+  const el = document.createElement('div');
+  el.className = 'pcard ' + t.cls + (opts.small ? ' sm' : '') + (opts.pop ? ' pop' : '');
+  const val = p.marketValue == null ? '—' : '€' + Math.round(p.marketValue / 1e6) + 'm';
+  const league = (p.leagues && p.leagues[0] && (LEAGUE_SHORT[p.leagues[0]] || p.leagues[0])) || (p.status === 'retired' ? 'Legend' : '—');
+  el.innerHTML =
+    `<div class="pc-top"><div class="pc-col">` +
+      `<div class="pc-pos">${escapeHtml((p.positions && p.positions[0]) || '?')}</div>` +
+      `<div class="pc-flag" title="${escapeHtml(p.nationality)}">${flagEmoji(p.nationality)}</div>` +
+      `<div class="pc-league">${escapeHtml(league)}</div>` +
+    `</div><div class="pc-tier">${t.label}</div></div>` +
+    `<div class="pc-name">${escapeHtml(p.name)}</div>` +
+    `<div class="pc-div"></div>` +
+    `<div class="pc-stats">` +
+      `<span class="pc-stat"><b>${escapeHtml(val)}</b><i>value</i></span>` +
+      `<span class="pc-stat"><b>${escapeHtml(p.eraOfPlay || '—')}</b><i>era</i></span>` +
+      `<span class="pc-stat"><b>${escapeHtml(p.nationality)}</b><i>nation</i></span>` +
+    `</div>`;
+  return el;
+}
+function labeledCard(tag, p, opts) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pcard-wrap';
+  if (tag) { const t = document.createElement('div'); t.className = 'pcard-tag'; t.textContent = tag; wrap.appendChild(t); }
+  wrap.appendChild(playerCardEl(p, opts));
+  return wrap;
+}
+
+// Win confetti (skips under reduced-motion)
+function fireConfetti() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const box = document.createElement('div');
+  box.className = 'confetti';
+  const colors = ['#f5c451', '#ff5d8f', '#34d399', '#5b9bf0', '#cf6ad0', '#ffd877'];
+  for (let i = 0; i < 90; i++) {
+    const s = document.createElement('i');
+    s.style.left = Math.random() * 100 + 'vw';
+    s.style.background = colors[i % colors.length];
+    s.style.animationDuration = 2 + Math.random() * 1.6 + 's';
+    s.style.animationDelay = Math.random() * 0.35 + 's';
+    s.style.transform = 'rotate(' + Math.random() * 360 + 'deg)';
+    box.appendChild(s);
+  }
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 4400);
+}
+// Nudge the active guess input on a rejected action (e.g. "not a real player").
+function shakeGuessInput() {
+  const el = document.querySelector('#gpGuessInput, #waGuessInput, #sgGuessInput');
+  if (!el) return;
+  el.classList.remove('shake');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('shake');
+  setTimeout(() => el.classList.remove('shake'), 450);
+}
+
+let _lastConfettiKey = '';
+function maybeConfetti(s) {
+  const won = !!s.over && ((Array.isArray(s.winners) && s.winners.includes(s.seat)) || s.matchWinner === s.seat);
+  if (!s.over) { _lastConfettiKey = ''; return; }
+  const key = s.room + ':' + s.gameId;
+  if (won && key !== _lastConfettiKey) { _lastConfettiKey = key; fireConfetti(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +401,7 @@ function render() {
   const s = state;
   renderPlayersSheet(); // keep the players panel fresh if it's open (any screen)
   updateTurnTimer(s); // drive the per-turn countdown chip
+  maybeConfetti(s); // celebrate a win once
   if (s.phase === 'lobby') {
     ensureScreen('lobby');
     renderLobby(s);
@@ -1068,12 +1168,12 @@ function renderSgRole(s) {
   const spy = you.isSpy;
   const twoSpies = s.spyCount === 2;
   el.className = 'sg-role ' + (spy ? 'is-spy' : 'is-detective');
-  el.innerHTML =
-    `<div class="sg-roletag">${spy ? '🕵️ You are a SPY' : '🔎 You are a Detective'}</div>` +
-    `<div class="sg-secret"><span class="sg-secretlbl">Your player</span><b>${escapeHtml(you.secret || '?')}</b></div>` +
-    `<div class="sg-rolehint">${spy
-      ? 'Blend in — your player is a decoy, not the others’ one.' + (twoSpies ? ' There’s a second spy too.' : '')
-      : 'Clue your player without tipping off the spy' + (twoSpies ? 's — there are <b>2</b> this game.' : '.')}</div>`;
+  el.innerHTML = `<div class="sg-roletag">${spy ? '🕵️ You are a SPY' : '🔎 You are a Detective'}</div>`;
+  if (you.secretCard) el.appendChild(labeledCard('Your player', you.secretCard));
+  else el.insertAdjacentHTML('beforeend', `<div class="sg-secret"><span class="sg-secretlbl">Your player</span><b>${escapeHtml(you.secret || '?')}</b></div>`);
+  el.insertAdjacentHTML('beforeend', `<div class="sg-rolehint">${spy
+    ? 'Blend in — your player is a decoy, not the others’ one.' + (twoSpies ? ' There’s a second spy too.' : '')
+    : 'Clue your player without tipping off the spy' + (twoSpies ? 's — there are <b>2</b> this game.' : '.')}</div>`);
 }
 
 function renderSgActions(s) {
@@ -1214,12 +1314,20 @@ function renderSgReveal(s) {
     : `🎯 The Detectives caught a spy${r.guess ? `, who wrongly guessed ${escapeHtml(r.guess)}` : ''}. ${spyWord === 'spies' ? `The ${spyWord} were ${spyList}.` : ''}`;
   box.appendChild(sub);
 
-  const cards = document.createElement('div');
-  cards.className = 'sg-revealcards';
-  cards.innerHTML =
-    `<div class="sg-rcard det"><span>Detectives’ player</span><b>${escapeHtml(r.target)}</b></div>` +
-    `<div class="sg-rcard spy"><span>Spy’s decoy</span><b>${escapeHtml(r.decoy)}</b></div>`;
-  box.appendChild(cards);
+  if (r.targetCard && r.decoyCard) {
+    const cards = document.createElement('div');
+    cards.className = 'pcard-row';
+    cards.appendChild(labeledCard('Detectives’ player', r.targetCard, { pop: true }));
+    cards.appendChild(labeledCard('Spy’s decoy', r.decoyCard, { pop: true }));
+    box.appendChild(cards);
+  } else {
+    const cards = document.createElement('div');
+    cards.className = 'sg-revealcards';
+    cards.innerHTML =
+      `<div class="sg-rcard det"><span>Detectives’ player</span><b>${escapeHtml(r.target)}</b></div>` +
+      `<div class="sg-rcard spy"><span>Spy’s decoy</span><b>${escapeHtml(r.decoy)}</b></div>`;
+    box.appendChild(cards);
+  }
 
   box.appendChild(renderSgVotes(s, r.votes, r.spyIds || []));
   appendEndButtons(box, s);
@@ -2159,7 +2267,8 @@ function renderWaActions(s) {
     const youWin = (s.winners || []).includes(s.seat);
     const tie = (s.winners || []).length > 1;
     area.appendChild(banner((s.winners || []).length === 0 ? 'No winner — nobody guessed enough.' : youWin ? '🏆 You win the match!' : tie ? 'Match over — a tie.' : 'Match over.', youWin ? 'win' : 'lose'));
-    if (s.target) area.appendChild(callout(`Last secret player: <b>${escapeHtml(s.target)}</b>`));
+    if (s.targetCard) area.appendChild(labeledCard('Last secret player', s.targetCard, { pop: true }));
+    else if (s.target) area.appendChild(callout(`Last secret player: <b>${escapeHtml(s.target)}</b>`));
     appendEndButtons(area, s);
     return;
   }
@@ -2167,7 +2276,8 @@ function renderWaActions(s) {
   if (s.phase === 'roundOver') {
     const wonName = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
     area.appendChild(banner(wonName ? `Round ${s.roundNo}: ${wonName} guessed it!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
-    area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
+    if (s.targetCard) area.appendChild(labeledCard('The secret player', s.targetCard, { pop: true }));
+    else area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
     area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
     return;
   }
@@ -2346,14 +2456,16 @@ function renderGpActions(s) {
   if (s.over) {
     const youWin = (s.winners || []).includes(s.seat);
     area.appendChild(banner((s.winners || []).length === 0 ? 'No winner this match.' : youWin ? '🏆 You win the match!' : 'Match over.', youWin ? 'win' : 'lose'));
-    if (s.target) area.appendChild(callout(`The player was <b>${escapeHtml(s.target)}</b>.`));
+    if (s.targetCard) area.appendChild(labeledCard('The player', s.targetCard, { pop: true }));
+    else if (s.target) area.appendChild(callout(`The player was <b>${escapeHtml(s.target)}</b>.`));
     appendEndButtons(area, s);
     return;
   }
   if (s.phase === 'roundOver') {
     const who = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
     area.appendChild(banner(who ? `Round ${s.roundNo}: ${who} won!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
-    area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
+    if (s.targetCard) area.appendChild(labeledCard('The player', s.targetCard, { pop: true }));
+    else area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
     area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
     return;
   }
@@ -2409,9 +2521,11 @@ function renderGpGrid(s) {
   if (!guesses.length) {
     box.appendChild(callout('No guesses yet — name a player to get hints.'));
   }
-  guesses.forEach((g) => {
+  const lastIdx = guesses.length - 1;
+  const animateNew = guesses.length > _lastGpCount; // only the just-added row flips in
+  guesses.forEach((g, i) => {
     const row = document.createElement('div');
-    row.className = 'gp-row' + (g.fb.exact ? ' solved' : '');
+    row.className = 'gp-row' + (g.fb.exact ? ' solved' : '') + (animateNew && i === lastIdx ? ' reveal' : '');
     const cell = (text, cls) => `<span class="gp-cell ${cls}">${escapeHtml(text)}</span>`;
     const val = gpValueCell(g);
     row.innerHTML =
@@ -2422,9 +2536,12 @@ function renderGpGrid(s) {
       cell(val.text, val.cls) +
       cell(g.eraOfPlay, g.fb.era) +
       cell(g.status, g.fb.status);
+    if (animateNew && i === lastIdx) [...row.children].forEach((c, ci) => (c.style.animationDelay = ci * 0.08 + 's'));
     box.appendChild(row);
   });
+  _lastGpCount = guesses.length;
 }
+let _lastGpCount = 0;
 
 // ---------------------------------------------------------------------------
 // Contextual actions per phase
@@ -2858,6 +2975,12 @@ function openPlayers() { $('playersSheet').classList.remove('hidden'); renderPla
 function closePlayers() { $('playersSheet').classList.add('hidden'); }
 document.querySelectorAll('.players-btn').forEach((b) => (b.onclick = openPlayers));
 $('playersClose').onclick = closePlayers;
+
+// Swap the emoji topbar glyphs (⧉ / 👥) for crisp inline SVG icons.
+const SVG_PLAYERS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.6 19c0-3 2.4-5 5.4-5s5.4 2 5.4 5"/><path d="M16 5.6a3 3 0 0 1 0 5.4"/><path d="M17.6 19c0-2.1-.9-3.6-2.2-4.5"/></svg>';
+const SVG_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>';
+document.querySelectorAll('.players-btn').forEach((b) => (b.innerHTML = SVG_PLAYERS));
+document.querySelectorAll('.icon-btn[title="Copy invite link"]').forEach((b) => (b.innerHTML = SVG_COPY));
 $('playersSheet').addEventListener('click', (e) => {
   if (e.target.id === 'playersSheet') closePlayers();
 });

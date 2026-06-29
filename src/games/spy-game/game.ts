@@ -307,7 +307,7 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
 
   // Your role + your OWN secret only. Never the other role's secret, never the spyId.
   v.you = me
-    ? { seat, name: me.name, isSpy: me.isSpy, secret: me.secret, role: me.isSpy ? 'spy' : 'detective', hasVoted: me.hasVoted, vote: me.vote }
+    ? { seat, name: me.name, isSpy: me.isSpy, secret: me.secret, secretCard: bank[me.isSpy ? s.decoyIdx : s.targetIdx], role: me.isSpy ? 'spy' : 'detective', hasVoted: me.hasVoted, vote: me.vote }
     : { seat: seat ?? -1, spectator: true };
 
   if (s.phase === 'clues' && me) {
@@ -356,6 +356,8 @@ function viewState(bank: PlayerCard[], s: SpyState, seat: number | null): Record
       spyNames: s.spyIds.map((id) => nameOf(s, id)),
       target: bank[s.targetIdx].name,
       decoy: bank[s.decoyIdx].name,
+      targetCard: bank[s.targetIdx],
+      decoyCard: bank[s.decoyIdx],
       caughtId: s.caughtId,
       guess: s.guessName ?? (s.guessIdx != null ? bank[s.guessIdx].name : null),
       guessCorrect: s.guessCorrect,

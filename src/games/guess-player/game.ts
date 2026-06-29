@@ -318,6 +318,7 @@ export function createGuessPlayer(playerBank: PlayerCard[]): GameDef<GPState> {
         roundDeadline: s.roundSecs > 0 && !reveal ? s.roundDeadline : 0,
         opponents,
         target: reveal ? bank[s.targetIdx].name : null,
+        targetCard: reveal ? bank[s.targetIdx] : null,
         roundWinner: reveal ? s.roundWinner : null,
         winners: s.over ? s.winners : null,
         matchWinner: null,

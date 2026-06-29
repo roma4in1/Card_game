@@ -370,6 +370,7 @@ export function createWhoAmI(playerBank: PlayerCard[]): GameDef<WAState> {
         players,
         menu,
         target: reveal ? s.lastTargetName : null,
+        targetCard: reveal ? bank[s.targetIdx] : null,
         roundWinner: reveal ? s.roundWinner : null,
         timer: timerView(s.timer),
         matchWinner: null,
