@@ -12,12 +12,14 @@ import { quoridor } from '../games/quoridor/game.ts';
 import { tectonic } from '../games/tectonic/game.ts';
 import { createMemoryMatch } from '../games/memory-match/game.ts';
 import { CONCEPTS } from '../games/memory-match/conceptbank.ts';
+import { createWhoAmI } from '../games/who-am-i/game.ts';
 
 const spyGame = createSpyGame(SPY_WORDS);
 const codenames = createCodenames(CODENAMES_WORDS);
 const memoryMatch = createMemoryMatch(CONCEPTS);
+const whoAmI = createWhoAmI(SPY_WORDS); // reuses the football player bank (players.json)
 
-const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch];
+const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch, whoAmI];
 
 export const GAMES: Record<string, GameDef> = Object.fromEntries(ALL.map((g) => [g.id, g]));
 export const GAME_SUMMARIES: GameSummary[] = ALL.map(gameSummary);

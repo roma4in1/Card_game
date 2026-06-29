@@ -342,6 +342,11 @@ function render() {
     renderMemoryMatch(s);
     return;
   }
+  if (s.gameId === 'who-am-i') {
+    ensureScreen('whoami');
+    renderWhoAmI(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -2102,6 +2107,190 @@ function renderTurnFlag(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Who Am I? (football 20 questions)
+// ---------------------------------------------------------------------------
+
+function renderWhoAmI(s) {
+  $('waRoom').textContent = s.room;
+  $('waPhase').textContent = s.over ? 'Match over' : s.phase === 'roundOver' ? 'Round over' : `Round ${s.roundNo}/${s.roundsTotal}`;
+  $('waCopy').onclick = copyInvite;
+  $('waRulesBtn').onclick = () => $('waRulesSheet').classList.remove('hidden');
+  renderWaPlayers(s);
+  renderWaActions(s);
+  renderWaQlog(s);
+  const ul = $('waLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+function renderWaPlayers(s) {
+  const box = $('waPlayers');
+  box.innerHTML = '';
+  const bots = botSeatSet(s);
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'wa-pchip' + (p.isTurn ? ' turn' : '') + (p.eliminated ? ' out' : '');
+    chip.style.borderColor = p.isTurn ? seatColor(p.seat) : '';
+    chip.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="wa-pname">${escapeHtml(p.name)}${p.seat === s.seat ? ' (you)' : ''}${bots.has(p.seat) ? ' 🤖' : ''}</span>` +
+      `<span class="wa-pwins">${'⭐'.repeat(p.roundWins)}<span class="wa-pq">${p.questionsAsked}q</span></span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderWaActions(s) {
+  const area = $('waActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+
+  if (s.over) {
+    const youWin = (s.winners || []).includes(s.seat);
+    const tie = (s.winners || []).length > 1;
+    area.appendChild(banner((s.winners || []).length === 0 ? 'No winner — nobody guessed enough.' : youWin ? '🏆 You win the match!' : tie ? 'Match over — a tie.' : 'Match over.', youWin ? 'win' : 'lose'));
+    if (s.target) area.appendChild(callout(`Last secret player: <b>${escapeHtml(s.target)}</b>`));
+    appendEndButtons(area, s);
+    return;
+  }
+
+  if (s.phase === 'roundOver') {
+    const wonName = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
+    area.appendChild(banner(wonName ? `Round ${s.roundNo}: ${wonName} guessed it!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
+    area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
+    area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
+    return;
+  }
+
+  // Asking phase
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this match.', true));
+    return;
+  }
+  if (you.eliminated) {
+    area.appendChild(callout("You're out this round — follow the clues until the next one.", true));
+    return;
+  }
+  if (!you.isTurn) {
+    const who = s.activeSeat != null ? sgName(s, s.activeSeat) : '';
+    area.appendChild(callout(`Waiting for <b>${escapeHtml(who)}</b> to ask or guess`, true));
+    return;
+  }
+  // It's your turn — build the question menu + a guess box.
+  renderWaMenu(area, s);
+}
+
+function renderWaMenu(area, s) {
+  const menu = s.menu || {};
+  const asked = new Set((s.questionLog || []).map((e) => e.key));
+  area.appendChild(prompt('Your turn — <b>ask a question</b> or <b>guess the player</b>.'));
+
+  const section = (title) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'wa-qsec';
+    wrap.innerHTML = `<div class="wa-qsectitle">${title}</div>`;
+    const row = document.createElement('div');
+    row.className = 'wa-qrow';
+    wrap.appendChild(row);
+    area.appendChild(wrap);
+    return row;
+  };
+  const qbtn = (row, label, qtype, param) => {
+    const key = `${qtype}:${param}`;
+    const b = actBtn(label, 'wa-qbtn', () => send({ type: 'askQuestion', qtype, param }));
+    if (asked.has(key)) { b.disabled = true; b.classList.add('done'); }
+    row.appendChild(b);
+  };
+
+  let row = section('Position');
+  (menu.posGroups || []).forEach((g) => qbtn(row, capitalize(g.label), 'posGroup', g.param));
+  (menu.posCodes || []).forEach((c) => qbtn(row, capitalize(c.label.replace(/^an? /, '')), 'posCode', c.param));
+
+  row = section('Origin');
+  (menu.continents || []).forEach((c) => qbtn(row, c, 'continent', c));
+
+  row = section('League');
+  (menu.leagues || []).forEach((l) => qbtn(row, l, 'league', l));
+
+  row = section('Value & era');
+  (menu.valueThresholds || []).forEach((v) => qbtn(row, `> €${v}m`, 'valueOver', String(v)));
+  (menu.eras || []).forEach((e) => qbtn(row, e, 'era', e));
+  qbtn(row, 'Retired?', 'retired', '');
+
+  // Nationality search (there are many) — datalist autocomplete.
+  const natWrap = document.createElement('div');
+  natWrap.className = 'wa-qsec';
+  natWrap.innerHTML = '<div class="wa-qsectitle">From a specific country</div>';
+  const natForm = document.createElement('form');
+  natForm.className = 'sg-clueform';
+  natForm.innerHTML =
+    `<input id="waNatInput" type="text" placeholder="Country…" autocomplete="off" list="waNatList" />` +
+    `<datalist id="waNatList">${(menu.nationalities || []).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
+  const natBtn = actBtn('Ask', 'btn btn-neutral', null);
+  natBtn.type = 'submit';
+  natForm.appendChild(natBtn);
+  natForm.onsubmit = (e) => {
+    e.preventDefault();
+    const val = natForm.querySelector('#waNatInput').value.trim();
+    if (val) send({ type: 'askQuestion', qtype: 'nationality', param: val });
+  };
+  natWrap.appendChild(natForm);
+  area.appendChild(natWrap);
+
+  // Guess box
+  const guessWrap = document.createElement('div');
+  guessWrap.className = 'wa-guess';
+  guessWrap.innerHTML = '<div class="wa-qsectitle">…or name the player (a wrong guess knocks you out!)</div>';
+  const gForm = document.createElement('form');
+  gForm.className = 'sg-clueform';
+  gForm.innerHTML =
+    `<input id="waGuessInput" type="text" placeholder="Guess a player…" autocomplete="off" list="waGuessList" maxlength="60" />` +
+    `<datalist id="waGuessList">${(you_allNames(s)).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
+  const gBtn = actBtn('Guess', 'btn btn-gold', null);
+  gBtn.type = 'submit';
+  gForm.appendChild(gBtn);
+  gForm.onsubmit = (e) => {
+    e.preventDefault();
+    const val = gForm.querySelector('#waGuessInput').value.trim();
+    if (val && confirm(`Guess "${val}"? A wrong guess knocks you out for this round.`)) send({ type: 'guessPlayer', name: val });
+  };
+  guessWrap.appendChild(gForm);
+  area.appendChild(guessWrap);
+}
+function you_allNames(s) { return (s.you && s.you.allNames) || []; }
+
+function renderWaQlog(s) {
+  const box = $('waQlog');
+  box.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'wa-qsectitle';
+  title.textContent = `Questions asked (${(s.questionLog || []).length})`;
+  box.appendChild(title);
+  if (!(s.questionLog || []).length) {
+    box.appendChild(callout('No questions yet — narrow it down!'));
+  }
+  (s.questionLog || []).forEach((e) => {
+    const row = document.createElement('div');
+    row.className = 'wa-qa';
+    row.innerHTML =
+      `<span class="wa-qby" style="color:${seatColor(e.by)}">${escapeHtml(sgName(s, e.by))}</span>` +
+      `<span class="wa-qtext">${escapeHtml(e.q)}</span>` +
+      `<span class="wa-ans ${e.answer ? 'yes' : 'no'}">${e.answer ? 'YES' : 'no'}</span>`;
+    box.appendChild(row);
+  });
+  (s.guessLog || []).filter((g) => !g.correct).forEach((g) => {
+    const row = document.createElement('div');
+    row.className = 'wa-qa wa-wrong';
+    row.innerHTML = `<span class="wa-qby" style="color:${seatColor(g.by)}">${escapeHtml(sgName(s, g.by))}</span><span class="wa-qtext">guessed ${escapeHtml(g.name)}</span><span class="wa-ans no">✗</span>`;
+    box.appendChild(row);
+  });
+}
+function capitalize(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
+
+// ---------------------------------------------------------------------------
 // Contextual actions per phase
 // ---------------------------------------------------------------------------
 
@@ -2547,6 +2736,13 @@ $('cnLeaveBtn').onclick = backToLobby;
 $('qrLeaveBtn').onclick = backToLobby;
 $('tecLeaveBtn').onclick = backToLobby;
 $('mmLeaveBtn').onclick = backToLobby;
+$('waLeaveBtn').onclick = backToLobby;
+
+// Who Am I? rules sheet
+$('waRulesClose').onclick = () => $('waRulesSheet').classList.add('hidden');
+$('waRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'waRulesSheet') $('waRulesSheet').classList.add('hidden');
+});
 
 // Lock In rules sheet
 $('liRulesBtn').onclick = () => $('liRulesSheet').classList.remove('hidden');

@@ -406,6 +406,44 @@
       </div>
     </div>
 
+    <!-- Who Am I? (football 20 questions) -->
+    <section id="whoami" class="screen whoami hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="waRoom">····</b></div>
+        <div class="phase-pill" id="waPhase">Round</div>
+        <button id="waRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="waLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="waCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="wa-main">
+        <div class="wa-players" id="waPlayers"></div>
+        <div class="action-area" id="waActions"></div>
+        <div class="wa-qlog" id="waQlog"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="waLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Who Am I? rules reference -->
+    <div id="waRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Who Am I? — how to play</h3>
+          <button id="waRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">One secret footballer. Ask yes/no questions the server answers from the data, then name them.</p>
+        <div class="rules-body">
+          <p>On your turn, either <b>ask a yes/no question</b> (position, nationality, continent, league, value, era, retired) — the server answers from the player's real data, and <b>everyone hears the answer</b> — or <b>guess a name</b>.</p>
+          <p><b>Correct guess</b> wins the round. <b>Wrong guess</b> knocks you out for the rest of the round — so guessing is a real risk, not a free try.</p>
+          <p>A round ends when someone guesses right, or everyone's been knocked out (nobody wins). Most round-wins takes the match; fewest questions breaks a tie.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

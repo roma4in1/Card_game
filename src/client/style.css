@@ -286,6 +286,34 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .lobby-kick { flex: none; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 0.8rem; line-height: 1; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
 .lobby-kick:hover { color: #fff; background: var(--love-soft, #e8536b); border-color: var(--love-soft, #e8536b); }
 
+/* Who Am I? — football 20 questions */
+.wa-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 12px 0; overflow-y: auto; min-height: 0; }
+.wa-players { display: flex; flex-wrap: wrap; gap: 8px; }
+.wa-pchip { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); }
+.wa-pchip.turn { background: var(--surface-2); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06); }
+.wa-pchip.out { opacity: 0.45; text-decoration: line-through; }
+.wa-pname { font-weight: 600; font-size: 0.9rem; }
+.wa-pwins { font-size: 0.8rem; letter-spacing: -1px; }
+.wa-pq { margin-left: 6px; color: var(--faint); font-size: 0.7rem; letter-spacing: 0; }
+
+.wa-qsec { margin-top: 4px; }
+.wa-qsectitle { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.wa-qrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.wa-qbtn { padding: 8px 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
+.wa-qbtn:hover:not(:disabled) { border-color: var(--good); }
+.wa-qbtn:active:not(:disabled) { transform: scale(0.96); }
+.wa-qbtn.done { opacity: 0.4; text-decoration: line-through; cursor: default; }
+.wa-guess { margin-top: 8px; }
+
+.wa-qlog { border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); padding: 10px 12px; }
+.wa-qa { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.88rem; }
+.wa-qby { font-weight: 700; font-size: 0.8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30%; }
+.wa-qtext { flex: 1; min-width: 0; }
+.wa-ans { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.78rem; padding: 1px 8px; border-radius: 999px; }
+.wa-ans.yes { color: #0a1; background: rgba(40, 190, 90, 0.16); }
+.wa-ans.no { color: var(--love-soft, #e8536b); background: rgba(232, 83, 107, 0.14); }
+.wa-wrong .wa-qtext { color: var(--muted); font-style: italic; }
+
 /* Shared per-turn countdown chip (Spy / Quoridor / Codenames timers) — top-right,
    tucked under the topbar buttons so it never overlaps the player pills. */
 .turn-timer { position: fixed; top: 60px; right: 12px; z-index: 40; padding: 6px 13px; border-radius: 999px; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.02em; color: var(--ink); background: var(--surface-2, #1b2030); border: 1.5px solid var(--line-strong, #36405a); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
