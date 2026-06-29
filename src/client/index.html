@@ -482,6 +482,45 @@
       </div>
     </div>
 
+    <!-- Penguin Knockout (simultaneous physics battle) -->
+    <section id="penguinknockout" class="screen penguinko hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="pkRoom">····</b></div>
+        <div class="phase-pill" id="pkPhase">Round</div>
+        <button id="pkRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="pkLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="pkCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="pk-main">
+        <div class="pk-scores" id="pkScores"></div>
+        <div class="pk-board-wrap"><div class="pk-board" id="pkBoard"></div></div>
+        <div class="action-area" id="pkActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="pkLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Penguin Knockout rules reference -->
+    <div id="pkRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Penguin Knockout — how to play</h3>
+          <button id="pkRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Secretly aim &amp; power up. Everyone launches at once — knock rivals off the shrinking ice.</p>
+        <div class="rules-body">
+          <p><b>Commit:</b> drag from your penguin to aim — direction = where you slide, drag <b>distance = power</b>. Nobody sees your move until it resolves.</p>
+          <p><b>Resolve:</b> all penguins launch simultaneously with real physics — friction, bouncing collisions, chain reactions. Shove someone off the ice for a <b>knockout</b>.</p>
+          <p><b>Careful:</b> too much power and you overshoot the edge and eliminate <b>yourself</b>. After each round the ice <b>shrinks</b> — anyone stranded outside melts in.</p>
+          <p><b>Win:</b> last penguin standing (+3) plus +1 per knockout. Highest total wins.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

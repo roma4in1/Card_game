@@ -517,6 +517,11 @@ function render() {
     renderGuessPlayer(s);
     return;
   }
+  if (s.gameId === 'penguin-knockout') {
+    ensureScreen('penguinknockout');
+    renderPenguinKnockout(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -2677,6 +2682,268 @@ function renderGpGrid(s) {
 let _lastGpCount = 0;
 
 // ---------------------------------------------------------------------------
+// Penguin Knockout (simultaneous physics battle)
+// ---------------------------------------------------------------------------
+const PK_VB = 1.28; // svg view extent (normalized coords)
+const PK_TILT = 0.6; // vertical squash → the ice reads as a 3D disc seen at an angle
+let _pkAim = null; // {angle, power} you're aiming this round (pre-commit)
+let _pkReplay = { round: -1, raf: 0 }; // active replay animation
+let _pkNameShow = null; // seat whose name label is currently shown (tap to reveal)
+let _pkNameTimer = 0;
+const pkDisp = (x, y) => ({ x, y: -y * PK_TILT }); // physics → display (flip + perspective)
+
+function renderPenguinKnockout(s) {
+  $('pkRoom').textContent = s.room;
+  $('pkPhase').textContent = s.over ? 'Game over' : s.phase === 'resolve' ? 'Launch!' : `Round ${s.round}`;
+  $('pkCopy').onclick = copyInvite;
+  $('pkRulesBtn').onclick = () => $('pkRulesSheet').classList.remove('hidden');
+  renderPkScores(s);
+
+  if (s.phase === 'resolve' && s.resolution) {
+    pkPlayResolution(s); // animate the round
+  } else {
+    if (_pkReplay.raf) { cancelAnimationFrame(_pkReplay.raf); _pkReplay.raf = 0; }
+    if (s.phase !== 'commit') { _pkAim = null; _pkNameShow = null; }
+    if (pkCanAim(s) && !_pkAim) { // default: aim toward the centre at half power
+      const me = s.penguins.find((p) => p.seat === s.seat);
+      _pkAim = { angle: me ? (Math.atan2(-me.y, -me.x) * 180) / Math.PI : 0, power: 0.5 };
+    }
+    drawPkBoard(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
+  }
+  renderPkActions(s);
+  const ul = $('pkLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => { const li = document.createElement('li'); li.textContent = line; ul.appendChild(li); });
+}
+
+function pkCanAim(s) { return s.phase === 'commit' && s.you && s.you.alive && !s.you.committed; }
+
+function renderPkScores(s) {
+  const box = $('pkScores');
+  box.innerHTML = '';
+  const bots = botSeatSet(s);
+  (s.penguins || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'pk-chip' + (p.alive ? '' : ' out') + (s.phase === 'commit' && p.committed ? ' ready' : '');
+    chip.innerHTML =
+      `<span class="pk-dot" style="background:${seatColor(p.seat)}">${p.alive ? '🐧' : '💀'}</span>` +
+      `<span class="pk-name">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="pk-ko" title="knockouts">🥊 ${p.knockouts}</span>` +
+      (s.phase === 'commit' ? `<span class="pk-tick">${p.alive ? (p.committed ? '✓' : '…') : ''}</span>` : '');
+    box.appendChild(chip);
+  });
+}
+
+// Aim arrow geometry (display coords): a shaft + a triangular arrowhead.
+function pkArrowGeom(me, aim) {
+  const a = (aim.angle * Math.PI) / 180;
+  const len = 0.14 + aim.power * 0.95;
+  const s0 = pkDisp(me.x, me.y);
+  const e0 = pkDisp(me.x + Math.cos(a) * len, me.y + Math.sin(a) * len);
+  const da = Math.atan2(e0.y - s0.y, e0.x - s0.x);
+  const hl = 0.12, hw = 0.075;
+  const bx = e0.x - Math.cos(da) * hl, by = e0.y - Math.sin(da) * hl;
+  const lx = bx + Math.cos(da + Math.PI / 2) * hw, ly = by + Math.sin(da + Math.PI / 2) * hw;
+  const rx = bx + Math.cos(da - Math.PI / 2) * hw, ry = by + Math.sin(da - Math.PI / 2) * hw;
+  return { line: [s0.x, s0.y, bx, by], head: `${e0.x},${e0.y} ${lx},${ly} ${rx},${ry}` };
+}
+function pkUpdateArrow(svgEl, me, aim) {
+  const g = pkArrowGeom(me, aim);
+  const ln = svgEl.querySelector('.pk-aim');
+  const hd = svgEl.querySelector('.pk-aimhead');
+  if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
+  if (hd) hd.setAttribute('points', g.head);
+}
+
+// Draw the 3D-perspective ice + penguins (+ optional aim arrow). `positions` overrides during replay.
+function drawPkBoard(s, opts) {
+  const board = $('pkBoard');
+  const R = opts.radius;
+  const rp = s.penguinRadius || 0.075;
+  const ry = R * PK_TILT; // squashed vertical radius
+  const depth = Math.max(0.07, R * 0.17); // ice thickness
+  const list = (opts.positions || (s.penguins || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, a: p.alive }))).slice().sort((a, b) => b.y - a.y); // back→front
+  const nameOf = (id) => { const p = (s.penguins || []).find((q) => q.seat === id); return p ? p.name : ''; };
+
+  let svg = `<svg viewBox="${-PK_VB} ${-PK_VB} ${2 * PK_VB} ${2 * PK_VB}" class="pk-svg" preserveAspectRatio="xMidYMid meet">`;
+  svg += '<defs>'
+    + '<radialGradient id="pkSea" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="#13314c"/><stop offset="1" stop-color="#08182a"/></radialGradient>'
+    + '<radialGradient id="pkIce" cx="42%" cy="26%" r="85%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#dceeff"/><stop offset="1" stop-color="#a6d2ee"/></radialGradient>'
+    + '<linearGradient id="pkWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#84b8d8"/><stop offset="1" stop-color="#2b5876"/></linearGradient>'
+    + '</defs>';
+  // sea
+  svg += `<rect x="${-PK_VB}" y="${-PK_VB}" width="${2 * PK_VB}" height="${2 * PK_VB}" fill="url(#pkSea)"/>`;
+  // ice slab: underside ellipse + side wall + top surface
+  svg += `<ellipse cx="0" cy="${depth}" rx="${R}" ry="${ry}" class="pk-ice-side"/>`;
+  svg += `<rect x="${-R}" y="0" width="${2 * R}" height="${depth}" fill="url(#pkWall)"/>`;
+  svg += `<ellipse cx="0" cy="0" rx="${R}" ry="${ry}" class="pk-ice"/>`;
+  svg += `<ellipse cx="0" cy="${-ry * 0.18}" rx="${R * 0.78}" ry="${ry * 0.6}" class="pk-ice-sheen"/>`;
+
+  for (const p of list) {
+    if (!p.a) continue;
+    const d = pkDisp(p.x, p.y);
+    const mine = p.id === s.seat;
+    svg += `<g class="pk-peng${mine ? ' mine' : ''}">`
+      + `<ellipse cx="${d.x}" cy="${d.y + rp * 0.72}" rx="${rp * 0.95}" ry="${rp * 0.34}" class="pk-pshadow"/>`
+      + `<circle cx="${d.x}" cy="${d.y}" r="${rp}" fill="${seatColor(p.id)}" class="pk-body" data-pseat="${p.id}"/>`
+      + `<text x="${d.x}" y="${d.y}" class="pk-face" style="font-size:${rp * 1.5}px" data-pseat="${p.id}">🐧</text>`
+      + `</g>`;
+  }
+  // name label (tap to reveal)
+  if (_pkNameShow != null) {
+    const p = (s.penguins || []).find((q) => q.seat === _pkNameShow && q.alive) || list.find((q) => q.id === _pkNameShow && q.a);
+    const pp = (s.penguins || []).find((q) => q.seat === _pkNameShow);
+    if (pp && pp.alive) {
+      const d = pkDisp(pp.x, pp.y);
+      const txt = nameOf(_pkNameShow);
+      const w = Math.max(0.2, txt.length * 0.052 + 0.12);
+      svg += `<g class="pk-namelabel" pointer-events="none">`
+        + `<rect x="${d.x - w / 2}" y="${d.y - rp - 0.17}" width="${w}" height="0.13" rx="0.05"/>`
+        + `<text x="${d.x}" y="${d.y - rp - 0.105}">${escapeHtml(txt)}</text>`
+        + `</g>`;
+    }
+    void p;
+  }
+  // aim arrow
+  if (opts.aim) {
+    const me = (s.penguins || []).find((p) => p.seat === s.seat);
+    if (me && me.alive) {
+      const g = pkArrowGeom(me, opts.aim);
+      svg += `<line x1="${g.line[0]}" y1="${g.line[1]}" x2="${g.line[2]}" y2="${g.line[3]}" class="pk-aim"/>`
+        + `<polygon points="${g.head}" class="pk-aimhead"/>`;
+    }
+  }
+  svg += '</svg>';
+  board.innerHTML = svg;
+  pkAttachInput(s, board.querySelector('svg'));
+}
+
+// Drag = aim direction (power comes from the slider). Tap a penguin = reveal its name.
+function pkAttachInput(s, svgEl) {
+  if (s.phase === 'resolve') return; // no interaction while the replay animates
+  const me = (s.penguins || []).find((p) => p.seat === s.seat);
+  const canAim = pkCanAim(s) && me && me.alive;
+  const toPhys = (e) => {
+    const r = svgEl.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * (2 * PK_VB) - PK_VB;
+    const vy = ((e.clientY - r.top) / r.height) * (2 * PK_VB) - PK_VB;
+    return { x: vx, y: -vy / PK_TILT };
+  };
+  let st = null, moved = false, onSeat = null;
+  svgEl.style.touchAction = 'none';
+  svgEl.onpointerdown = (e) => {
+    st = { x: e.clientX, y: e.clientY };
+    moved = false;
+    onSeat = e.target && e.target.getAttribute ? e.target.getAttribute('data-pseat') : null;
+    try { svgEl.setPointerCapture(e.pointerId); } catch { /* ok */ }
+  };
+  svgEl.onpointermove = (e) => {
+    if (!st || !canAim) return;
+    if (!moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 6) moved = true;
+    if (!moved) return;
+    const p = toPhys(e);
+    const dx = p.x - me.x, dy = p.y - me.y;
+    if (Math.hypot(dx, dy) < 0.02) return;
+    _pkAim = _pkAim || { angle: 0, power: 0.5 };
+    _pkAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    pkUpdateArrow(svgEl, me, _pkAim); // update in place — don't rebuild mid-drag
+  };
+  svgEl.onpointerup = () => {
+    if (st && !moved && onSeat != null) {
+      _pkNameShow = Number(onSeat);
+      drawPkBoard(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
+      clearTimeout(_pkNameTimer);
+      _pkNameTimer = setTimeout(() => {
+        _pkNameShow = null;
+        if (state && state.gameId === 'penguin-knockout' && state.phase !== 'resolve') drawPkBoard(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
+      }, 2600);
+    }
+    st = null;
+  };
+}
+
+// Replay the resolution frames, then animate the shrink + melts.
+function pkPlayResolution(s) {
+  const res = s.resolution;
+  if (_pkReplay.round === s.round && _pkReplay.raf) return; // already playing this round
+  if (_pkReplay.raf) cancelAnimationFrame(_pkReplay.raf);
+  _pkReplay = { round: s.round, raf: 0 };
+  _pkNameShow = null; // hide any name tag during the launch
+  const frames = res.frames || [];
+  const total = frames.length;
+  const start = performance.now();
+  const perFrame = 28;
+  const melted = new Set(res.melted || []);
+  const step = (t) => {
+    let i = Math.floor((t - start) / perFrame);
+    if (i >= total) i = total - 1;
+    if (i < 0) i = 0;
+    drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null });
+    if (i < total - 1) _pkReplay.raf = requestAnimationFrame(step);
+    else pkAnimateShrink(s, res, melted);
+  };
+  _pkReplay.raf = requestAnimationFrame(step);
+}
+
+function pkAnimateShrink(s, res, melted) {
+  const finalFrame = (res.frames && res.frames[res.frames.length - 1]) || [];
+  const t0 = performance.now();
+  const dur = 600;
+  const anim = (t) => {
+    const k = Math.min(1, (t - t0) / dur);
+    const radius = res.radius + (res.radiusAfter - res.radius) * k;
+    const pos = finalFrame.map((p) => ({ id: p.id, x: p.x, y: p.y, a: p.a && !(melted.has(p.id) && k > 0.5) }));
+    drawPkBoard(s, { radius, positions: pos, aim: null });
+    if (k < 1) _pkReplay.raf = requestAnimationFrame(anim);
+    else _pkReplay.raf = 0;
+  };
+  _pkReplay.raf = requestAnimationFrame(anim);
+}
+
+function renderPkActions(s) {
+  const area = $('pkActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+  if (s.over) {
+    const youWin = (s.winners || []).includes(s.seat);
+    area.appendChild(banner((s.winners || []).length === 0 ? 'Everyone wiped out!' : youWin ? '🏆 You win!' : 'Game over.', youWin ? 'win' : 'lose'));
+    appendEndButtons(area, s);
+    return;
+  }
+  if (s.phase === 'resolve') { area.appendChild(callout('🐧 Launch! Watch the chaos…', true)); return; }
+  if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
+  if (!you.alive) { area.appendChild(callout("You're out — watch the rest play out.", true)); return; }
+  if (you.committed) {
+    const left = (s.penguins || []).filter((p) => p.alive && !p.committed).length;
+    area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
+    return;
+  }
+  area.appendChild(prompt('Drag on the ice to <b>aim</b>, set the <b>power</b> below, then lock it in. <i>(tap a penguin to see who it is)</i>'));
+  const aim = _pkAim || { angle: 0, power: 0.5 };
+  const meter = document.createElement('div');
+  meter.className = 'pk-powerbar';
+  meter.innerHTML = `<span>Power</span><input type="range" class="pk-slider" min="0" max="100" value="${Math.round(aim.power * 100)}" aria-label="Power"/><b class="pk-powerval">${Math.round(aim.power * 100)}%</b>`;
+  const slider = meter.querySelector('.pk-slider');
+  const valEl = meter.querySelector('.pk-powerval');
+  slider.oninput = () => {
+    _pkAim = _pkAim || { angle: 0, power: 0 };
+    _pkAim.power = slider.value / 100;
+    valEl.textContent = slider.value + '%';
+    const me = (s.penguins || []).find((p) => p.seat === s.seat);
+    const svgEl = $('pkBoard').querySelector('svg');
+    if (me && svgEl) pkUpdateArrow(svgEl, me, _pkAim);
+  };
+  area.appendChild(meter);
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.appendChild(actBtn('🔒 Lock in launch', 'btn btn-gold btn-lg', () => {
+    const a = _pkAim || { angle: 0, power: 0.5 };
+    send({ type: 'commitMove', angle: a.angle, power: a.power });
+  }));
+  area.appendChild(row);
+}
+
+// ---------------------------------------------------------------------------
 // Contextual actions per phase
 // ---------------------------------------------------------------------------
 
@@ -3147,6 +3414,13 @@ $('tecLeaveBtn').onclick = backToLobby;
 $('mmLeaveBtn').onclick = backToLobby;
 $('waLeaveBtn').onclick = backToLobby;
 $('gpLeaveBtn').onclick = backToLobby;
+$('pkLeaveBtn').onclick = backToLobby;
+
+// Penguin Knockout rules sheet
+$('pkRulesClose').onclick = () => $('pkRulesSheet').classList.add('hidden');
+$('pkRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'pkRulesSheet') $('pkRulesSheet').classList.add('hidden');
+});
 
 // Who Am I? rules sheet
 $('waRulesClose').onclick = () => $('waRulesSheet').classList.add('hidden');

@@ -66,6 +66,7 @@
 .screen.memorymatch { --accent: #cf6ad0; }
 .screen.whoami { --accent: #9b8cff; }
 .screen.guessplayer { --accent: #4cc16a; }
+.screen.penguinko { --accent: #5ec8ff; }
 
 /* numbers that change shouldn't jitter */
 .phase-pill, .turn-timer, .gp-oppstat, .wa-pwins, .wa-pq, .pot, #deckCount, .lobby-name { font-variant-numeric: tabular-nums; }
@@ -373,6 +374,37 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .gp-key { padding: 0 6px; border-radius: 5px; }
 .gp-key.hit { background: #1f7a44; color: #fff; }
 .gp-key.partial { background: #b5912a; color: #1a1300; }
+
+/* Penguin Knockout */
+.pk-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+.pk-scores { display: flex; flex-wrap: wrap; gap: 6px; }
+.pk-chip { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--line); font-size: 0.84rem; }
+.pk-chip.ready { border-color: rgba(94, 200, 255, 0.6); }
+.pk-chip.out { opacity: 0.5; }
+.pk-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8rem; box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.3); }
+.pk-name { font-weight: 600; }
+.pk-ko { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pk-tick { color: var(--accent); font-weight: 800; }
+
+.pk-board-wrap { display: flex; justify-content: center; }
+.pk-board { width: 100%; max-width: min(94vw, 460px); border-radius: 16px; overflow: hidden; box-shadow: var(--e2); }
+.pk-svg { width: 100%; height: auto; display: block; touch-action: none; }
+.pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.85); stroke-width: 0.014; }
+.pk-ice-side { fill: #25506e; }
+.pk-ice-sheen { fill: #ffffff; opacity: 0.28; pointer-events: none; }
+.pk-peng .pk-body { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.012; }
+.pk-peng.mine .pk-body { stroke: #fff; stroke-width: 0.02; }
+.pk-pshadow { fill: rgba(0, 25, 45, 0.32); pointer-events: none; }
+.pk-face { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.pk-namelabel rect { fill: rgba(8, 12, 20, 0.9); stroke: var(--accent); stroke-width: 0.006; }
+.pk-namelabel text { fill: #fff; font: 700 0.085px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; }
+.pk-aim { stroke: var(--gold); stroke-width: 0.03; stroke-linecap: round; opacity: 0.95; }
+.pk-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.006; }
+
+.pk-powerbar { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--muted); margin: 8px 0; }
+.pk-powerbar > span { flex: none; }
+.pk-powerval { color: var(--ink); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; flex: none; }
+.pk-slider { flex: 1; accent-color: var(--accent); height: 26px; }
 
 /* Shared per-turn countdown chip (Spy / Quoridor / Codenames timers) — top-right,
    tucked under the topbar buttons so it never overlaps the player pills. */
