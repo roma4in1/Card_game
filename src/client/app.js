@@ -1907,32 +1907,74 @@ function renderTecBoard(s) {
   const dest = new Set();
   if (tecSel != null && you.isTurn) for (const m of s.legal || []) if (m.pawnId === tecSel) dest.add(m.to[0] + ',' + m.to[1]);
   const selPawn = tecSel != null ? (s.pawns || []).find((p) => p.id === tecSel) : null;
+  const lift = sz * 0.22; // raised-tile thickness (the dark base peeks out below)
+  const top = sz * 0.92; // top face slightly inset → "grout" lines between tiles
 
   let svg = `<svg viewBox="${vb}" class="tec-svg" preserveAspectRatio="xMidYMid meet">`;
+  svg += '<defs>'
+    + '<linearGradient id="tecTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdfefe"/><stop offset="1" stop-color="#cdd5e2"/></linearGradient>'
+    + '<linearGradient id="tecGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a8"/><stop offset="1" stop-color="#f3b740"/></linearGradient>'
+    + '<filter id="tecPawnSh" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy="0.7" stdDeviation="0.5" flood-color="#000" flood-opacity="0.5"/></filter>'
+    + '</defs>';
+
+  // 1) raised tiles: dark base, then the inset top face + a value tint
   for (const h of present) {
     const key = h.q + ',' + h.r;
-    const pawn = pawnByHex[key];
     const isDest = dest.has(key);
+    svg += `<polygon points="${tecPoints(h._x, h._y, sz)}" class="tec-base"/>`;
+    const ty = h._y - lift;
     const cls = 'tec-hex' + (isDest ? ' dest' : '') + (selPawn && selPawn.q === h.q && selPawn.r === h.r ? ' selhex' : '');
-    svg += `<polygon points="${tecPoints(h._x, h._y, sz)}" class="${cls}" data-q="${h.q}" data-r="${h.r}"/>`;
-    if (pawn) {
-      const mine = pawn.owner === s.seat;
-      svg += `<circle cx="${h._x}" cy="${h._y}" r="${sz * 0.52}" class="tec-pawn${pawn.alive ? '' : ' dead'}${tecSel === pawn.id ? ' sel' : ''}${mine ? ' mine' : ''}" fill="${seatColor(pawn.owner)}" data-q="${h.q}" data-r="${h.r}"/>`;
-    } else if (isDest) {
-      svg += `<circle cx="${h._x}" cy="${h._y}" r="${sz * 0.28}" class="tec-destdot" data-q="${h.q}" data-r="${h.r}"/>`;
-    } else {
-      svg += `<text x="${h._x}" y="${h._y}" class="tec-val" fill="${TEC_VAL_COLORS[h.value] || '#888'}" data-q="${h.q}" data-r="${h.r}">${h.value}</text>`;
-    }
+    svg += `<polygon points="${tecPoints(h._x, ty, top)}" class="${cls}" data-q="${h.q}" data-r="${h.r}"/>`;
+    if (!isDest) svg += `<polygon points="${tecPoints(h._x, ty, top)}" class="tec-tint" style="fill:${TEC_VAL_COLORS[h.value] || '#888'}"/>`;
+  }
+  // 2) tile contents (value number, or a destination dot)
+  for (const h of present) {
+    const key = h.q + ',' + h.r;
+    if (pawnByHex[key]) continue;
+    const ty = h._y - lift;
+    if (dest.has(key)) svg += `<circle cx="${h._x}" cy="${ty}" r="${sz * 0.26}" class="tec-destdot"/>`;
+    else svg += `<text x="${h._x}" y="${ty}" class="tec-val" data-q="${h.q}" data-r="${h.r}">${h.value}</text>`;
+  }
+  // 3) pawns as glossy spheres (each a <g> we can slide-animate)
+  for (const p of s.pawns || []) {
+    const px = tecPixel(p.q, p.r, sz);
+    const cx = px.x;
+    const cy = px.y - lift;
+    const r = sz * 0.5;
+    const mine = p.owner === s.seat;
+    svg += `<g class="tec-pawn-g${p.alive ? '' : ' dead'}${tecSel === p.id ? ' sel' : ''}" data-pawn="${p.id}">`
+      + `<ellipse cx="${cx}" cy="${cy + r * 0.85}" rx="${r * 0.85}" ry="${r * 0.3}" class="tec-pawn-cast"/>`
+      + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${seatColor(p.owner)}" class="tec-pawn${mine ? ' mine' : ''}" data-q="${p.q}" data-r="${p.r}"/>`
+      + `<ellipse cx="${cx - r * 0.28}" cy="${cy - r * 0.34}" rx="${r * 0.34}" ry="${r * 0.26}" class="tec-pawn-shine"/>`
+      + `</g>`;
   }
   svg += '</svg>';
   board.innerHTML = svg;
   const svgEl = board.querySelector('svg');
+
+  // slide-animate any pawn that changed hex since the last render
+  const nextPrev = {};
+  for (const p of s.pawns || []) {
+    const px = tecPixel(p.q, p.r, sz);
+    nextPrev[p.id] = px;
+    const g = svgEl.querySelector(`g[data-pawn="${p.id}"]`);
+    const old = _tecPrev[p.id];
+    if (g && old && (old.x !== px.x || old.y !== px.y)) {
+      g.style.transition = 'none';
+      g.style.transform = `translate(${old.x - px.x}px, ${old.y - px.y}px)`;
+      g.getBoundingClientRect(); // force reflow so the start position takes
+      requestAnimationFrame(() => { g.style.transition = ''; g.style.transform = 'translate(0px, 0px)'; });
+    }
+  }
+  _tecPrev = nextPrev;
+
   svgEl.onclick = (e) => {
     const q = e.target.getAttribute && e.target.getAttribute('data-q');
     if (q == null) return;
     onTecClick(s, Number(q), Number(e.target.getAttribute('data-r')));
   };
 }
+let _tecPrev = {}; // pawn id → last pixel position (for slide animation)
 
 function onTecClick(s, q, r) {
   const you = s.you || {};

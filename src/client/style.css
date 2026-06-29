@@ -1050,17 +1050,31 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .tec-palive { color: var(--faint); font-size: 0.72rem; }
 
 .tec-board-wrap { display: flex; justify-content: center; }
-.tec-board { width: 100%; max-width: min(96vw, 560px); }
-.tec-svg { width: 100%; height: auto; display: block; }
-.tec-hex { fill: #eef1f6; stroke: #2a2f3a; stroke-width: 0.6; }
-.tec-hex.dest { fill: #fff6da; stroke: var(--gold); stroke-width: 1.4; cursor: pointer; }
-.tec-hex.selhex { stroke: var(--gold); stroke-width: 1.4; }
-.tec-val { font: 700 9px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.tec-destdot { fill: var(--gold-deep); pointer-events: none; }
-.tec-pawn { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.8; cursor: pointer; }
-.tec-pawn.mine { cursor: pointer; }
-.tec-pawn.sel { stroke: var(--gold); stroke-width: 2; }
-.tec-pawn.dead { opacity: 0.4; }
+.tec-board {
+  width: 100%; max-width: min(96vw, 560px);
+  background: radial-gradient(120% 95% at 50% 28%, #222b40 0%, #0e1422 72%);
+  border-radius: 18px; padding: 10px;
+  box-shadow: inset 0 2px 16px rgba(0, 0, 0, 0.55), var(--e2);
+}
+.tec-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.tec-base { fill: #0b0f17; }                                  /* raised-tile side + grout */
+.tec-hex { fill: url(#tecTop); stroke: rgba(0, 0, 0, 0.22); stroke-width: 0.3; }
+.tec-tint { mix-blend-mode: multiply; opacity: 0.46; pointer-events: none; } /* value-tinted terrain */
+.tec-hex.dest { fill: url(#tecGold); stroke: var(--gold); stroke-width: 0.8; cursor: pointer; animation: tecDestPulse 1.1s ease-in-out infinite; }
+.tec-hex.selhex { stroke: var(--gold); stroke-width: 1.2; }
+@keyframes tecDestPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.2); } }
+.tec-val { font: 800 9px 'Outfit', sans-serif; fill: #1b2230; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.tec-destdot { fill: var(--gold-deep); pointer-events: none; transform-box: fill-box; transform-origin: center; animation: tecDot 1.1s ease-in-out infinite; }
+@keyframes tecDot { 0%, 100% { transform: scale(0.78); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 1; } }
+
+.tec-pawn-g { transition: transform 0.45s var(--ease); }          /* slide animation */
+.tec-pawn-g.dead { opacity: 0.4; }
+.tec-pawn { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.5; cursor: pointer; filter: url(#tecPawnSh); }
+.tec-pawn-cast { fill: rgba(0, 0, 0, 0.4); pointer-events: none; }
+.tec-pawn-shine { fill: #ffffff; opacity: 0.5; pointer-events: none; }
+.tec-pawn-g.sel .tec-pawn { stroke: var(--gold); stroke-width: 1.4; }
+.tec-pawn-g.sel { animation: tecSelPulse 0.95s ease-in-out infinite; }
+@keyframes tecSelPulse { 0%, 100% { filter: drop-shadow(0 0 0 rgba(245, 196, 81, 0)); } 50% { filter: drop-shadow(0 0 3px rgba(245, 196, 81, 0.95)); } }
 
 /* ---------------------------------------------------------------------------
    Memory Match screen
