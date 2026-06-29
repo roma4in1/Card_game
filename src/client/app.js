@@ -522,6 +522,11 @@ function render() {
     renderPenguinKnockout(s);
     return;
   }
+  if (s.gameId === 'ice-football') {
+    ensureScreen('icefootball');
+    renderIceFootball(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -2944,6 +2949,239 @@ function renderPkActions(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Ice Football (team physics football)
+// ---------------------------------------------------------------------------
+const IF_TEAM = { red: '#e8536b', blue: '#4f9bf2' };
+const IF_PU_ICON = { powerShot: '💥', bigPiece: '🐘', slick: '🧊', freeze: '❄️', wall: '🧱' };
+const IF_PU_NAME = { powerShot: 'Power shot', bigPiece: 'Big body', slick: 'Slick', freeze: 'Freeze', wall: 'Wall' };
+let _ifAim = null;       // {angle, power}
+let _ifPU = null;        // armed power-up {type, targetId?}
+let _ifReplay = { round: -1, raf: 0 };
+const ifDisp = (x, y) => ({ x, y: -y }); // top-down (just flip y)
+
+function renderIceFootball(s) {
+  $('ifRoom').textContent = s.room;
+  $('ifPhase').textContent = s.over ? 'Full time' : s.phase === 'resolve' ? 'Kick!' : `Round ${s.round}`;
+  $('ifCopy').onclick = copyInvite;
+  $('ifRulesBtn').onclick = () => $('ifRulesSheet').classList.remove('hidden');
+  renderIfScore(s);
+  if (s.phase === 'resolve' && s.resolution) {
+    ifPlayResolution(s);
+  } else {
+    if (_ifReplay.raf) { cancelAnimationFrame(_ifReplay.raf); _ifReplay.raf = 0; }
+    if (s.phase !== 'commit') { _ifAim = null; _ifPU = null; }
+    if (ifCanAim(s) && !_ifAim) {
+      const me = s.pieces.find((p) => p.seat === s.seat);
+      const goalX = me && me.team === 'red' ? s.pitch.hx : -s.pitch.hx; // face the opponent goal
+      _ifAim = { angle: me ? (Math.atan2(s.ball.y - me.y, goalX - me.x) * 180) / Math.PI : 0, power: 0.5 };
+    }
+    drawIfBoard(s, { ball: s.ball, pieces: null });
+  }
+  renderIfActions(s);
+  const ul = $('ifLog'); ul.innerHTML = '';
+  (s.log || []).forEach((line) => { const li = document.createElement('li'); li.textContent = line; ul.appendChild(li); });
+}
+
+function ifCanAim(s) { return s.phase === 'commit' && s.you && !s.you.committed; }
+
+function renderIfScore(s) {
+  const box = $('ifScore');
+  box.innerHTML =
+    `<span class="if-team red">🔴 RED</span>` +
+    `<span class="if-scoreval">${s.score.red} – ${s.score.blue}</span>` +
+    `<span class="if-team blue">BLUE 🔵</span>` +
+    `<span class="if-target">to ${s.goalsToWin}</span>`;
+}
+
+function ifArrowGeom(me, aim) {
+  const a = (aim.angle * Math.PI) / 180;
+  const len = 0.12 + aim.power * 0.85;
+  const s0 = ifDisp(me.x, me.y);
+  const e0 = ifDisp(me.x + Math.cos(a) * len, me.y + Math.sin(a) * len);
+  const da = Math.atan2(e0.y - s0.y, e0.x - s0.x);
+  const hl = 0.1, hw = 0.065;
+  const bx = e0.x - Math.cos(da) * hl, by = e0.y - Math.sin(da) * hl;
+  const lx = bx + Math.cos(da + Math.PI / 2) * hw, ly = by + Math.sin(da + Math.PI / 2) * hw;
+  const rx = bx + Math.cos(da - Math.PI / 2) * hw, ry = by + Math.sin(da - Math.PI / 2) * hw;
+  return { line: [s0.x, s0.y, bx, by], head: `${e0.x},${e0.y} ${lx},${ly} ${rx},${ry}` };
+}
+function ifUpdateArrow(svgEl, me, aim) {
+  const g = ifArrowGeom(me, aim);
+  const ln = svgEl.querySelector('.if-aim'), hd = svgEl.querySelector('.if-aimhead');
+  if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
+  if (hd) hd.setAttribute('points', g.head);
+}
+
+function drawIfBoard(s, opts) {
+  const board = $('ifBoard');
+  const { hx, hy, goalHy, rp, rb } = s.pitch;
+  const pad = 0.16;
+  const ballPos = opts.ball || s.ball;
+  const piecePos = opts.pieces; // [{id,x,y,o}] during replay, else null
+  let svg = `<svg viewBox="${-hx - pad} ${-hy - pad} ${2 * (hx + pad)} ${2 * (hy + pad)}" class="if-svg" preserveAspectRatio="xMidYMid meet">`;
+  svg += '<defs><radialGradient id="ifIce" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#eaf6ff"/><stop offset="1" stop-color="#bcdcf2"/></radialGradient></defs>';
+  // goals (defending team tint) just outside each end
+  svg += `<rect x="${-hx - 0.07}" y="${-goalHy}" width="0.07" height="${2 * goalHy}" class="if-goal red"/>`;
+  svg += `<rect x="${hx}" y="${-goalHy}" width="0.07" height="${2 * goalHy}" class="if-goal blue"/>`;
+  // pitch surface
+  svg += `<rect x="${-hx}" y="${-hy}" width="${2 * hx}" height="${2 * hy}" rx="0.04" class="if-ice"/>`;
+  svg += `<line x1="0" y1="${-hy}" x2="0" y2="${hy}" class="if-line"/><circle cx="0" cy="0" r="0.18" class="if-line if-center"/>`;
+  // perimeter walls (solid to ball) — drawn as thick lines, broken at the goal gaps
+  const wall = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="if-wall"/>`;
+  svg += wall(-hx, -hy, hx, -hy) + wall(-hx, hy, hx, hy); // top & bottom (display y flipped, doesn't matter symmetric)
+  svg += wall(-hx, -hy, -hx, -goalHy) + wall(-hx, goalHy, -hx, hy); // left, gap in middle
+  svg += wall(hx, -hy, hx, -goalHy) + wall(hx, goalHy, hx, hy); // right
+  // power-up items on the pitch
+  for (const it of s.items || []) {
+    const d = ifDisp(it.x, it.y);
+    svg += `<g class="if-item"><circle cx="${d.x}" cy="${d.y}" r="0.055"/><text x="${d.x}" y="${d.y}">${IF_PU_ICON[it.type] || '★'}</text></g>`;
+  }
+  // wall blockers (during replay)
+  if (opts.walls) for (const w of opts.walls) { const d = ifDisp(w.x, w.y); svg += `<circle cx="${d.x}" cy="${d.y}" r="${w.r}" class="if-block"/>`; }
+  // pieces (team-coloured), back→front
+  const pieces = (piecePos
+    ? piecePos.map((fp) => { const meta = s.pieces.find((p) => p.seat === fp.id); return { id: fp.id, x: fp.x, y: fp.y, off: fp.o, team: meta ? meta.team : 'red', name: meta ? meta.name : '' }; })
+    : (s.pieces || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, off: false, team: p.team, name: p.name }))
+  ).slice().sort((a, b) => b.y - a.y);
+  for (const p of pieces) {
+    if (p.off) continue;
+    const d = ifDisp(p.x, p.y);
+    const mine = p.id === s.seat;
+    svg += `<g class="if-peng${mine ? ' mine' : ''}">`
+      + `<ellipse cx="${d.x}" cy="${d.y + rp * 0.7}" rx="${rp * 0.9}" ry="${rp * 0.3}" class="if-pshadow"/>`
+      + `<circle cx="${d.x}" cy="${d.y}" r="${rp}" fill="${IF_TEAM[p.team]}" class="if-body" data-pseat="${p.id}"/>`
+      + `<text x="${d.x}" y="${d.y}" class="if-pinit" style="font-size:${rp}px" data-pseat="${p.id}">${escapeHtml(initial(p.name))}</text>`
+      + `</g>`;
+  }
+  // ball
+  const bd = ifDisp(ballPos.x, ballPos.y);
+  svg += `<ellipse cx="${bd.x}" cy="${bd.y + rb * 0.8}" rx="${rb}" ry="${rb * 0.4}" class="if-pshadow"/>`;
+  svg += `<circle cx="${bd.x}" cy="${bd.y}" r="${rb}" class="if-ball"/>`;
+  // aim arrow
+  if (ifCanAim(s)) {
+    const me = (s.pieces || []).find((p) => p.seat === s.seat);
+    if (me && _ifAim) { const g = ifArrowGeom(me, _ifAim); svg += `<line x1="${g.line[0]}" y1="${g.line[1]}" x2="${g.line[2]}" y2="${g.line[3]}" class="if-aim"/><polygon points="${g.head}" class="if-aimhead"/>`; }
+  }
+  svg += '</svg>';
+  board.innerHTML = svg;
+  ifAttachInput(s, board.querySelector('svg'));
+}
+
+function ifAttachInput(s, svgEl) {
+  if (s.phase !== 'commit') return;
+  const me = (s.pieces || []).find((p) => p.seat === s.seat);
+  if (!me || s.you.committed) return;
+  const { hx, hy } = s.pitch;
+  const toPhys = (e) => {
+    const r = svgEl.getBoundingClientRect();
+    const vbW = 2 * (hx + 0.16), vbH = 2 * (hy + 0.16);
+    const vx = ((e.clientX - r.left) / r.width) * vbW - (hx + 0.16);
+    const vy = ((e.clientY - r.top) / r.height) * vbH - (hy + 0.16);
+    return { x: vx, y: -vy };
+  };
+  let st = null, moved = false, onSeat = null;
+  svgEl.style.touchAction = 'none';
+  svgEl.onpointerdown = (e) => { st = { x: e.clientX, y: e.clientY }; moved = false; onSeat = e.target && e.target.getAttribute ? e.target.getAttribute('data-pseat') : null; try { svgEl.setPointerCapture(e.pointerId); } catch { /* ok */ } };
+  svgEl.onpointermove = (e) => {
+    if (!st) return;
+    if (!moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 6) moved = true;
+    if (!moved) return;
+    const p = toPhys(e); const dx = p.x - me.x, dy = p.y - me.y;
+    if (Math.hypot(dx, dy) < 0.02) return;
+    _ifAim = _ifAim || { angle: 0, power: 0.5 };
+    _ifAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    ifUpdateArrow(svgEl, me, _ifAim);
+  };
+  svgEl.onpointerup = () => {
+    // tap on an opponent while Freeze is armed = pick the target
+    if (st && !moved && onSeat != null && _ifPU && _ifPU.type === 'freeze') {
+      const tgt = (s.pieces || []).find((p) => p.seat === Number(onSeat));
+      if (tgt && tgt.team !== s.you.team) { _ifPU.targetId = tgt.seat; renderIfActions(s); }
+    }
+    st = null;
+  };
+}
+
+function ifPlayResolution(s) {
+  const res = s.resolution;
+  if (_ifReplay.round === s.round && _ifReplay.raf) return;
+  if (_ifReplay.raf) cancelAnimationFrame(_ifReplay.raf);
+  _ifReplay = { round: s.round, raf: 0 };
+  const frames = res.frames || [];
+  const start = performance.now();
+  const perFrame = 26;
+  const step = (t) => {
+    let i = Math.floor((t - start) / perFrame);
+    if (i >= frames.length) i = frames.length - 1;
+    if (i < 0) i = 0;
+    const f = frames[i] || { b: s.ball, p: [] };
+    drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls });
+    if (i < frames.length - 1) _ifReplay.raf = requestAnimationFrame(step);
+    else _ifReplay.raf = 0;
+  };
+  _ifReplay.raf = requestAnimationFrame(step);
+}
+
+function renderIfActions(s) {
+  const area = $('ifActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+  if (s.over) {
+    const youWin = (s.winners || []).includes(s.seat);
+    area.appendChild(banner(youWin ? `🏆 ${(s.winningTeam || '').toUpperCase()} wins!` : `${(s.winningTeam || '').toUpperCase()} wins.`, youWin ? 'win' : 'lose'));
+    appendEndButtons(area, s);
+    return;
+  }
+  if (s.phase === 'resolve') { area.appendChild(callout('⚽ Kick! Watch it play out…', true)); return; }
+  if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
+  if (you.committed) {
+    const left = (s.pieces || []).filter((p) => !p.committed).length;
+    area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
+    return;
+  }
+  area.appendChild(prompt('Drag to <b>aim</b> your player, set <b>power</b>, then lock in.'));
+  // power-ups you've banked
+  if ((you.powerUps || []).length) {
+    const purow = document.createElement('div');
+    purow.className = 'if-purow';
+    const counts = {};
+    for (const t of you.powerUps) counts[t] = (counts[t] || 0) + 1;
+    Object.keys(counts).forEach((t) => {
+      const armed = _ifPU && _ifPU.type === t;
+      const b = actBtn(`${IF_PU_ICON[t] || '★'} ${IF_PU_NAME[t] || t}${counts[t] > 1 ? ` ×${counts[t]}` : ''}${armed && t === 'freeze' && _ifPU.targetId != null ? ' ✓' : ''}`, 'if-pubtn' + (armed ? ' on' : ''), () => {
+        _ifPU = armed ? null : { type: t };
+        renderIfActions(s);
+        drawIfBoard(s, { ball: s.ball, pieces: null });
+      });
+      purow.appendChild(b);
+    });
+    area.appendChild(purow);
+    if (_ifPU && _ifPU.type === 'freeze' && _ifPU.targetId == null) area.appendChild(callout('Tap an opponent on the pitch to freeze them.'));
+  }
+  const aim = _ifAim || { angle: 0, power: 0.5 };
+  const meter = document.createElement('div');
+  meter.className = 'pk-powerbar';
+  meter.innerHTML = `<span>Power</span><input type="range" class="pk-slider" min="0" max="100" value="${Math.round(aim.power * 100)}" aria-label="Power"/><b class="pk-powerval">${Math.round(aim.power * 100)}%</b>`;
+  meter.querySelector('.pk-slider').oninput = (e) => {
+    _ifAim = _ifAim || { angle: 0, power: 0 };
+    _ifAim.power = e.target.value / 100;
+    meter.querySelector('.pk-powerval').textContent = e.target.value + '%';
+    const me = (s.pieces || []).find((p) => p.seat === s.seat);
+    const svgEl = $('ifBoard').querySelector('svg');
+    if (me && svgEl) ifUpdateArrow(svgEl, me, _ifAim);
+  };
+  area.appendChild(meter);
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.appendChild(actBtn('🔒 Lock in', 'btn btn-gold btn-lg', () => {
+    if (_ifPU && _ifPU.type === 'freeze' && _ifPU.targetId == null) { toast('Pick an opponent to freeze first.', 'err'); return; }
+    const a = _ifAim || { angle: 0, power: 0.5 };
+    send({ type: 'commitMove', angle: a.angle, power: a.power, usePowerUp: _ifPU || undefined });
+  }));
+  area.appendChild(row);
+}
+
+// ---------------------------------------------------------------------------
 // Contextual actions per phase
 // ---------------------------------------------------------------------------
 
@@ -3415,11 +3653,17 @@ $('mmLeaveBtn').onclick = backToLobby;
 $('waLeaveBtn').onclick = backToLobby;
 $('gpLeaveBtn').onclick = backToLobby;
 $('pkLeaveBtn').onclick = backToLobby;
+$('ifLeaveBtn').onclick = backToLobby;
 
 // Penguin Knockout rules sheet
 $('pkRulesClose').onclick = () => $('pkRulesSheet').classList.add('hidden');
 $('pkRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'pkRulesSheet') $('pkRulesSheet').classList.add('hidden');
+});
+// Ice Football rules sheet
+$('ifRulesClose').onclick = () => $('ifRulesSheet').classList.add('hidden');
+$('ifRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'ifRulesSheet') $('ifRulesSheet').classList.add('hidden');
 });
 
 // Who Am I? rules sheet

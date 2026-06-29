@@ -67,6 +67,7 @@
 .screen.whoami { --accent: #9b8cff; }
 .screen.guessplayer { --accent: #4cc16a; }
 .screen.penguinko { --accent: #5ec8ff; }
+.screen.icefootball { --accent: #6fd0a0; }
 
 /* numbers that change shouldn't jitter */
 .phase-pill, .turn-timer, .gp-oppstat, .wa-pwins, .wa-pq, .pot, #deckCount, .lobby-name { font-variant-numeric: tabular-nums; }
@@ -405,6 +406,37 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pk-powerbar > span { flex: none; }
 .pk-powerval { color: var(--ink); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; flex: none; }
 .pk-slider { flex: 1; accent-color: var(--accent); height: 26px; }
+
+/* Ice Football */
+.if-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+.if-score { display: flex; align-items: center; justify-content: center; gap: 12px; font-family: 'Outfit', sans-serif; }
+.if-team { font-weight: 800; font-size: 0.9rem; }
+.if-team.red { color: #e8536b; }
+.if-team.blue { color: #4f9bf2; }
+.if-scoreval { font-weight: 800; font-size: 1.5rem; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+.if-target { font-size: 0.7rem; color: var(--faint); }
+.if-board-wrap { display: flex; justify-content: center; }
+.if-board { width: 100%; max-width: min(96vw, 540px); border-radius: 14px; overflow: hidden; box-shadow: var(--e2); }
+.if-svg { width: 100%; height: auto; display: block; touch-action: none; background: #0c2740; }
+.if-ice { fill: url(#ifIce); }
+.if-line { stroke: rgba(40, 80, 120, 0.4); stroke-width: 0.012; fill: none; }
+.if-wall { stroke: #2b4a66; stroke-width: 0.03; stroke-linecap: round; }
+.if-goal { opacity: 0.9; }
+.if-goal.red { fill: rgba(232, 83, 107, 0.55); }
+.if-goal.blue { fill: rgba(79, 155, 242, 0.55); }
+.if-item circle { fill: rgba(255, 255, 255, 0.9); stroke: var(--gold); stroke-width: 0.01; }
+.if-item text { text-anchor: middle; dominant-baseline: central; font-size: 0.07px; }
+.if-block { fill: #9aa7bd; stroke: #5b6678; stroke-width: 0.01; }
+.if-peng .if-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.01; }
+.if-peng.mine .if-body { stroke: #fff; stroke-width: 0.02; }
+.if-pinit { text-anchor: middle; dominant-baseline: central; fill: #fff; font-weight: 800; pointer-events: none; }
+.if-pshadow { fill: rgba(0, 20, 40, 0.3); pointer-events: none; }
+.if-ball { fill: #fff; stroke: #111; stroke-width: 0.008; }
+.if-aim { stroke: var(--gold); stroke-width: 0.028; stroke-linecap: round; }
+.if-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.005; }
+.if-purow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.if-pubtn { padding: 7px 11px; border-radius: var(--r-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 700; font-size: 0.82rem; cursor: pointer; }
+.if-pubtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* Shared per-turn countdown chip (Spy / Quoridor / Codenames timers) — top-right,
    tucked under the topbar buttons so it never overlaps the player pills. */

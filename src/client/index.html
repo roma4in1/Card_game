@@ -521,6 +521,45 @@
       </div>
     </div>
 
+    <!-- Ice Football (team physics football) -->
+    <section id="icefootball" class="screen icefootball hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="ifRoom">····</b></div>
+        <div class="phase-pill" id="ifPhase">Round</div>
+        <button id="ifRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="ifLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="ifCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="if-main">
+        <div class="if-score" id="ifScore"></div>
+        <div class="if-board-wrap"><div class="if-board" id="ifBoard"></div></div>
+        <div class="action-area" id="ifActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="ifLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Ice Football rules reference -->
+    <div id="ifRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Ice Football — how to play</h3>
+          <button id="ifRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Two teams on ice. Secretly aim &amp; power your player; everyone launches at once. Kick the ball into their goal.</p>
+        <div class="rules-body">
+          <p><b>Commit:</b> drag from your player to aim, set power, optionally activate a banked power-up. Nobody sees your move until it resolves.</p>
+          <p><b>The ball</b> is lighter &amp; slicker, so kicks carry. Walls keep the ball in — it only leaves through a <b>goal</b>. Your <b>players</b>, though, slide right off the edge (and respawn next round).</p>
+          <p><b>Power-ups</b> sit on the pitch — drive over one to bank it, spend it later: 💥 power shot, 🐘 big body, 🧊 slick, ❄️ freeze a rival, 🧱 wall.</p>
+          <p>First team to the goal target wins.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
