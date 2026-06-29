@@ -347,6 +347,11 @@ function render() {
     renderWhoAmI(s);
     return;
   }
+  if (s.gameId === 'guess-player') {
+    ensureScreen('guessplayer');
+    renderGuessPlayer(s);
+    return;
+  }
   ensureScreen('game');
   maybeNotify(s);
 
@@ -411,11 +416,13 @@ function renderLobby(s) {
     start.style.display = 'none';
     $('lobbyMsg').textContent = 'A match is in progress — you’ll rejoin the lobby when it ends.';
   } else if (s.youAreHost) {
+    const need = (lob.minPlayers ?? 2);
+    const short = s.roster.length < need;
     start.style.display = '';
-    start.disabled = s.roster.length < 2;
-    start.textContent = s.roster.length < 2 ? 'Waiting for players…' : `Start game (${s.roster.length})`;
+    start.disabled = short;
+    start.textContent = short ? 'Waiting for players…' : `Start game (${s.roster.length})`;
     start.onclick = () => send({ type: 'start' });
-    $('lobbyMsg').textContent = s.roster.length < 2 ? 'Share the invite link to add players.' : '';
+    $('lobbyMsg').textContent = short ? (need <= 1 ? 'Add players, or start solo.' : 'Share the invite link to add players.') : '';
   } else {
     start.style.display = 'none';
     $('lobbyMsg').textContent = 'Waiting for the host to start…';
@@ -2291,6 +2298,132 @@ function renderWaQlog(s) {
 function capitalize(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
 
 // ---------------------------------------------------------------------------
+// Guess the Player (Wordle-style football)
+// ---------------------------------------------------------------------------
+
+function renderGuessPlayer(s) {
+  $('gpRoom').textContent = s.room;
+  $('gpPhase').textContent = s.over ? 'Match over' : s.phase === 'roundOver' ? 'Round over' : `Round ${s.roundNo}/${s.roundsTotal}`;
+  $('gpCopy').onclick = copyInvite;
+  $('gpRulesBtn').onclick = () => $('gpRulesSheet').classList.remove('hidden');
+  renderGpOpps(s);
+  renderGpActions(s);
+  renderGpGrid(s);
+  const ul = $('gpLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+function renderGpOpps(s) {
+  const box = $('gpOpps');
+  box.innerHTML = '';
+  const bots = botSeatSet(s);
+  const you = s.you || {};
+  const mine = {
+    seat: s.seat, name: 'You', count: (you.guesses || []).length, solved: you.solved, solvedIn: you.solvedIn, out: you.out, me: true,
+  };
+  [mine, ...(s.opponents || [])].forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'gp-opp' + (p.solved ? ' solved' : '') + (p.out ? ' out' : '');
+    const status = p.solved ? `✓ ${p.solvedIn}` : p.out ? '✗' : `${p.count}`;
+    chip.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.me ? (sgName(s, s.seat) || 'You') : p.name)}</span>` +
+      `<span class="gp-oppname">${escapeHtml(p.me ? 'You' : p.name)}${!p.me && bots.has(p.seat) ? ' 🤖' : ''}</span>` +
+      `<span class="gp-oppstat">${status}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderGpActions(s) {
+  const area = $('gpActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+
+  if (s.over) {
+    const youWin = (s.winners || []).includes(s.seat);
+    area.appendChild(banner((s.winners || []).length === 0 ? 'No winner this match.' : youWin ? '🏆 You win the match!' : 'Match over.', youWin ? 'win' : 'lose'));
+    if (s.target) area.appendChild(callout(`The player was <b>${escapeHtml(s.target)}</b>.`));
+    appendEndButtons(area, s);
+    return;
+  }
+  if (s.phase === 'roundOver') {
+    const who = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
+    area.appendChild(banner(who ? `Round ${s.roundNo}: ${who} won!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
+    area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
+    area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
+    return;
+  }
+  if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
+  if (you.solved) { area.appendChild(callout(`✅ Solved in ${you.solvedIn}! Waiting for the others`, true)); return; }
+  if (you.out) { area.appendChild(callout("Out this round — you'll be back next round.", true)); return; }
+
+  // Your guess box
+  const remain = you.remaining;
+  area.appendChild(prompt(`Guess the secret player${remain != null ? ` — <b>${remain}</b> ${remain === 1 ? 'try' : 'tries'} left` : ''}.`));
+  const form = document.createElement('form');
+  form.className = 'sg-clueform';
+  form.innerHTML =
+    `<input id="gpGuessInput" type="text" placeholder="Guess a player…" autocomplete="off" list="gpGuessList" maxlength="60" />` +
+    `<datalist id="gpGuessList">${(you.allNames || []).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
+  const btn = actBtn('Guess', 'btn btn-gold', null);
+  btn.type = 'submit';
+  form.appendChild(btn);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const val = form.querySelector('#gpGuessInput').value.trim();
+    if (val) send({ type: 'submitGuess', name: val });
+    form.querySelector('#gpGuessInput').value = '';
+  };
+  area.appendChild(form);
+  area.appendChild(actBtn('Give up', 'btn btn-quiet', () => { if (confirm('Give up this round?')) send({ type: 'giveUp' }); }));
+}
+
+const GP_VALUE_ARROW = { higher: '↑', lower: '↓', equal: '=', unknown: '?' };
+function gpValueText(g) {
+  const v = g.marketValue == null ? 'retired' : '€' + Math.round(g.marketValue / 1e6) + 'm';
+  const arrow = GP_VALUE_ARROW[g.fb.value] || '';
+  return `${v} ${arrow}`.trim();
+}
+function gpValueClass(dir) { return dir === 'equal' ? 'hit' : dir === 'unknown' ? 'miss' : 'dir'; }
+
+function renderGpGrid(s) {
+  const box = $('gpGrid');
+  box.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'gp-row gp-head';
+  ['Player', 'Nat', 'Pos', 'League', 'Value', 'Era', 'Status'].forEach((h) => {
+    const c = document.createElement('span');
+    c.className = 'gp-cell';
+    c.textContent = h;
+    head.appendChild(c);
+  });
+  box.appendChild(head);
+
+  const guesses = (s.you && s.you.guesses) || [];
+  if (!guesses.length) {
+    box.appendChild(callout('No guesses yet — name a player to get hints.'));
+  }
+  guesses.forEach((g) => {
+    const row = document.createElement('div');
+    row.className = 'gp-row' + (g.fb.exact ? ' solved' : '');
+    const cell = (text, cls) => `<span class="gp-cell ${cls}">${escapeHtml(text)}</span>`;
+    row.innerHTML =
+      cell(g.name, 'gp-name') +
+      cell(g.nationality, g.fb.nationality) +
+      cell(g.positions.join('/'), g.fb.position) +
+      cell(g.leagues.length ? g.leagues.join('/') : '—', g.fb.league) +
+      cell(gpValueText(g), gpValueClass(g.fb.value)) +
+      cell(g.eraOfPlay, g.fb.era) +
+      cell(g.status, g.fb.status);
+    box.appendChild(row);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Contextual actions per phase
 // ---------------------------------------------------------------------------
 
@@ -2737,11 +2870,18 @@ $('qrLeaveBtn').onclick = backToLobby;
 $('tecLeaveBtn').onclick = backToLobby;
 $('mmLeaveBtn').onclick = backToLobby;
 $('waLeaveBtn').onclick = backToLobby;
+$('gpLeaveBtn').onclick = backToLobby;
 
 // Who Am I? rules sheet
 $('waRulesClose').onclick = () => $('waRulesSheet').classList.add('hidden');
 $('waRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'waRulesSheet') $('waRulesSheet').classList.add('hidden');
+});
+
+// Guess the Player rules sheet
+$('gpRulesClose').onclick = () => $('gpRulesSheet').classList.add('hidden');
+$('gpRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'gpRulesSheet') $('gpRulesSheet').classList.add('hidden');
 });
 
 // Lock In rules sheet

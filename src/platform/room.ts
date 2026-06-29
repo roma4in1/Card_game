@@ -314,7 +314,8 @@ export function viewFor(room: Room, seat: number): Record<string, unknown> {
       phase: 'lobby',
       you: { seat, name: me.name, connected: me.connected },
       lobby: {
-        canStart: !matchInProgress && seat === room.host && connectedSeats(room).length >= 2,
+        canStart: !matchInProgress && seat === room.host && connectedSeats(room).length >= (GAMES[room.gameId]?.minPlayers ?? 2),
+        minPlayers: GAMES[room.gameId]?.minPlayers ?? 2,
         canKick: !matchInProgress && seat === room.host,
         matchInProgress,
         selectedGame: room.gameId,

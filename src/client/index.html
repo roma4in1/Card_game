@@ -444,6 +444,44 @@
       </div>
     </div>
 
+    <!-- Guess the Player (Wordle-style football) -->
+    <section id="guessplayer" class="screen guessplayer hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="gpRoom">····</b></div>
+        <div class="phase-pill" id="gpPhase">Round</div>
+        <button id="gpRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="gpLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="gpCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="gp-main">
+        <div class="gp-opps" id="gpOpps"></div>
+        <div class="action-area" id="gpActions"></div>
+        <div class="gp-grid" id="gpGrid"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="gpLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Guess the Player rules reference -->
+    <div id="gpRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Guess the Player — how to play</h3>
+          <button id="gpRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Wordle for footballers. Everyone hunts the same secret player; fewest guesses wins.</p>
+        <div class="rules-body">
+          <p>Guess any real player. Each guess is graded per attribute: <b class="gp-key hit">green</b> = match, <b class="gp-key partial">yellow</b> = partial (shares one), grey = miss.</p>
+          <p>The <b>value</b> column shows an arrow: <b>↑</b> the target is worth more than your guess, <b>↓</b> worth less, <b>=</b> same tier.</p>
+          <p>You all race the same target at your own pace — you only see your own grid (opponents show a guess count). First/fewest to solve wins the round; best over the match wins.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
