@@ -2711,6 +2711,116 @@ function pkImpactSvg(cx, cy, k, strength) {
   return s;
 }
 
+// ── First-person replay camera (pseudo-3D, pure SVG) ───────────────────────────
+// Ride your own penguin: a pinhole camera sits at your piece at eye height, looks
+// along your direction of travel, and billboards the other penguins on the ice.
+let _pkPov = true;          // first-person replay on/off (planning is always top-down)
+let _pkPovDir = null;       // smoothed look direction {x,y}
+let _pkPovCtx = null;       // {s,res,i} of the last POV frame — lets the toggle redraw
+const PK_POV = { h: 0.05, focal: 1.4, near: 0.05, vbX: 1, vbTop: -0.72, vbH: 1.6 };
+
+function pkPovLookDir(frames, i, myId, camx, camy) {
+  const cur = frames[i] && frames[i].find((q) => q.id === myId);
+  const prevF = frames[Math.max(0, i - 2)];
+  const prev = prevF && prevF.find((q) => q.id === myId);
+  let dx = 0, dy = 0;
+  if (cur && prev) { dx = cur.x - prev.x; dy = cur.y - prev.y; }
+  if (Math.hypot(dx, dy) > 0.002) {
+    const sp = Math.hypot(dx, dy), nd = { x: dx / sp, y: dy / sp };
+    _pkPovDir = _pkPovDir ? { x: _pkPovDir.x * 0.7 + nd.x * 0.3, y: _pkPovDir.y * 0.7 + nd.y * 0.3 } : nd;
+  } else if (!_pkPovDir) { // stationary → face the arena centre so there's something to see
+    const c = Math.hypot(camx, camy) || 1;
+    _pkPovDir = { x: -camx / c, y: -camy / c };
+  }
+  const m = Math.hypot(_pkPovDir.x, _pkPovDir.y) || 1;
+  return { x: _pkPovDir.x / m, y: _pkPovDir.y / m };
+}
+
+function drawPkPov(s, res, i) {
+  const board = $('pkBoard');
+  const frames = res.frames || [];
+  const frame = frames[i] || [];
+  const myId = s.seat;
+  const me = frame.find((q) => q.id === myId && q.a);
+  if (!me) { // you're a spectator or already melted — fall back to the overhead view
+    drawPkBoard(s, { radius: res.radius, positions: frame, aim: null, impacts: res.impacts, frame: i });
+    return;
+  }
+  _pkPovCtx = { s, res, i };
+  const C = { x: me.x, y: me.y };
+  const f = pkPovLookDir(frames, i, myId, C.x, C.y);
+  const R = { x: f.y, y: -f.x }; // camera-right = forward rotated −90°
+  const rp = s.penguinRadius || 0.075;
+  const { h, focal, near, vbX, vbTop, vbH } = PK_POV;
+  const bottom = vbTop + vbH;
+  const clampX = (x) => Math.max(-vbX * 1.6, Math.min(vbX * 1.6, x));
+  const project = (wx, wy, z) => {
+    const rx = wx - C.x, ry = wy - C.y;
+    const d = rx * f.x + ry * f.y;
+    if (d < near) return null;
+    const u = rx * R.x + ry * R.y;
+    return { sx: focal * u / d, sy: focal * (h - z) / d, d };
+  };
+
+  let svg = `<svg viewBox="${-vbX} ${vbTop} ${2 * vbX} ${vbH}" class="pk-svg pk-pov" preserveAspectRatio="xMidYMid slice">`;
+  svg += '<defs>'
+    + '<linearGradient id="pkPovSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#071a2c"/><stop offset="0.5" stop-color="#103252"/><stop offset="0.62" stop-color="#1f5076"/></linearGradient>'
+    + '<radialGradient id="pkPovIce" cx="50%" cy="-10%" r="130%"><stop offset="0" stop-color="#dcefff"/><stop offset="1" stop-color="#8bbde2"/></radialGradient>'
+    + '</defs>';
+  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="url(#pkPovSky)"/>`;
+
+  // ice floor: project the rim, fill everything below the rim curve as ice (camera is on the floe)
+  const N = 96, rimPts = [];
+  for (let k = 0; k < N; k++) {
+    const th = (k / N) * Math.PI * 2;
+    const p = project(res.radius * Math.cos(th), res.radius * Math.sin(th), 0);
+    if (p) rimPts.push(p);
+  }
+  rimPts.sort((a, b) => a.sx - b.sx);
+  if (rimPts.length > 1) {
+    let poly = `${clampX(rimPts[0].sx)},${bottom} `;
+    for (const p of rimPts) poly += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
+    poly += `${clampX(rimPts[rimPts.length - 1].sx)},${bottom}`;
+    svg += `<polygon points="${poly}" fill="url(#pkPovIce)"/>`;
+    let rim = '';
+    for (const p of rimPts) rim += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
+    svg += `<polyline points="${rim.trim()}" fill="none" stroke="#f2faff" stroke-width="0.014" opacity="0.75"/>`;
+  }
+
+  // other penguins as billboards, far → near
+  const others = frame.filter((p) => p.a && p.id !== myId)
+    .map((p) => ({ p, pr: project(p.x, p.y, rp) }))
+    .filter((o) => o.pr).sort((a, b) => b.pr.d - a.pr.d);
+  for (const { p, pr } of others) {
+    const rad = Math.min(0.95, focal * rp / pr.d);
+    const base = focal * h / pr.d;
+    svg += `<ellipse cx="${pr.sx.toFixed(3)}" cy="${base.toFixed(3)}" rx="${(rad * 1.05).toFixed(3)}" ry="${(rad * 0.32).toFixed(3)}" class="pk-pshadow"/>`;
+    svg += `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" fill="${seatColor(p.id)}" class="pk-body"/>`;
+    svg += `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="pk-face" style="font-size:${(rad * 1.5).toFixed(3)}px">🐧</text>`;
+    const nm = (s.penguins || []).find((q) => q.seat === p.id);
+    if (nm && rad > 0.05) svg += `<text x="${pr.sx.toFixed(3)}" y="${(pr.sy - rad - 0.05).toFixed(3)}" class="pk-povname">${escapeHtml(nm.name)}</text>`;
+  }
+
+  // impact flashes, projected to ice level
+  if (res.impacts) for (const im of res.impacts) {
+    const age = i - im.f;
+    if (age < 0 || age > IMPACT_SPAN) continue;
+    const pr = project(im.x, im.y, 0.02);
+    if (pr) svg += pkImpactSvg(pr.sx, pr.sy, age / IMPACT_SPAN, im.s);
+  }
+  // your colour vignette so you know whose eyes you're in
+  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="none" stroke="${seatColor(myId)}" stroke-width="0.05" opacity="0.5"/>`;
+  svg += '</svg>';
+  board.innerHTML = svg;
+}
+
+function pkRedrawCurrent() {
+  if (!_pkPovCtx) return;
+  const { s, res, i } = _pkPovCtx;
+  if (_pkPov) drawPkPov(s, res, i);
+  else drawPkBoard(s, { radius: res.radius, positions: res.frames[i] || [], aim: null, impacts: res.impacts, frame: i });
+}
+
 function renderPenguinKnockout(s) {
   $('pkRoom').textContent = s.room;
   $('pkPhase').textContent = s.over ? 'Game over' : s.phase === 'resolve' ? 'Launch!' : `Round ${s.round}`;
@@ -2912,6 +3022,7 @@ function pkPlayResolution(s) {
   if (_pkReplay.raf) cancelAnimationFrame(_pkReplay.raf);
   _pkReplay = { round: s.round, raf: 0 };
   _pkNameShow = null; // hide any name tag during the launch
+  _pkPovDir = null;   // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
   const start = performance.now();
@@ -2921,9 +3032,10 @@ function pkPlayResolution(s) {
     let i = Math.floor((t - start) / perFrame);
     if (i >= total) i = total - 1;
     if (i < 0) i = 0;
-    drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null, impacts: res.impacts, frame: i });
+    if (_pkPov) drawPkPov(s, res, i);
+    else drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null, impacts: res.impacts, frame: i });
     if (i < total - 1) _pkReplay.raf = requestAnimationFrame(step);
-    else pkAnimateShrink(s, res, melted);
+    else pkAnimateShrink(s, res, melted); // cut to the overhead view for the melt/shrink aftermath
   };
   _pkReplay.raf = requestAnimationFrame(step);
 }
@@ -2953,7 +3065,19 @@ function renderPkActions(s) {
     appendEndButtons(area, s);
     return;
   }
-  if (s.phase === 'resolve') { area.appendChild(callout('🐧 Launch! Watch the chaos…', true)); return; }
+  if (s.phase === 'resolve') {
+    const c = callout('🐧 Launch! Watch the chaos…', true);
+    if (s.you && !s.you.spectator) {
+      const btn = document.createElement('button');
+      btn.className = 'pk-povtoggle';
+      const label = () => (btn.textContent = _pkPov ? '📺 Overhead view' : '🥽 First-person');
+      label();
+      btn.onclick = () => { _pkPov = !_pkPov; label(); pkRedrawCurrent(); };
+      c.appendChild(btn);
+    }
+    area.appendChild(c);
+    return;
+  }
   if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
   if (!you.alive) { area.appendChild(callout("You're out — watch the rest play out.", true)); return; }
   if (you.committed) {

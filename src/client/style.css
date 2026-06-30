@@ -401,6 +401,10 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pk-namelabel text { fill: #fff; font: 700 0.085px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; }
 .pk-aim { stroke: var(--gold); stroke-width: 0.03; stroke-linecap: round; opacity: 0.95; }
 .pk-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.006; }
+.pk-pov .pk-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.012; paint-order: stroke; }
+.pk-povname { fill: #fff; font: 700 0.07px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(4, 10, 18, 0.85); stroke-width: 0.02; }
+.pk-povtoggle { margin-left: 10px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent); background: rgba(94, 200, 255, 0.12); color: var(--accent); font: 700 0.8rem 'Outfit', sans-serif; cursor: pointer; }
+.pk-povtoggle:hover { background: rgba(94, 200, 255, 0.22); }
 
 .pk-powerbar { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--muted); margin: 8px 0; }
 .pk-powerbar > span { flex: none; }
