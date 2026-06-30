@@ -390,9 +390,9 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pk-board-wrap { display: flex; justify-content: center; }
 .pk-board { width: 100%; max-width: min(94vw, 460px); border-radius: 16px; overflow: hidden; box-shadow: var(--e2); }
 .pk-svg { width: 100%; height: auto; display: block; touch-action: none; }
-.pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.85); stroke-width: 0.014; }
-.pk-ice-side { fill: #25506e; }
-.pk-ice-sheen { fill: #ffffff; opacity: 0.28; pointer-events: none; }
+.pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.9); stroke-width: 0.01; }
+.pk-ice-cast { fill: rgba(0, 12, 26, 0.45); pointer-events: none; }
+.pk-ice-sheen { fill: #ffffff; opacity: 0.22; pointer-events: none; }
 .pk-peng .pk-body { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.012; }
 .pk-peng.mine .pk-body { stroke: #fff; stroke-width: 0.02; }
 .pk-pshadow { fill: rgba(0, 25, 45, 0.32); pointer-events: none; }

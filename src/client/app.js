@@ -2796,16 +2796,18 @@ function drawPkBoard(s, opts) {
   let svg = `<svg viewBox="${-PK_VB} ${-PK_VB} ${2 * PK_VB} ${2 * PK_VB}" class="pk-svg" preserveAspectRatio="xMidYMid meet">`;
   svg += '<defs>'
     + '<radialGradient id="pkSea" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="#13314c"/><stop offset="1" stop-color="#08182a"/></radialGradient>'
-    + '<radialGradient id="pkIce" cx="42%" cy="26%" r="85%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#dceeff"/><stop offset="1" stop-color="#a6d2ee"/></radialGradient>'
-    + '<linearGradient id="pkWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#84b8d8"/><stop offset="1" stop-color="#2b5876"/></linearGradient>'
+    + '<radialGradient id="pkIce" cx="42%" cy="30%" r="80%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.55" stop-color="#dcefff"/><stop offset="1" stop-color="#9ec9e8"/></radialGradient>'
+    + '<linearGradient id="pkWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fb4d8"/><stop offset="0.55" stop-color="#4d83a8"/><stop offset="1" stop-color="#2b5070"/></linearGradient>'
     + '</defs>';
   // sea
   svg += `<rect x="${-PK_VB}" y="${-PK_VB}" width="${2 * PK_VB}" height="${2 * PK_VB}" fill="url(#pkSea)"/>`;
-  // ice slab: underside ellipse + side wall + top surface
-  svg += `<ellipse cx="0" cy="${depth}" rx="${R}" ry="${ry}" class="pk-ice-side"/>`;
-  svg += `<rect x="${-R}" y="0" width="${2 * R}" height="${depth}" fill="url(#pkWall)"/>`;
+  // soft shadow the slab casts on the water
+  svg += `<ellipse cx="0" cy="${depth * 1.6}" rx="${R * 1.02}" ry="${ry * 1.04}" class="pk-ice-cast"/>`;
+  // ice slab — "coin" trick: a lower ellipse peeks out below the top as a curved frozen edge (no hard corners)
+  svg += `<ellipse cx="0" cy="${depth}" rx="${R}" ry="${ry}" fill="url(#pkWall)"/>`;
   svg += `<ellipse cx="0" cy="0" rx="${R}" ry="${ry}" class="pk-ice"/>`;
-  svg += `<ellipse cx="0" cy="${-ry * 0.18}" rx="${R * 0.78}" ry="${ry * 0.6}" class="pk-ice-sheen"/>`;
+  // glossy sheen across the top surface
+  svg += `<ellipse cx="${-R * 0.12}" cy="${-ry * 0.22}" rx="${R * 0.72}" ry="${ry * 0.52}" class="pk-ice-sheen"/>`;
 
   for (const p of list) {
     if (!p.a) continue;
