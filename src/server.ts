@@ -27,6 +27,7 @@ import {
   leave,
   botMove,
   hasHumans,
+  hasConnectedHumans,
   tick,
   viewFor,
   MAX_SEATS,
@@ -37,6 +38,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = join(__dirname, 'client');
 const PORT = Number(process.env.PORT) || 3000;
 const ROOM_TTL_MS = 60 * 60 * 1000;
+// Once every human goes offline (closed tab / lost connection), a room of nothing but bots
+// is reaped after a short grace — long enough to survive a brief blip and reconnect.
+const EMPTY_GRACE_MS = 90 * 1000;
 
 const rooms = new Map<string, Room>();
 // Sockets are transport state, kept out of the engine. One slot per seat.
@@ -63,6 +67,7 @@ function broadcast(room: Room) {
 // delay, then broadcast (which may schedule the following bot move, and so on).
 function scheduleBots(room: Room) {
   if (botTimers.has(room.code) || !rooms.has(room.code)) return;
+  if (!hasConnectedHumans(room)) return; // don't burn cycles playing to an empty room
   if (!botMove(room)) return;
   const timer = setTimeout(() => {
     botTimers.delete(room.code);
@@ -283,14 +288,16 @@ setInterval(() => {
   for (const room of rooms.values()) if (tick(room)) broadcast(room);
 }, 500).unref();
 
-// Reap abandoned rooms (no connected human for over an hour; bots don't count).
+// Reap rooms once every human is gone. A bot-only room (everyone closed their tab) is
+// dropped after a short grace; the hour-long TTL is the outer backstop. Bots don't count.
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    const anyHuman = room.members.some((m) => m && !m.bot && m.connected);
-    if (!anyHuman && now - room.lastActivity > ROOM_TTL_MS) dropRoom(code);
+    if (hasConnectedHumans(room)) { room.emptyHumanSince = null; continue; }
+    room.emptyHumanSince ??= now;
+    if (now - room.emptyHumanSince > EMPTY_GRACE_MS || now - room.lastActivity > ROOM_TTL_MS) dropRoom(code);
   }
-}, 10 * 60 * 1000).unref();
+}, 30 * 1000).unref();
 
 server.listen(PORT, () => console.log(`Love & Liar server on http://localhost:${PORT}`));
 

@@ -311,6 +311,41 @@ function labeledCard(tag, p, opts) {
   return wrap;
 }
 
+// FIFA-style "pack walkout": a full-screen reveal whose drama scales with the player's
+// rarity tier (bronze → silver → gold → TOP → ICON). Pure CSS/SVG, auto-dismisses.
+let _walkoutActive = false;
+let _lastWalkoutKey = null;
+function playerWalkout(p) {
+  if (_walkoutActive || !p) return;
+  _walkoutActive = true;
+  const t = pcTier(p);
+  const big = t.cls === 'gold' || t.cls === 'special' || t.cls === 'icon';
+  const ov = document.createElement('div');
+  ov.className = 'walkout tier-' + t.cls;
+  const beams = t.cls === 'bronze' ? '' :
+    `<div class="wo-beams">${Array.from({ length: 12 }, (_, i) => `<span style="--a:${i * 30}deg"></span>`).join('')}</div>`;
+  const nSpark = t.cls === 'bronze' ? 0 : t.cls === 'silver' ? 12 : big ? 26 : 16;
+  const sparks = `<div class="wo-sparks">${Array.from({ length: nSpark }, () => {
+    const x = (Math.random() * 100).toFixed(1), y = (40 + Math.random() * 60).toFixed(1);
+    const d = (Math.random() * 1.1).toFixed(2), sc = (0.5 + Math.random() * 0.9).toFixed(2);
+    return `<span style="left:${x}%;top:${y}%;--d:${d}s;--sc:${sc}"></span>`;
+  }).join('')}</div>`;
+  ov.innerHTML = `<div class="wo-flash"></div><div class="wo-glow"></div>${beams}<div class="wo-stage"></div>${sparks}<div class="wo-hint">tap to continue</div>`;
+  const card = playerCardEl(p, {});
+  card.classList.add('wo-card');
+  ov.querySelector('.wo-stage').appendChild(card);
+  document.body.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add('show'));
+  let done = false;
+  const close = () => {
+    if (done) return; done = true;
+    ov.classList.add('out');
+    setTimeout(() => { ov.remove(); _walkoutActive = false; }, 420);
+  };
+  ov.addEventListener('click', close);
+  setTimeout(close, big ? 4600 : t.cls === 'bronze' ? 2400 : 3600);
+}
+
 // Win confetti (skips under reduced-motion)
 function fireConfetti() {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -2410,7 +2445,7 @@ function renderWaActions(s) {
     const youWin = (s.winners || []).includes(s.seat);
     const tie = (s.winners || []).length > 1;
     area.appendChild(banner((s.winners || []).length === 0 ? 'No winner — nobody guessed enough.' : youWin ? '🏆 You win the match!' : tie ? 'Match over — a tie.' : 'Match over.', youWin ? 'win' : 'lose'));
-    if (s.targetCard) area.appendChild(labeledCard('Last secret player', s.targetCard, { pop: true }));
+    if (s.targetCard) { area.appendChild(labeledCard('Last secret player', s.targetCard, { pop: true })); revealWalkout(s, 'final'); }
     else if (s.target) area.appendChild(callout(`Last secret player: <b>${escapeHtml(s.target)}</b>`));
     appendEndButtons(area, s);
     return;
@@ -2419,7 +2454,7 @@ function renderWaActions(s) {
   if (s.phase === 'roundOver') {
     const wonName = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
     area.appendChild(banner(wonName ? `Round ${s.roundNo}: ${wonName} guessed it!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
-    if (s.targetCard) area.appendChild(labeledCard('The secret player', s.targetCard, { pop: true }));
+    if (s.targetCard) { area.appendChild(labeledCard('The secret player', s.targetCard, { pop: true })); revealWalkout(s, 'r' + s.roundNo); }
     else area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
     area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
     return;
@@ -2437,10 +2472,19 @@ function renderWaActions(s) {
   if (!you.isTurn) {
     const who = s.activeSeat != null ? sgName(s, s.activeSeat) : '';
     area.appendChild(callout(`Waiting for <b>${escapeHtml(who)}</b> to ask or guess`, true));
+    area.appendChild(waGiveUpBtn());
     return;
   }
   // It's your turn — build the question menu + a guess box.
   renderWaMenu(area, s);
+  area.appendChild(waGiveUpBtn());
+}
+
+// Concede the round. The secret player is revealed (with the walkout) once the round ends.
+function waGiveUpBtn() {
+  return actBtn('🏳️ Give up', 'btn btn-quiet', () => {
+    if (confirm('Give up this round? You’ll be out, and the player is revealed when the round ends.')) send({ type: 'giveUp' });
+  });
 }
 
 function renderWaMenu(area, s) {
@@ -2591,6 +2635,15 @@ function renderGpOpps(s) {
   });
 }
 
+// Fire the walkout once per reveal (render*Actions re-runs on every state push). Shared by
+// the player-card reveal games (Guess the Player, Who Am I).
+function revealWalkout(s, phaseKey) {
+  const key = s.room + ':' + phaseKey + ':' + (s.target || (s.targetCard && s.targetCard.name) || '');
+  if (_lastWalkoutKey === key) return;
+  _lastWalkoutKey = key;
+  playerWalkout(s.targetCard);
+}
+
 function renderGpActions(s) {
   const area = $('gpActions');
   area.innerHTML = '';
@@ -2599,7 +2652,7 @@ function renderGpActions(s) {
   if (s.over) {
     const youWin = (s.winners || []).includes(s.seat);
     area.appendChild(banner((s.winners || []).length === 0 ? 'No winner this match.' : youWin ? '🏆 You win the match!' : 'Match over.', youWin ? 'win' : 'lose'));
-    if (s.targetCard) area.appendChild(labeledCard('The player', s.targetCard, { pop: true }));
+    if (s.targetCard) { area.appendChild(labeledCard('The player', s.targetCard, { pop: true })); revealWalkout(s, 'final'); }
     else if (s.target) area.appendChild(callout(`The player was <b>${escapeHtml(s.target)}</b>.`));
     appendEndButtons(area, s);
     return;
@@ -2607,7 +2660,7 @@ function renderGpActions(s) {
   if (s.phase === 'roundOver') {
     const who = s.roundWinner != null ? sgName(s, s.roundWinner) : null;
     area.appendChild(banner(who ? `Round ${s.roundNo}: ${who} won!` : `Round ${s.roundNo}: nobody got it.`, s.roundWinner === s.seat ? 'win' : ''));
-    if (s.targetCard) area.appendChild(labeledCard('The player', s.targetCard, { pop: true }));
+    if (s.targetCard) { area.appendChild(labeledCard('The player', s.targetCard, { pop: true })); revealWalkout(s, 'r' + s.roundNo); }
     else area.appendChild(callout(`The player was <b>${escapeHtml(s.target || '?')}</b>.`));
     area.appendChild(actBtn(`Next round (${s.roundNo + 1}/${s.roundsTotal}) ▸`, 'btn btn-primary btn-lg', () => send({ type: 'nextRound' })));
     return;
@@ -2719,6 +2772,19 @@ let _pkPovDir = null;       // smoothed look direction {x,y}
 let _pkPovCtx = null;       // {s,res,i} of the last POV frame — lets the toggle redraw
 const PK_POV = { h: 0.05, focal: 1.4, near: 0.05, vbX: 1, vbTop: -0.72, vbH: 1.6 };
 
+// Blend two ticks for smooth slow-motion playback. ff = fractional frame index.
+function pkLerpFrame(frames, ff) {
+  const total = frames.length;
+  const i = Math.min(total - 1, Math.max(0, Math.floor(ff)));
+  const j = Math.min(total - 1, i + 1);
+  const fr = ff - i;
+  const B = frames[j];
+  return frames[i].map((a) => {
+    const b = B.find((q) => q.id === a.id) || a;
+    return { id: a.id, x: a.x + (b.x - a.x) * fr, y: a.y + (b.y - a.y) * fr, a: a.a };
+  });
+}
+
 function pkPovLookDir(frames, i, myId, camx, camy) {
   const cur = frames[i] && frames[i].find((q) => q.id === myId);
   const prevF = frames[Math.max(0, i - 2)];
@@ -2736,17 +2802,17 @@ function pkPovLookDir(frames, i, myId, camx, camy) {
   return { x: _pkPovDir.x / m, y: _pkPovDir.y / m };
 }
 
-function drawPkPov(s, res, i) {
+function drawPkPov(s, res, positions, i) {
   const board = $('pkBoard');
   const frames = res.frames || [];
-  const frame = frames[i] || [];
+  const frame = positions || frames[i] || [];
   const myId = s.seat;
   const me = frame.find((q) => q.id === myId && q.a);
   if (!me) { // you're a spectator or already melted — fall back to the overhead view
     drawPkBoard(s, { radius: res.radius, positions: frame, aim: null, impacts: res.impacts, frame: i });
     return;
   }
-  _pkPovCtx = { s, res, i };
+  _pkPovCtx = { s, res, positions: frame, i };
   const C = { x: me.x, y: me.y };
   const f = pkPovLookDir(frames, i, myId, C.x, C.y);
   const R = { x: f.y, y: -f.x }; // camera-right = forward rotated −90°
@@ -2816,9 +2882,9 @@ function drawPkPov(s, res, i) {
 
 function pkRedrawCurrent() {
   if (!_pkPovCtx) return;
-  const { s, res, i } = _pkPovCtx;
-  if (_pkPov) drawPkPov(s, res, i);
-  else drawPkBoard(s, { radius: res.radius, positions: res.frames[i] || [], aim: null, impacts: res.impacts, frame: i });
+  const { s, res, positions, i } = _pkPovCtx;
+  if (_pkPov) drawPkPov(s, res, positions, i);
+  else drawPkBoard(s, { radius: res.radius, positions: positions || res.frames[i] || [], aim: null, impacts: res.impacts, frame: i });
 }
 
 function renderPenguinKnockout(s) {
@@ -3025,16 +3091,20 @@ function pkPlayResolution(s) {
   _pkPovDir = null;   // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
+  if (total < 2) { drawPkBoard(s, { radius: res.radius, positions: frames[0] || [], aim: null }); return; }
   const start = performance.now();
-  const perFrame = 18; // snappier launch
+  // Stretch the (often short) sim to a watchable length — min 10s — and interpolate between
+  // ticks so it stays smooth at any speed. Kept ≤ the server's resolve hold.
+  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
   const melted = new Set(res.melted || []);
   const step = (t) => {
-    let i = Math.floor((t - start) / perFrame);
-    if (i >= total) i = total - 1;
-    if (i < 0) i = 0;
-    if (_pkPov) drawPkPov(s, res, i);
-    else drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null, impacts: res.impacts, frame: i });
-    if (i < total - 1) _pkReplay.raf = requestAnimationFrame(step);
+    const prog = Math.min(1, (t - start) / REPLAY_MS);
+    const ff = prog * (total - 1);
+    const i = Math.round(ff);
+    const positions = pkLerpFrame(frames, ff);
+    if (_pkPov) drawPkPov(s, res, positions, i);
+    else drawPkBoard(s, { radius: res.radius, positions, aim: null, impacts: res.impacts, frame: i });
+    if (prog < 1) _pkReplay.raf = requestAnimationFrame(step);
     else pkAnimateShrink(s, res, melted); // cut to the overhead view for the melt/shrink aftermath
   };
   _pkReplay.raf = requestAnimationFrame(step);
@@ -3119,6 +3189,10 @@ const IF_PU_NAME = { powerShot: 'Power shot', bigPiece: 'Big body', slick: 'Slic
 let _ifAim = null;       // {angle, power}
 let _ifPU = null;        // armed power-up {type, targetId?}
 let _ifReplay = { round: -1, raf: 0 };
+let _ifPov = true;       // first-person replay on/off (planning is always top-down)
+let _ifPovDir = null;    // smoothed look direction {x,y}
+let _ifPovCtx = null;    // {s,res,frame,i} of the last POV frame — lets the toggle redraw
+const IF_POV = { h: 0.045, focal: 1.4, near: 0.05, vbX: 1, vbTop: -0.72, vbH: 1.6 };
 const ifDisp = (x, y) => ({ x, y: -y }); // top-down (just flip y)
 
 function renderIceFootball(s) {
@@ -3290,19 +3364,167 @@ function ifPlayResolution(s) {
   if (_ifReplay.round === s.round && _ifReplay.raf) return;
   if (_ifReplay.raf) cancelAnimationFrame(_ifReplay.raf);
   _ifReplay = { round: s.round, raf: 0 };
+  _ifPovDir = null; // fresh camera heading for this round
   const frames = res.frames || [];
+  const total = frames.length;
+  if (total < 2) { drawIfBoard(s, { ball: frames[0] ? frames[0].b : s.ball, pieces: frames[0] ? frames[0].p : null, walls: res.walls }); return; }
   const start = performance.now();
-  const perFrame = 17; // snappier replay
+  // Stretch the sim to a watchable length (min 10s) and interpolate between ticks for smoothness.
+  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
   const step = (t) => {
-    let i = Math.floor((t - start) / perFrame);
-    if (i >= frames.length) i = frames.length - 1;
-    if (i < 0) i = 0;
-    const f = frames[i] || { b: s.ball, p: [] };
-    drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
-    if (i < frames.length - 1) _ifReplay.raf = requestAnimationFrame(step);
+    const prog = Math.min(1, (t - start) / REPLAY_MS);
+    const ff = prog * (total - 1);
+    const i = Math.round(ff);
+    const f = ifLerpFrame(frames, ff);
+    if (_ifPov) drawIfPov(s, res, f, i);
+    else drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
+    if (prog < 1) _ifReplay.raf = requestAnimationFrame(step);
     else _ifReplay.raf = 0;
   };
   _ifReplay.raf = requestAnimationFrame(step);
+}
+
+// Blend two ticks (ball + pieces) for smooth slow-motion playback.
+function ifLerpFrame(frames, ff) {
+  const total = frames.length;
+  const i = Math.min(total - 1, Math.max(0, Math.floor(ff)));
+  const j = Math.min(total - 1, i + 1);
+  const fr = ff - i;
+  const A = frames[i], B = frames[j];
+  const b = { x: A.b.x + (B.b.x - A.b.x) * fr, y: A.b.y + (B.b.y - A.b.y) * fr };
+  const p = A.p.map((a) => { const bb = B.p.find((q) => q.id === a.id) || a; return { id: a.id, x: a.x + (bb.x - a.x) * fr, y: a.y + (bb.y - a.y) * fr, o: a.o }; });
+  return { b, p };
+}
+
+// ── Ice Football first-person replay camera (pseudo-3D, pure SVG) ───────────────
+function ifPovLookDir(frames, i, myId, cam, ball) {
+  const cur = frames[i] && frames[i].p.find((q) => q.id === myId);
+  const prevF = frames[Math.max(0, i - 2)];
+  const prev = prevF && prevF.p.find((q) => q.id === myId);
+  let dx = 0, dy = 0;
+  if (cur && prev) { dx = cur.x - prev.x; dy = cur.y - prev.y; }
+  if (Math.hypot(dx, dy) > 0.002) {
+    const sp = Math.hypot(dx, dy), nd = { x: dx / sp, y: dy / sp };
+    _ifPovDir = _ifPovDir ? { x: _ifPovDir.x * 0.7 + nd.x * 0.3, y: _ifPovDir.y * 0.7 + nd.y * 0.3 } : nd;
+  } else if (!_ifPovDir) { // stationary → look at the ball
+    const bx = ball.x - cam.x, by = ball.y - cam.y, m = Math.hypot(bx, by) || 1;
+    _ifPovDir = { x: bx / m, y: by / m };
+  }
+  const m = Math.hypot(_ifPovDir.x, _ifPovDir.y) || 1;
+  return { x: _ifPovDir.x / m, y: _ifPovDir.y / m };
+}
+
+function drawIfPov(s, res, frame, i) {
+  const board = $('ifBoard');
+  const { hx, hy, goalHy, rp, rb } = s.pitch;
+  const myId = s.seat;
+  const me = frame.p.find((q) => q.id === myId && !q.o);
+  if (!me) { // spectator or off-pitch — overhead fallback
+    drawIfBoard(s, { ball: frame.b, pieces: frame.p, walls: res.walls, impacts: res.impacts, frame: i });
+    return;
+  }
+  _ifPovCtx = { s, res, frame, i };
+  const C = { x: me.x, y: me.y };
+  const f = ifPovLookDir(res.frames, i, myId, C, frame.b);
+  const R = { x: f.y, y: -f.x };
+  const { h, focal, near, vbX, vbTop, vbH } = IF_POV;
+  const bottom = vbTop + vbH;
+  const clampX = (x) => Math.max(-vbX * 1.6, Math.min(vbX * 1.6, x));
+  const project = (wx, wy, z) => {
+    const rx = wx - C.x, ry = wy - C.y;
+    const d = rx * f.x + ry * f.y;
+    if (d < near) return null;
+    const u = rx * R.x + ry * R.y;
+    return { sx: focal * u / d, sy: focal * (h - z) / d, d };
+  };
+
+  let svg = `<svg viewBox="${-vbX} ${vbTop} ${2 * vbX} ${vbH}" class="if-svg if-pov" preserveAspectRatio="xMidYMid slice">`;
+  svg += '<defs>'
+    + '<linearGradient id="ifPovSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1c2e"/><stop offset="0.5" stop-color="#143a4a"/><stop offset="0.62" stop-color="#1c5a5e"/></linearGradient>'
+    + '<radialGradient id="ifPovIce" cx="50%" cy="-10%" r="130%"><stop offset="0" stop-color="#eef8ff"/><stop offset="1" stop-color="#a9d2ec"/></radialGradient>'
+    + '</defs>';
+  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="url(#ifPovSky)"/>`;
+
+  // pitch floor: project the perimeter, fill below the rim curve
+  const rimPts = [];
+  const edge = (ax, ay, bx, by, n) => { for (let k = 0; k <= n; k++) { const tt = k / n; const p = project(ax + (bx - ax) * tt, ay + (by - ay) * tt, 0); if (p) rimPts.push(p); } };
+  edge(-hx, -hy, hx, -hy, 28); edge(hx, -hy, hx, hy, 18); edge(hx, hy, -hx, hy, 28); edge(-hx, hy, -hx, -hy, 18);
+  rimPts.sort((a, b) => a.sx - b.sx);
+  if (rimPts.length > 1) {
+    let poly = `${clampX(rimPts[0].sx)},${bottom} `;
+    for (const p of rimPts) poly += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
+    poly += `${clampX(rimPts[rimPts.length - 1].sx)},${bottom}`;
+    svg += `<polygon points="${poly}" fill="url(#ifPovIce)"/>`;
+  }
+  // halfway line for orientation
+  let mid = '';
+  for (let k = 0; k <= 20; k++) { const p = project(0, -hy + (2 * hy) * (k / 20), 0); if (p) mid += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `; }
+  if (mid) svg += `<polyline points="${mid.trim()}" fill="none" stroke="#ffffff" stroke-width="0.01" opacity="0.4"/>`;
+
+  // goals (posts + crossbar + tinted mouth) at each end
+  const goal = (ex, color) => {
+    const postH = 0.16, gy = goalHy;
+    const bl = project(ex, -gy, 0), br = project(ex, gy, 0), tl = project(ex, -gy, postH), tr = project(ex, gy, postH);
+    let g = '';
+    if (bl && br && tl && tr) g += `<polygon points="${bl.sx.toFixed(3)},${bl.sy.toFixed(3)} ${br.sx.toFixed(3)},${br.sy.toFixed(3)} ${tr.sx.toFixed(3)},${tr.sy.toFixed(3)} ${tl.sx.toFixed(3)},${tl.sy.toFixed(3)}" fill="${color}" opacity="0.2"/>`;
+    const post = (a, b) => (a && b) ? `<line x1="${a.sx.toFixed(3)}" y1="${a.sy.toFixed(3)}" x2="${b.sx.toFixed(3)}" y2="${b.sy.toFixed(3)}" stroke="${color}" stroke-width="0.028" stroke-linecap="round"/>` : '';
+    g += post(bl, tl) + post(br, tr) + post(tl, tr);
+    return g;
+  };
+  svg += goal(-hx, IF_TEAM.red) + goal(hx, IF_TEAM.blue);
+
+  // depth-sorted billboards: ball, other pieces, pickups, wall blockers
+  const bills = [];
+  const pb = project(frame.b.x, frame.b.y, rb);
+  if (pb) bills.push({ d: pb.d, svg:
+    `<ellipse cx="${pb.sx.toFixed(3)}" cy="${(focal * h / pb.d).toFixed(3)}" rx="${(focal * rb / pb.d * 1.05).toFixed(3)}" ry="${(focal * rb / pb.d * 0.3).toFixed(3)}" class="if-pshadow"/>`
+    + `<circle cx="${pb.sx.toFixed(3)}" cy="${pb.sy.toFixed(3)}" r="${Math.min(0.5, focal * rb / pb.d).toFixed(3)}" class="if-ball"/>` });
+  for (const p of frame.p) {
+    if (p.o || p.id === myId) continue;
+    const pr = project(p.x, p.y, rp);
+    if (!pr) continue;
+    const rad = Math.min(0.85, focal * rp / pr.d);
+    const meta = (s.pieces || []).find((q) => q.seat === p.id);
+    const team = meta ? meta.team : 'red';
+    let g = `<ellipse cx="${pr.sx.toFixed(3)}" cy="${(focal * h / pr.d).toFixed(3)}" rx="${(rad * 1.05).toFixed(3)}" ry="${(rad * 0.3).toFixed(3)}" class="if-pshadow"/>`
+      + `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" fill="${IF_TEAM[team]}" class="if-body"/>`
+      + `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="if-pinit" style="font-size:${rad.toFixed(3)}px">${escapeHtml(initial(meta ? meta.name : ''))}</text>`;
+    if (meta && rad > 0.05) g += `<text x="${pr.sx.toFixed(3)}" y="${(pr.sy - rad - 0.05).toFixed(3)}" class="if-povname">${escapeHtml(meta.name)}</text>`;
+    bills.push({ d: pr.d, svg: g });
+  }
+  for (const it of s.items || []) {
+    const pr = project(it.x, it.y, 0.04);
+    if (!pr) continue;
+    const rad = Math.min(0.5, focal * 0.05 / pr.d);
+    bills.push({ d: pr.d, svg: `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="if-povitem" style="font-size:${(rad * 2).toFixed(3)}px">${IF_PU_ICON[it.type] || '★'}</text>` });
+  }
+  if (res.walls) for (const w of res.walls) {
+    const pr = project(w.x, w.y, 0.05);
+    if (!pr) continue;
+    const rad = Math.min(0.6, focal * w.r / pr.d);
+    bills.push({ d: pr.d, svg: `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" class="if-block"/>` });
+  }
+  bills.sort((a, b) => b.d - a.d);
+  for (const bi of bills) svg += bi.svg;
+
+  // impact flashes, projected to ice level
+  if (res.impacts) for (const im of res.impacts) {
+    const age = i - im.f;
+    if (age < 0 || age > IMPACT_SPAN) continue;
+    const pr = project(im.x, im.y, 0.02);
+    if (pr) svg += pkImpactSvg(pr.sx, pr.sy, age / IMPACT_SPAN, im.s);
+  }
+  // your team-colour vignette
+  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="none" stroke="${IF_TEAM[s.you ? s.you.team : 'red']}" stroke-width="0.05" opacity="0.5"/>`;
+  svg += '</svg>';
+  board.innerHTML = svg;
+}
+
+function ifRedrawCurrent() {
+  if (!_ifPovCtx) return;
+  const { s, res, frame, i } = _ifPovCtx;
+  if (_ifPov) drawIfPov(s, res, frame, i);
+  else drawIfBoard(s, { ball: frame.b, pieces: frame.p, walls: res.walls, impacts: res.impacts, frame: i });
 }
 
 function renderIfActions(s) {
@@ -3315,7 +3537,19 @@ function renderIfActions(s) {
     appendEndButtons(area, s);
     return;
   }
-  if (s.phase === 'resolve') { area.appendChild(callout('⚽ Kick! Watch it play out…', true)); return; }
+  if (s.phase === 'resolve') {
+    const c = callout('⚽ Kick! Watch it play out…', true);
+    if (s.you && !s.you.spectator) {
+      const btn = document.createElement('button');
+      btn.className = 'if-povtoggle';
+      const label = () => (btn.textContent = _ifPov ? '📺 Overhead view' : '🥽 First-person');
+      label();
+      btn.onclick = () => { _ifPov = !_ifPov; label(); ifRedrawCurrent(); };
+      c.appendChild(btn);
+    }
+    area.appendChild(c);
+    return;
+  }
   if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
   if (you.committed) {
     const left = (s.pieces || []).filter((p) => !p.committed).length;

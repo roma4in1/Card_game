@@ -31,6 +31,7 @@ export interface Room {
   game: { def: GameDef; state: unknown } | null;
   log: string[];
   lastActivity: number;
+  emptyHumanSince: number | null; // epoch-ms the room last had zero connected humans (null while one is online)
 }
 
 /** Default values for a game's host-configurable options. */
@@ -71,6 +72,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     game: null,
     log: [],
     lastActivity: Date.now(),
+    emptyHumanSince: null,
   };
 }
 
@@ -215,6 +217,11 @@ export function botMove(room: Room): { seat: number; msg: Record<string, unknown
 /** Is any real (non-bot) player still seated? Once false, the room is abandoned. */
 export function hasHumans(room: Room): boolean {
   return seats(room).some((s) => !room.members[s]!.bot);
+}
+
+/** Any human currently online? Disconnected (but not departed) members don't count. */
+export function hasConnectedHumans(room: Room): boolean {
+  return seats(room).some((s) => !room.members[s]!.bot && room.members[s]!.connected);
 }
 
 /** Tear down the active match and return everyone to the lobby. Players who stepped

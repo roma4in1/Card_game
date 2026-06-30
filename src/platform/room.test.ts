@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, restart, backToLobby, kick, leave, botMove, hasHumans, viewFor,
+  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, restart, backToLobby, kick, leave, botMove, hasHumans, hasConnectedHumans, viewFor,
   type Room,
 } from './room.ts';
 
@@ -189,6 +189,16 @@ test('hasHumans is false once every seat is a bot', () => {
   assert.equal(hasHumans(room), true);
   leave(room, 1);
   assert.equal(hasHumans(room), false);
+});
+
+test('hasConnectedHumans ignores disconnected members — a bot-only room is reapable', () => {
+  const room = lobby(2);
+  assert.equal(hasConnectedHumans(room), true);
+  setConnected(room, 0, false); // one tab closed
+  assert.equal(hasConnectedHumans(room), true, 'the other human is still online');
+  setConnected(room, 1, false); // everyone offline — only bots would remain to play
+  assert.equal(hasConnectedHumans(room), false);
+  assert.equal(hasHumans(room), true, 'they are still members (can reconnect within the grace)');
 });
 
 // ---------------------------------------------------------------------------

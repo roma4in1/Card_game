@@ -227,7 +227,8 @@ function resolveRound(s: IFState, now: number) {
   }
 
   s.phase = 'resolve';
-  s.resolveDeadline = now + Math.min(6500, sim.frames.length * 26 + 900);
+  // Hold for the (min 10s) interpolated replay + a short beat. Keep client REPLAY_MS in sync.
+  s.resolveDeadline = now + Math.min(13500, Math.max(11500, sim.frames.length * 200 + 1500));
 }
 
 function kickoff(s: IFState) {

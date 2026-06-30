@@ -104,6 +104,23 @@ test('all players eliminated → nobody wins the round (target revealed)', () =>
   assert.equal((def.view(s, s.order[0]) as any).target, 'Pedri');
 });
 
+test('give up: a player bows out for the round (off-turn allowed); last one out reveals the target', () => {
+  const { def, s } = newGame(2, { rounds: 1 }, 'Pedri');
+  const a = s.order[s.turn], b = s.order[(s.turn + 1) % 2];
+  // b concedes off-turn → marked out, but the round continues for a
+  assert.equal(def.act(s, b, { type: 'giveUp' }, ctx())!.error, undefined);
+  assert.ok(s.eliminated.includes(b), 'gave-up player is out');
+  assert.equal(s.roundOver, false, 'round still live while a is in');
+  assert.equal((def.view(s, b) as any).target, null, 'target stays hidden mid-round');
+  // giving up twice is rejected
+  assert.match(def.act(s, b, { type: 'giveUp' }, ctx())!.error!, /already out/i);
+  // a concedes too → everyone is out → round ends, nobody wins, target revealed
+  assert.equal(def.act(s, a, { type: 'giveUp' }, ctx())!.error, undefined);
+  assert.equal(s.over, true);
+  assert.equal(s.roundWinner, null);
+  assert.equal((def.view(s, a) as any).targetCard.name, 'Pedri');
+});
+
 test('best-of-N: round wins decide the match; nextRound advances and rotates the start', () => {
   const { def, s } = newGame(2, { rounds: 2 }, 'Pedri');
   const a = s.order[s.turn];

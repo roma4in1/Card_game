@@ -264,6 +264,20 @@ export function createWhoAmI(playerBank: PlayerCard[]): GameDef<WAState> {
     return ok;
   }
 
+  // Bow out of the round voluntarily (no name needed). Once everyone's out, the round
+  // ends and the target is revealed. Allowed off-turn so you needn't wait to concede.
+  function giveUp(s: WAState, seat: number): ActionResult {
+    if (s.roundOver || s.over) return fail('The round is between rounds.');
+    if (!s.order.includes(seat)) return fail('Not in this match.');
+    if (s.eliminated.includes(seat)) return fail("You're already out of this round.");
+    const wasTurn = s.order[s.turn] === seat;
+    s.eliminated.push(seat);
+    log(s, `${nameOf(s, seat)} gave up for the round.`);
+    if (active(s).length === 0) endRound(s, null);
+    else if (wasTurn) advanceTurn(s);
+    return ok;
+  }
+
   // Auto-action on turn-timeout: ask a random unasked question (never a guess, so a
   // timed-out player is not eliminated). If nothing's left to ask, just pass.
   function timeoutAct(s: WAState, rng: Rng) {
@@ -328,6 +342,8 @@ export function createWhoAmI(playerBank: PlayerCard[]): GameDef<WAState> {
           return askQuestion(s, seat, msg.qtype, msg.param);
         case 'guessPlayer':
           return guessPlayer(s, seat, msg.name);
+        case 'giveUp':
+          return giveUp(s, seat);
         case 'nextRound':
           return nextRound(s, ctx);
       }

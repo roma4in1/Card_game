@@ -438,6 +438,11 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .if-ball { fill: #fff; stroke: #111; stroke-width: 0.008; }
 .if-aim { stroke: var(--gold); stroke-width: 0.028; stroke-linecap: round; }
 .if-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.005; }
+.if-pov .if-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.012; paint-order: stroke; }
+.if-pov .if-pinit, .if-povitem { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.if-povname { fill: #fff; font: 700 0.07px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(4, 10, 18, 0.85); stroke-width: 0.02; }
+.if-povtoggle { margin-left: 10px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent); background: rgba(111, 208, 160, 0.14); color: var(--accent); font: 700 0.8rem 'Outfit', sans-serif; cursor: pointer; }
+.if-povtoggle:hover { background: rgba(111, 208, 160, 0.24); }
 .if-purow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .if-pubtn { padding: 7px 11px; border-radius: var(--r-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 700; font-size: 0.82rem; cursor: pointer; }
 .if-pubtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
@@ -1229,6 +1234,87 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pcard-wrap { display: flex; flex-direction: column; align-items: center; }
 .pcard.pop { animation: pcPop 0.5s var(--ease) backwards; }
 @keyframes pcPop { 0% { transform: scale(0.8) translateY(8px); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+/* ============ FIFA-style pack walkout reveal ============ */
+.walkout {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center;
+  background: radial-gradient(120% 90% at 50% 38%, rgba(10, 16, 28, 0.86), rgba(2, 4, 8, 0.97));
+  opacity: 0; transition: opacity 0.3s ease; overflow: hidden; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.walkout.show { opacity: 1; }
+.walkout.out { opacity: 0; }
+/* per-tier glow colour */
+.walkout.tier-bronze { --wo: #cf8a48; }
+.walkout.tier-silver { --wo: #d4dcea; }
+.walkout.tier-gold { --wo: #ffd76a; }
+.walkout.tier-special { --wo: #9a86ff; }
+.walkout.tier-icon { --wo: #f2dd92; }
+
+.wo-flash { position: absolute; inset: 0; background: var(--wo); opacity: 0; pointer-events: none; mix-blend-mode: screen; }
+.walkout.tier-gold.show .wo-flash,
+.walkout.tier-special.show .wo-flash,
+.walkout.tier-icon.show .wo-flash { animation: woFlash 0.6s ease-out; }
+@keyframes woFlash { 0% { opacity: 0.75; } 100% { opacity: 0; } }
+
+.wo-glow {
+  position: absolute; inset: 0; margin: auto; width: 78vmin; height: 78vmin; border-radius: 50%;
+  pointer-events: none; background: radial-gradient(circle, var(--wo), transparent 62%); opacity: 0; filter: blur(8px);
+  mix-blend-mode: screen;
+}
+.walkout.show .wo-glow { animation: woGlow 2.8s ease-in-out infinite; }
+@keyframes woGlow { 0%, 100% { opacity: 0.32; transform: scale(0.92); } 50% { opacity: 0.55; transform: scale(1.06); } }
+
+.wo-beams { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; mix-blend-mode: screen; opacity: 0; }
+.walkout.show .wo-beams { opacity: 0.5; animation: woSpin 16s linear infinite; }
+.walkout.tier-special.show .wo-beams, .walkout.tier-icon.show .wo-beams { opacity: 0.7; animation-duration: 11s; }
+.wo-beams span {
+  position: absolute; left: 0; top: -3px; width: 60vmax; height: 6px; transform-origin: left center;
+  transform: rotate(var(--a)); background: linear-gradient(90deg, var(--wo), transparent 70%); filter: blur(3px);
+}
+@keyframes woSpin { to { transform: rotate(360deg); } }
+
+.wo-stage { position: relative; z-index: 2; }
+.wo-card { transform-origin: center bottom; animation: woCardIn 0.95s cubic-bezier(0.18, 0.9, 0.28, 1.2) backwards;
+  filter: drop-shadow(0 0 18px var(--wo)) drop-shadow(0 22px 34px rgba(0, 0, 0, 0.6)); }
+.walkout.tier-gold .wo-card, .walkout.tier-special .wo-card, .walkout.tier-icon .wo-card { transform: scale(1.08); }
+@keyframes woCardIn {
+  0% { opacity: 0; transform: translateY(80px) scale(0.45) rotateY(90deg); }
+  55% { opacity: 1; transform: translateY(0) scale(1.12) rotateY(0deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotateY(0deg); }
+}
+.walkout.tier-gold .wo-card { animation-name: woCardInBig; }
+.walkout.tier-special .wo-card, .walkout.tier-icon .wo-card { animation-name: woCardInBig; }
+@keyframes woCardInBig {
+  0% { opacity: 0; transform: translateY(90px) scale(0.45) rotateY(90deg); }
+  60% { opacity: 1; transform: translateY(0) scale(1.2) rotateY(0deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1.08) rotateY(0deg); }
+}
+
+.wo-sparks { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.wo-sparks span {
+  position: absolute; width: calc(7px * var(--sc)); height: calc(7px * var(--sc)); border-radius: 50%;
+  background: radial-gradient(circle, #fff, var(--wo) 60%, transparent); opacity: 0;
+  animation: woSpark 1.8s ease-in-out var(--d) infinite;
+}
+@keyframes woSpark {
+  0% { opacity: 0; transform: translateY(10px) scale(0.4); }
+  35% { opacity: 1; transform: translateY(-12px) scale(1); }
+  100% { opacity: 0; transform: translateY(-40px) scale(0.3); }
+}
+
+.wo-hint {
+  position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); z-index: 4; color: rgba(255, 255, 255, 0.7);
+  font: 700 0.8rem 'Outfit', sans-serif; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0;
+}
+.walkout.show .wo-hint { animation: woHint 0.6s ease forwards 1.2s; }
+@keyframes woHint { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wo-card { animation-duration: 0.3s; }
+  .walkout.show .wo-beams, .walkout.show .wo-glow, .wo-sparks span { animation: none; }
+  .wo-beams { opacity: 0.3; }
+}
 
 /* ============ Wordle-style tile flip + invalid shake ============ */
 .gp-row.reveal .gp-cell { animation: gpFlip 0.45s var(--ease) backwards; }
