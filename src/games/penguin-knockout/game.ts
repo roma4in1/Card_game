@@ -18,8 +18,8 @@ const MAX_SEATS = 8;
 const R0 = 1.0; // starting platform radius
 const RING = 0.62; // starting placement ring
 const RP = 0.075; // penguin radius
-const VMAX = 0.2; // launch speed at power = 1 (per tick)
-const DRAG = 0.9; // velocity retained per tick (friction)
+const VMAX = 0.155; // launch speed at power = 1 (per tick)
+const DRAG = 0.86; // velocity retained per tick (friction)
 const REST = 0.9; // collision restitution
 const SHRINK = 0.86; // platform radius multiplier each round
 const STOP = 0.0009; // speed below which a penguin is "stopped"
@@ -34,6 +34,7 @@ interface Commit { angle: number; power: number }
 type Phase = 'commit' | 'resolve' | 'done';
 
 interface Frame { id: number; x: number; y: number; a: boolean }
+interface Impact { f: number; x: number; y: number; s: number } // collision flash: frame, position, strength
 interface Resolution {
   radius: number; // platform radius during the motion
   radiusAfter: number; // after the shrink
@@ -41,6 +42,7 @@ interface Resolution {
   reveal: { id: number; angle: number; power: number }[];
   knockouts: { by: number; victim: number }[];
   melted: number[]; // shrink-eliminated (no credit)
+  impacts: Impact[]; // collision flashes for the replay
 }
 
 export interface PKState {
@@ -76,53 +78,63 @@ const livingSeats = (s: PKState) => s.order.filter((seat) => s.penguins[seat]?.a
 
 interface SimBody { id: number; x: number; y: number; vx: number; vy: number; alive: boolean }
 
-function simulate(bodies: SimBody[], radius: number): { frames: Frame[][]; elim: { id: number; by: number | null }[] } {
+function simulate(bodies: SimBody[], radius: number): { frames: Frame[][]; elim: { id: number; by: number | null }[]; impacts: Impact[] } {
   const frames: Frame[][] = [];
   const lastHitBy: Record<number, number> = {};
   const elim: { id: number; by: number | null }[] = [];
+  const impacts: Impact[] = [];
   const snap = () => frames.push(bodies.map((b) => ({ id: b.id, x: +b.x.toFixed(4), y: +b.y.toFixed(4), a: b.alive })));
   const stopped = () => bodies.every((b) => !b.alive || Math.hypot(b.vx, b.vy) < STOP);
 
   snap();
   for (let t = 0; t < MAX_TICKS; t++) {
-    for (const b of bodies) if (b.alive) { b.x += b.vx; b.y += b.vy; b.vx *= DRAG; b.vy *= DRAG; }
+    // Substep so a fast body can't tunnel through a collision in one step. The number of
+    // substeps tracks the fastest body so movement per substep stays well under a radius.
+    let maxV = 0;
+    for (const b of bodies) if (b.alive) maxV = Math.max(maxV, Math.hypot(b.vx, b.vy));
+    const sub = Math.max(1, Math.min(16, Math.ceil(maxV / (RP * 0.4))));
+    for (let k = 0; k < sub; k++) {
+      for (const b of bodies) if (b.alive) { b.x += b.vx / sub; b.y += b.vy / sub; }
 
-    // circle-circle collisions (a couple of passes for stacked contacts), fixed order
-    for (let pass = 0; pass < 2; pass++) {
-      for (let i = 0; i < bodies.length; i++) {
-        for (let j = i + 1; j < bodies.length; j++) {
-          const a = bodies[i], b = bodies[j];
-          if (!a.alive || !b.alive) continue;
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const d = Math.hypot(dx, dy);
-          const min = 2 * RP;
-          if (d <= 0 || d >= min) continue;
-          const nx = dx / d, ny = dy / d;
-          const overlap = (min - d) / 2; // positional correction
-          a.x -= nx * overlap; a.y -= ny * overlap;
-          b.x += nx * overlap; b.y += ny * overlap;
-          const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny; // closing speed along the normal
-          if (vn > 0) {
-            const imp = ((1 + REST) / 2) * vn; // equal mass: swap normal components, scaled by restitution
-            a.vx -= imp * nx; a.vy -= imp * ny;
-            b.vx += imp * nx; b.vy += imp * ny;
-            lastHitBy[a.id] = b.id; // whoever last imparted velocity gets the credit if you fall
-            lastHitBy[b.id] = a.id;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < bodies.length; i++) {
+          for (let j = i + 1; j < bodies.length; j++) {
+            const a = bodies[i], b = bodies[j];
+            if (!a.alive || !b.alive) continue;
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const d = Math.hypot(dx, dy);
+            const min = 2 * RP;
+            if (d <= 0 || d >= min) continue;
+            const nx = dx / d, ny = dy / d;
+            const overlap = (min - d) / 2; // positional correction
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+            const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny; // closing speed along the normal
+            if (vn > 0) {
+              const imp = ((1 + REST) / 2) * vn; // equal mass: swap normal components, scaled by restitution
+              a.vx -= imp * nx; a.vy -= imp * ny;
+              b.vx += imp * nx; b.vy += imp * ny;
+              lastHitBy[a.id] = b.id;
+              lastHitBy[b.id] = a.id;
+              if (vn > 0.012 && impacts.length < 40) impacts.push({ f: frames.length, x: +((a.x + b.x) / 2).toFixed(3), y: +((a.y + b.y) / 2).toFixed(3), s: +Math.min(1, vn * 3).toFixed(2) });
+            }
           }
+        }
+      }
+
+      for (const b of bodies) {
+        if (b.alive && Math.hypot(b.x, b.y) > radius) { // centre past the rim → off the ice
+          b.alive = false;
+          elim.push({ id: b.id, by: lastHitBy[b.id] ?? null });
         }
       }
     }
 
-    for (const b of bodies) {
-      if (b.alive && Math.hypot(b.x, b.y) > radius) { // centre past the rim → off the ice
-        b.alive = false;
-        elim.push({ id: b.id, by: lastHitBy[b.id] ?? null });
-      }
-    }
+    for (const b of bodies) if (b.alive) { b.vx *= DRAG; b.vy *= DRAG; }
     snap();
     if (stopped()) break;
   }
-  return { frames, elim };
+  return { frames, elim, impacts };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +151,7 @@ function resolveRound(s: PKState, now: number) {
     return { id: seat, x: p.x, y: p.y, vx: Math.cos(a) * v0, vy: Math.sin(a) * v0, alive: true };
   });
 
-  const { frames, elim } = simulate(bodies, s.radius);
+  const { frames, elim, impacts } = simulate(bodies, s.radius);
 
   for (const e of elim) {
     s.penguins[e.id]!.alive = false;
@@ -168,6 +180,7 @@ function resolveRound(s: PKState, now: number) {
     reveal: live.map((seat) => ({ id: seat, ...(s.commitments[seat] || { angle: 0, power: 0 }) })),
     knockouts: elim.filter((e) => e.by != null).map((e) => ({ by: e.by as number, victim: e.id })),
     melted,
+    impacts,
   };
 
   s.phase = 'resolve';

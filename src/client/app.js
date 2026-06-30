@@ -2697,6 +2697,20 @@ let _pkNameShow = null; // seat whose name label is currently shown (tap to reve
 let _pkNameTimer = 0;
 const pkDisp = (x, y) => ({ x, y: -y * PK_TILT }); // physics → display (flip + perspective)
 
+// Shared collision-flash burst for both physics replays: an expanding ring + spark spikes
+// that fades over IMPACT_SPAN frames. k = age fraction 0→1, strength = hit hardness 0→1.
+const IMPACT_SPAN = 7;
+function pkImpactSvg(cx, cy, k, strength) {
+  const ease = 1 - (1 - k) * (1 - k); // ease-out radius
+  const r = (0.03 + 0.085 * strength) * (0.3 + ease);
+  const op = (1 - k) * (0.55 + 0.4 * strength);
+  let s = `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(3)}" fill="none" stroke="#fff" stroke-width="${(0.012 * (1 - k)).toFixed(4)}" opacity="${op.toFixed(2)}"/>`;
+  if (k < 0.5) { // bright core flash early on
+    s += `<circle cx="${cx}" cy="${cy}" r="${(r * 0.42).toFixed(3)}" fill="#ffe9a8" opacity="${((0.5 - k) * 1.4 * strength).toFixed(2)}"/>`;
+  }
+  return s;
+}
+
 function renderPenguinKnockout(s) {
   $('pkRoom').textContent = s.room;
   $('pkPhase').textContent = s.over ? 'Game over' : s.phase === 'resolve' ? 'Launch!' : `Round ${s.round}`;
@@ -2818,6 +2832,15 @@ function drawPkBoard(s, opts) {
     }
     void p;
   }
+  // collision flashes — expanding rings during the replay (juice)
+  if (opts.impacts && opts.frame != null) {
+    for (const im of opts.impacts) {
+      const age = opts.frame - im.f;
+      if (age < 0 || age > IMPACT_SPAN) continue;
+      const d = pkDisp(im.x, im.y);
+      svg += pkImpactSvg(d.x, d.y, age / IMPACT_SPAN, im.s);
+    }
+  }
   // aim arrow
   if (opts.aim) {
     const me = (s.penguins || []).find((p) => p.seat === s.seat);
@@ -2890,13 +2913,13 @@ function pkPlayResolution(s) {
   const frames = res.frames || [];
   const total = frames.length;
   const start = performance.now();
-  const perFrame = 28;
+  const perFrame = 18; // snappier launch
   const melted = new Set(res.melted || []);
   const step = (t) => {
     let i = Math.floor((t - start) / perFrame);
     if (i >= total) i = total - 1;
     if (i < 0) i = 0;
-    drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null });
+    drawPkBoard(s, { radius: res.radius, positions: frames[i] || [], aim: null, impacts: res.impacts, frame: i });
     if (i < total - 1) _pkReplay.raf = requestAnimationFrame(step);
     else pkAnimateShrink(s, res, melted);
   };
@@ -3078,6 +3101,15 @@ function drawIfBoard(s, opts) {
   const bd = ifDisp(ballPos.x, ballPos.y);
   svg += `<ellipse cx="${bd.x}" cy="${bd.y + rb * 0.8}" rx="${rb}" ry="${rb * 0.4}" class="if-pshadow"/>`;
   svg += `<circle cx="${bd.x}" cy="${bd.y}" r="${rb}" class="if-ball"/>`;
+  // collision flashes during the replay (juice)
+  if (opts.impacts && opts.frame != null) {
+    for (const im of opts.impacts) {
+      const age = opts.frame - im.f;
+      if (age < 0 || age > IMPACT_SPAN) continue;
+      const d = ifDisp(im.x, im.y);
+      svg += pkImpactSvg(d.x, d.y, age / IMPACT_SPAN, im.s);
+    }
+  }
   // aim arrow
   if (ifCanAim(s)) {
     const me = (s.pieces || []).find((p) => p.seat === s.seat);
@@ -3134,13 +3166,13 @@ function ifPlayResolution(s) {
   _ifReplay = { round: s.round, raf: 0 };
   const frames = res.frames || [];
   const start = performance.now();
-  const perFrame = 26;
+  const perFrame = 17; // snappier replay
   const step = (t) => {
     let i = Math.floor((t - start) / perFrame);
     if (i >= frames.length) i = frames.length - 1;
     if (i < 0) i = 0;
     const f = frames[i] || { b: s.ball, p: [] };
-    drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls });
+    drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
     if (i < frames.length - 1) _ifReplay.raf = requestAnimationFrame(step);
     else _ifReplay.raf = 0;
   };

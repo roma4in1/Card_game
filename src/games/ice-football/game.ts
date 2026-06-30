@@ -16,9 +16,9 @@ const MAX_SEATS = 8;
 // --- pitch + physics constants (normalized; pitch is [-HX,HX] x [-HY,HY]) ---
 const HX = 1.0, HY = 0.6; // pitch half-extents
 const GOAL_HY = 0.26; // goal-mouth half-height (gap in the x-end walls)
-const RP = 0.07, P_MASS = 1, P_DRAG = 0.9; // piece radius / mass / friction
-const RB = 0.05, B_MASS = 0.45, B_DRAG = 0.95; // ball: lighter + slicker → kicks carry
-const VMAX = 0.2, REST = 0.85, WALL_BOUNCE = 0.8;
+const RP = 0.07, P_MASS = 1, P_DRAG = 0.86; // piece radius / mass / friction
+const RB = 0.05, B_MASS = 0.45, B_DRAG = 0.93; // ball: lighter + slicker → kicks carry
+const VMAX = 0.155, REST = 0.85, WALL_BOUNCE = 0.8;
 const STOP = 0.0009, MAX_TICKS = 320;
 const ITEM_R = 0.05, WALL_R = 0.14;
 const PU = { powerShot: 1.9, bigR: RP * 1.6, bigM: 2.3, slickDrag: 0.96 } as const;
@@ -36,12 +36,14 @@ interface Commit { angle: number; power: number; usePowerUp?: { type: string; ta
 type Phase = 'commit' | 'resolve' | 'done';
 
 interface PFrame { id: number; x: number; y: number; o: boolean }
+interface Impact { f: number; x: number; y: number; s: number } // collision flash: frame, position, strength
 interface Resolution {
   frames: { b: { x: number; y: number }; p: PFrame[] }[];
   reveal: { id: number; angle: number; power: number; powerUp: string | null }[];
   goal: Team | null;
   walls: { x: number; y: number; r: number }[];
   pickups: { pieceId: number; type: string }[];
+  impacts: Impact[];
 }
 
 export interface IFState {
@@ -82,6 +84,7 @@ interface Static { x: number; y: number; r: number }
 function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[]) {
   const frames: Resolution['frames'] = [];
   const pickups: { pieceId: number; type: string }[] = [];
+  const impacts: Impact[] = [];
   const taken = new Set<number>();
   let goal: Team | null = null;
   const snap = () => frames.push({
@@ -103,6 +106,7 @@ function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[]) 
       const j = ((1 + REST) * closing) / (1 / a.mass + 1 / b.mass);
       a.vx -= (j / a.mass) * nx; a.vy -= (j / a.mass) * ny;
       b.vx += (j / b.mass) * nx; b.vy += (j / b.mass) * ny;
+      if (closing > 0.012 && impacts.length < 40) impacts.push({ f: frames.length, x: +((a.x + b.x) / 2).toFixed(3), y: +((a.y + b.y) / 2).toFixed(3), s: +Math.min(1, closing * 3).toFixed(2) });
     }
   };
   const staticHit = (d: Body, st: Static) => {
@@ -119,40 +123,48 @@ function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[]) 
   const moving = (b: Body) => b !== ball && b.off; // off pieces stop simulating
 
   snap();
-  for (let t = 0; t < MAX_TICKS; t++) {
-    for (const b of allDyn) if (!moving(b)) { b.x += b.vx; b.y += b.vy; b.vx *= b.drag; b.vy *= b.drag; }
+  let scored = false;
+  for (let t = 0; t < MAX_TICKS && !scored; t++) {
+    // Substep so the (fast, slick) ball can't tunnel through a wall, goal mouth or piece.
+    let maxV = 0;
+    for (const b of allDyn) if (!moving(b)) maxV = Math.max(maxV, Math.hypot(b.vx, b.vy));
+    const sub = Math.max(1, Math.min(20, Math.ceil(maxV / (RB * 0.5))));
+    for (let k = 0; k < sub && !scored; k++) {
+      for (const b of allDyn) if (!moving(b)) { b.x += b.vx / sub; b.y += b.vy / sub; }
 
-    for (let pass = 0; pass < 2; pass++) {
-      for (let i = 0; i < allDyn.length; i++) {
-        for (let j = i + 1; j < allDyn.length; j++) {
-          if (moving(allDyn[i]) || moving(allDyn[j])) continue;
-          dynPair(allDyn[i], allDyn[j]);
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < allDyn.length; i++) {
+          for (let j = i + 1; j < allDyn.length; j++) {
+            if (moving(allDyn[i]) || moving(allDyn[j])) continue;
+            dynPair(allDyn[i], allDyn[j]);
+          }
         }
+        for (const d of allDyn) if (!moving(d)) for (const st of statics) staticHit(d, st);
       }
-      for (const d of allDyn) if (!moving(d)) for (const st of statics) staticHit(d, st);
+
+      // ball: goal first, then bounce off the solid perimeter (gap only at the goal mouths)
+      if (Math.abs(ball.y) < GOAL_HY && ball.x > HX) { goal = 'red'; scored = true; break; }
+      if (Math.abs(ball.y) < GOAL_HY && ball.x < -HX) { goal = 'blue'; scored = true; break; }
+      const inGap = Math.abs(ball.y) < GOAL_HY;
+      if (!inGap && ball.x + RB > HX) { ball.x = HX - RB; ball.vx = -ball.vx * WALL_BOUNCE; }
+      if (!inGap && ball.x - RB < -HX) { ball.x = -HX + RB; ball.vx = -ball.vx * WALL_BOUNCE; }
+      if (ball.y + RB > HY) { ball.y = HY - RB; ball.vy = -ball.vy * WALL_BOUNCE; }
+      if (ball.y - RB < -HY) { ball.y = -HY + RB; ball.vy = -ball.vy * WALL_BOUNCE; }
+
+      // pieces: the perimeter is OPEN to them — slide off and they're out for the round
+      for (const p of pieces) if (!p.off && (Math.abs(p.x) > HX || Math.abs(p.y) > HY)) p.off = true;
+
+      // power-up pickups (pass over an item)
+      for (const p of pieces) if (!p.off) for (const it of items) {
+        if (!taken.has(it.id) && Math.hypot(p.x - it.x, p.y - it.y) < p.radius + ITEM_R) { taken.add(it.id); pickups.push({ pieceId: p.id, type: it.type }); }
+      }
     }
 
-    // ball: goal first, then bounce off the solid perimeter (gap only at the goal mouths)
-    if (Math.abs(ball.y) < GOAL_HY && ball.x > HX) { goal = 'red'; snap(); break; }
-    if (Math.abs(ball.y) < GOAL_HY && ball.x < -HX) { goal = 'blue'; snap(); break; }
-    const inGap = Math.abs(ball.y) < GOAL_HY;
-    if (!inGap && ball.x + RB > HX) { ball.x = HX - RB; ball.vx = -ball.vx * WALL_BOUNCE; }
-    if (!inGap && ball.x - RB < -HX) { ball.x = -HX + RB; ball.vx = -ball.vx * WALL_BOUNCE; }
-    if (ball.y + RB > HY) { ball.y = HY - RB; ball.vy = -ball.vy * WALL_BOUNCE; }
-    if (ball.y - RB < -HY) { ball.y = -HY + RB; ball.vy = -ball.vy * WALL_BOUNCE; }
-
-    // pieces: the perimeter is OPEN to them — slide off and they're out for the round
-    for (const p of pieces) if (!p.off && (Math.abs(p.x) > HX || Math.abs(p.y) > HY)) p.off = true;
-
-    // power-up pickups (pass over an item)
-    for (const p of pieces) if (!p.off) for (const it of items) {
-      if (!taken.has(it.id) && Math.hypot(p.x - it.x, p.y - it.y) < p.radius + ITEM_R) { taken.add(it.id); pickups.push({ pieceId: p.id, type: it.type }); }
-    }
-
+    for (const b of allDyn) if (!moving(b)) { b.vx *= b.drag; b.vy *= b.drag; }
     snap();
     if (allDyn.every((b) => (b !== ball && b.off) || Math.hypot(b.vx, b.vy) < STOP)) break;
   }
-  return { frames, goal, pickups, takenItems: [...taken], offIds: pieces.filter((p) => p.off).map((p) => p.id), finalPieces: pieces, finalBall: ball };
+  return { frames, goal, pickups, impacts, takenItems: [...taken], offIds: pieces.filter((p) => p.off).map((p) => p.id), finalPieces: pieces, finalBall: ball };
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +214,7 @@ function resolveRound(s: IFState, now: number) {
     frames: sim.frames, reveal, goal: sim.goal,
     walls: statics.map((w) => ({ x: w.x, y: w.y, r: w.r })),
     pickups: sim.pickups.map((pk) => ({ pieceId: pk.pieceId, type: pk.type })),
+    impacts: sim.impacts,
   };
 
   if (sim.goal) {
