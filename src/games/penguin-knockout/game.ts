@@ -18,7 +18,7 @@ const MAX_SEATS = 8;
 const R0 = 1.0; // starting platform radius
 const RING = 0.62; // starting placement ring
 const RP = 0.075; // penguin radius
-const VMAX = 0.155; // launch speed at power = 1 (per tick)
+const VMAX = 0.2015; // launch speed at power = 1 (per tick) — 30% faster top speed
 const DRAG = 0.86; // velocity retained per tick (friction)
 const REST = 0.9; // collision restitution
 const SHRINK = 0.86; // platform radius multiplier each round
@@ -123,7 +123,7 @@ function simulate(bodies: SimBody[], radius: number): { frames: Frame[][]; elim:
       }
 
       for (const b of bodies) {
-        if (b.alive && Math.hypot(b.x, b.y) > radius) { // centre past the rim → off the ice
+        if (b.alive && Math.max(Math.abs(b.x), Math.abs(b.y)) > radius) { // off the square ice edge
           b.alive = false;
           elim.push({ id: b.id, by: lastHitBy[b.id] ?? null });
         }
@@ -170,7 +170,7 @@ function resolveRound(s: PKState, now: number) {
   const melted: number[] = [];
   for (const seat of s.order) {
     const p = s.penguins[seat];
-    if (p && p.alive && Math.hypot(p.x, p.y) > s.radius) { p.alive = false; melted.push(seat); log(s, `The ice melted under ${nameOf(s, seat)}.`); }
+    if (p && p.alive && Math.max(Math.abs(p.x), Math.abs(p.y)) > s.radius) { p.alive = false; melted.push(seat); log(s, `The ice cracked under ${nameOf(s, seat)}.`); }
   }
 
   s.lastResolution = {

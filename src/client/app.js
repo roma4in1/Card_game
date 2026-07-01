@@ -2901,11 +2901,12 @@ function renderPenguinKnockout(s) {
   } else {
     if (_pkReplay.raf) { cancelAnimationFrame(_pkReplay.raf); _pkReplay.raf = 0; }
     if (s.phase !== 'commit') { _pkAim = null; _pkNameShow = null; }
-    if (pkCanAim(s) && !_pkAim) { // default: aim toward the centre at half power
+    if (pkCanAim(s) && !_pkAim) { // default: aim toward the centre at half power, in Aim mode
       const me = s.penguins.find((p) => p.seat === s.seat);
       _pkAim = { angle: me ? (Math.atan2(-me.y, -me.x) * 180) / Math.PI : 0, power: 0.5 };
+      _pk3dMode = 'aim';
     }
-    drawPkBoard(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
+    drawPk3d(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
   }
   renderPkActions(s);
   const ul = $('pkLog');
@@ -2959,6 +2960,213 @@ function pkSyncSlider() {
   const pct = Math.round(_pkAim.power * 100);
   if (sl) sl.value = pct;
   if (vl) vl.textContent = pct + '%';
+}
+
+// ── CSS-3D arena (Roblox-style square ice field, real block penguins) ──────────
+// Persistent DOM: the scene is built once, then only element transforms update each
+// frame (no innerHTML churn). Reuses the deterministic sim frames for the replay.
+// Camera: tilt = look-down angle (0 = across the ice, 90 = top-down); z = dolly (zoom).
+let _pk3dCam = { yaw: -20, tilt: 30, z: 30 };
+let _pk3dMode = 'aim'; // 'aim' → drag adjusts your arrow; 'orbit' → drag moves the camera
+const PK3D = { scale: 165 }; // px per world unit
+
+function pk3dWorldTransform() {
+  return `translateZ(${_pk3dCam.z}px) rotateX(${(_pk3dCam.tilt - 90).toFixed(2)}deg) rotateY(${_pk3dCam.yaw.toFixed(2)}deg)`;
+}
+function pk3dApplyCamera(scene) { scene.world.style.transform = pk3dWorldTransform(); }
+
+// Build one cuboid (6 faces) centred on its own origin. `colors` = string or per-face map.
+function pk3dBox(w, h, d, colors) {
+  const box = document.createElement('div');
+  box.className = 'pk3d-face';
+  const c = typeof colors === 'string' ? { all: colors } : colors;
+  const col = (k) => c[k] || c.all || '#888';
+  const face = (bg, tf, fw, fh, extra) => {
+    const el = document.createElement('div');
+    el.style.width = fw + 'px'; el.style.height = fh + 'px'; el.style.background = bg;
+    el.style.transform = tf; el.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.10) inset';
+    if (extra) el.style.cssText += extra;
+    return el;
+  };
+  box.append(
+    face(col('front'), `translate(-50%,-50%) translateZ(${d / 2}px)`, w, h),
+    face(col('back'), `translate(-50%,-50%) translateZ(${-d / 2}px) rotateY(180deg)`, w, h),
+    face(col('right'), `translate(-50%,-50%) translateX(${w / 2}px) rotateY(90deg)`, d, h),
+    face(col('left'), `translate(-50%,-50%) translateX(${-w / 2}px) rotateY(-90deg)`, d, h),
+    face(col('top'), `translate(-50%,-50%) translateY(${-h / 2}px) rotateX(90deg)`, w, d),
+    face(col('bottom'), `translate(-50%,-50%) translateY(${h / 2}px) rotateX(-90deg)`, w, d),
+  );
+  return box;
+}
+
+// Assemble a blocky penguin (body + belly + head + beak + eyes + feet), origin at the feet.
+// The cuboids live in an inner wrapper so it can tumble off the edge while the outer
+// element keeps its world position.
+function pk3dBuildPeng(color) {
+  const peng = document.createElement('div');
+  peng.className = 'pk3d-obj pk3d-peng';
+  const bodyWrap = document.createElement('div'); bodyWrap.className = 'pk3d-pengbody';
+  const belly = '#f6fbff', dark = 'rgba(0,0,0,0.18)';
+  const put = (el, x, y, z) => { el.style.transform = `translate3d(${x}px,${y}px,${z}px)`; return el; };
+  const body = pk3dBox(30, 34, 26, { front: belly, back: color, left: color, right: color, top: color, bottom: dark });
+  const head = pk3dBox(26, 22, 24, { front: color, back: color, left: color, right: color, top: color, bottom: color });
+  const beak = pk3dBox(9, 6, 8, '#f4b41a');
+  const footL = pk3dBox(11, 5, 15, '#f4b41a'), footR = pk3dBox(11, 5, 15, '#f4b41a');
+  const eyeL = pk3dBox(4, 6, 2, '#12233a'), eyeR = pk3dBox(4, 6, 2, '#12233a');
+  bodyWrap.append(
+    put(body, 0, -23, 0), put(head, 0, -51, 0), put(beak, 0, -50, 14),
+    put(eyeL, -5, -55, 12.5), put(eyeR, 5, -55, 12.5),
+    put(footL, -8, -2, 4), put(footR, 8, -2, 4),
+  );
+  const hi = document.createElement('div'); hi.className = 'pk3d-hi';
+  const name = document.createElement('div'); name.className = 'pk3d-name'; name.style.display = 'none';
+  peng.append(bodyWrap, hi, name);
+  return peng;
+}
+
+function pk3dEnsureScene(board) {
+  if (board.__pk3d) return board.__pk3d;
+  board.innerHTML = '';
+  const stage = document.createElement('div'); stage.className = 'pk3d-stage';
+  const world = document.createElement('div'); world.className = 'pk3d-world';
+  const side = document.createElement('div'); side.className = 'pk3d-obj pk3d-floor-side';
+  const floor = document.createElement('div'); floor.className = 'pk3d-obj pk3d-floor';
+  const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
+  world.append(side, floor, arrow);
+  stage.appendChild(world);
+  const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around';
+  stage.appendChild(hint);
+  const lock = document.createElement('button'); lock.className = 'pk3d-lockbtn'; lock.style.display = 'none';
+  lock.onpointerdown = (e) => e.stopPropagation(); // don't let the stage grab this as an orbit
+  stage.appendChild(lock);
+  // Aim / Look mode toggle (mobile): flip whether a drag adjusts your arrow or the camera.
+  const modebtn = document.createElement('button'); modebtn.className = 'pk3d-modebtn'; modebtn.style.display = 'none';
+  modebtn.onpointerdown = (e) => e.stopPropagation();
+  modebtn.onclick = () => {
+    _pk3dMode = _pk3dMode === 'aim' ? 'orbit' : 'aim';
+    if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
+  };
+  stage.appendChild(modebtn);
+  board.appendChild(stage);
+  const scene = { stage, world, floor, side, arrow, hint, lock, modebtn, pengs: new Map() };
+  board.__pk3d = scene;
+  pk3dAttachInput(board);
+  return scene;
+}
+
+// Place/refresh one penguin at sim (x, y). Real 3D geometry — oriented to face the arena centre.
+function pk3dPeng(scene, p, s) {
+  let el = scene.pengs.get(p.id);
+  if (!el) { el = pk3dBuildPeng(seatColor(p.id)); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pengs.set(p.id, el); }
+  const S = PK3D.scale;
+  const wx = (p.x * S), wz = (-p.y * S);
+  const face = (Math.atan2(-p.x, p.y) * 180 / Math.PI).toFixed(1); // front points toward centre
+  el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face}deg)`;
+  el.classList.toggle('mine', p.id === s.seat);
+  el.classList.toggle('out', !p.a);
+  const nameEl = el.querySelector('.pk3d-name');
+  const show = _pkNameShow === p.id && p.a;
+  nameEl.style.display = show ? '' : 'none';
+  if (show) {
+    const meta = (s.penguins || []).find((q) => q.seat === p.id);
+    nameEl.textContent = meta ? meta.name : '';
+    // counter the penguin's facing + camera so the label stays readable
+    nameEl.style.transform = `translate(-50%,-50%) translate3d(0,-84px,0) rotateY(${(-face - _pk3dCam.yaw).toFixed(1)}deg) rotateX(${(90 - _pk3dCam.tilt).toFixed(1)}deg)`;
+  }
+}
+
+function drawPk3d(s, opts) {
+  const board = $('pkBoard');
+  const scene = pk3dEnsureScene(board);
+  pk3dApplyCamera(scene);
+  const S = PK3D.scale;
+  // square ice slab sized to the current (shrinking) boundary, lying flat
+  const side = (opts.radius * 2 * S).toFixed(1);
+  for (const f of [scene.floor, scene.side]) { f.style.width = side + 'px'; f.style.height = side + 'px'; }
+  scene.floor.style.transform = `translate(-50%,-50%) rotateX(90deg)`;
+  scene.side.style.transform = `translate(-50%,-50%) translateY(12px) rotateX(90deg)`; // faux slab thickness
+  // penguins (from the replay frame if given, else live state)
+  const list = opts.positions || (s.penguins || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, a: p.alive }));
+  const seen = new Set();
+  for (const p of list) { pk3dPeng(scene, p, s); seen.add(p.id); }
+  for (const [id, el] of scene.pengs) if (!seen.has(id)) { el.remove(); scene.pengs.delete(id); }
+  // flat aim arrow on the ice
+  const me = list.find((p) => p.id === s.seat && p.a);
+  if (opts.aim && me) {
+    const len = (0.28 + opts.aim.power * 1.05) * S;
+    scene.arrow.style.display = '';
+    scene.arrow.style.width = len.toFixed(0) + 'px';
+    scene.arrow.style.transform =
+      `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-opts.aim.angle).toFixed(1)}deg)`;
+  } else {
+    scene.arrow.style.display = 'none';
+  }
+  // lock-in button + Aim/Look mode toggle, overlaid on the arena
+  const canCommit = s.phase === 'commit' && s.you && s.you.alive && !s.you.committed && !s.you.spectator;
+  scene.lock.style.display = canCommit ? '' : 'none';
+  scene.modebtn.style.display = canCommit ? '' : 'none';
+  if (canCommit) {
+    scene.lock.textContent = `🔒 Lock in launch · ${Math.round((_pkAim ? _pkAim.power : 0.5) * 100)}%`;
+    scene.lock.onclick = () => { const a = _pkAim || { angle: 0, power: 0.5 }; send({ type: 'commitMove', angle: a.angle, power: a.power }); };
+    scene.modebtn.textContent = _pk3dMode === 'aim' ? '🎯 Aim mode' : '🔄 Look mode';
+    scene.modebtn.classList.toggle('look', _pk3dMode !== 'aim');
+  }
+  scene.hint.textContent = canCommit ? (_pk3dMode === 'aim' ? 'drag anywhere to aim your arrow' : 'drag to look around') : 'drag to look around';
+  scene.hint.style.display = s.phase === 'commit' ? '' : 'none';
+}
+
+// Orbit on empty-space drag; aim on drag from your own penguin; tap a penguin to name it.
+function pk3dAttachInput(board) {
+  const scene = board.__pk3d;
+  const stage = scene.stage;
+  let st = null, mode = null, onSeat = null, moved = false;
+  stage.style.touchAction = 'none';
+  const meLive = () => (state && state.penguins ? state.penguins.find((p) => p.seat === state.seat) : null);
+  const redraw = () => { if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null }); };
+  stage.onpointerdown = (e) => {
+    st = { x: e.clientX, y: e.clientY, yaw: _pk3dCam.yaw, tilt: _pk3dCam.tilt };
+    moved = false;
+    const pe = e.target && e.target.closest ? e.target.closest('.pk3d-peng') : null;
+    onSeat = pe ? Number(pe.dataset.pseat) : null;
+    // Aim mode → a drag anywhere adjusts your arrow; Look mode → a drag orbits the camera.
+    mode = state && pkCanAim(state) && _pk3dMode === 'aim' ? 'aim' : 'orbit';
+    try { stage.setPointerCapture(e.pointerId); } catch { /* ok */ }
+  };
+  stage.onpointermove = (e) => {
+    if (!st) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!moved && Math.hypot(dx, dy) > 5) moved = true;
+    if (!moved) return;
+    if (mode === 'orbit') {
+      _pk3dCam.yaw = st.yaw + dx * 0.4;
+      _pk3dCam.tilt = Math.max(8, Math.min(82, st.tilt + dy * 0.3));
+      pk3dApplyCamera(scene);
+    } else if (mode === 'aim') {
+      const me = meLive(); if (!me) return;
+      const yaw = _pk3dCam.yaw * Math.PI / 180;
+      const fx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
+      const fz = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
+      _pkAim = _pkAim || { angle: 0, power: 0.5 };
+      _pkAim.angle = Math.atan2(-fz, fx) * 180 / Math.PI; // ice y is -z
+      _pkAim.power = Math.min(1, Math.hypot(dx, dy) / 150);
+      drawPk3d(state, { radius: state.radius, positions: null, aim: _pkAim });
+      pkSyncSlider();
+    }
+  };
+  stage.onpointerup = () => {
+    if (st && !moved && onSeat != null) { // tap → reveal name
+      _pkNameShow = onSeat;
+      redraw();
+      clearTimeout(_pkNameTimer);
+      _pkNameTimer = setTimeout(() => { _pkNameShow = null; if (state && state.phase !== 'resolve') redraw(); }, 2600);
+    }
+    st = null; mode = null;
+  };
+  stage.onwheel = (e) => {
+    e.preventDefault();
+    _pk3dCam.z = Math.max(-260, Math.min(260, _pk3dCam.z + (e.deltaY < 0 ? 28 : -28)));
+    pk3dApplyCamera(scene);
+  };
 }
 
 // Draw the 3D-perspective ice + penguins (+ optional aim arrow). `positions` overrides during replay.
@@ -3093,7 +3301,7 @@ function pkPlayResolution(s) {
   _pkPovDir = null;   // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
-  if (total < 2) { drawPkBoard(s, { radius: res.radius, positions: frames[0] || [], aim: null }); return; }
+  if (total < 2) { drawPk3d(s, { radius: res.radius, positions: frames[0] || [], aim: null }); return; }
   const start = performance.now();
   // Stretch the (often short) sim to a watchable length — min 10s — and interpolate between
   // ticks so it stays smooth at any speed. Kept ≤ the server's resolve hold.
@@ -3104,10 +3312,9 @@ function pkPlayResolution(s) {
     const ff = prog * (total - 1);
     const i = Math.round(ff);
     const positions = pkLerpFrame(frames, ff);
-    if (_pkPov) drawPkPov(s, res, positions, i);
-    else drawPkBoard(s, { radius: res.radius, positions, aim: null, impacts: res.impacts, frame: i });
+    drawPk3d(s, { radius: res.radius, positions, aim: null, impacts: res.impacts, frame: i });
     if (prog < 1) _pkReplay.raf = requestAnimationFrame(step);
-    else pkAnimateShrink(s, res, melted); // cut to the overhead view for the melt/shrink aftermath
+    else pkAnimateShrink(s, res, melted);
   };
   _pkReplay.raf = requestAnimationFrame(step);
 }
@@ -3120,7 +3327,7 @@ function pkAnimateShrink(s, res, melted) {
     const k = Math.min(1, (t - t0) / dur);
     const radius = res.radius + (res.radiusAfter - res.radius) * k;
     const pos = finalFrame.map((p) => ({ id: p.id, x: p.x, y: p.y, a: p.a && !(melted.has(p.id) && k > 0.5) }));
-    drawPkBoard(s, { radius, positions: pos, aim: null });
+    drawPk3d(s, { radius, positions: pos, aim: null });
     if (k < 1) _pkReplay.raf = requestAnimationFrame(anim);
     else _pkReplay.raf = 0;
   };
@@ -3138,16 +3345,7 @@ function renderPkActions(s) {
     return;
   }
   if (s.phase === 'resolve') {
-    const c = callout('🐧 Launch! Watch the chaos…', true);
-    if (s.you && !s.you.spectator) {
-      const btn = document.createElement('button');
-      btn.className = 'pk-povtoggle';
-      const label = () => (btn.textContent = _pkPov ? '📺 Overhead view' : '🥽 First-person');
-      label();
-      btn.onclick = () => { _pkPov = !_pkPov; label(); pkRedrawCurrent(); };
-      c.appendChild(btn);
-    }
-    area.appendChild(c);
+    area.appendChild(callout('🐧 Launch! Watch the chaos… (drag to look around)', true));
     return;
   }
   if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
@@ -3157,7 +3355,7 @@ function renderPkActions(s) {
     area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
     return;
   }
-  area.appendChild(prompt('Drag from your penguin to <b>aim &amp; power up</b> in one motion (or fine-tune power below). <i>(tap a penguin to see who it is)</i>'));
+  area.appendChild(prompt('Drag from your penguin to <b>aim &amp; power up</b>, then hit <b>Lock in</b> on the arena. <i>(fine-tune power below · tap a penguin to see who it is)</i>'));
   const aim = _pkAim || { angle: 0, power: 0.5 };
   const meter = document.createElement('div');
   meter.className = 'pk-powerbar';
@@ -3168,18 +3366,9 @@ function renderPkActions(s) {
     _pkAim = _pkAim || { angle: 0, power: 0 };
     _pkAim.power = slider.value / 100;
     valEl.textContent = slider.value + '%';
-    const me = (s.penguins || []).find((p) => p.seat === s.seat);
-    const svgEl = $('pkBoard').querySelector('svg');
-    if (me && svgEl) pkUpdateArrow(svgEl, me, _pkAim);
+    if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
   };
   area.appendChild(meter);
-  const row = document.createElement('div');
-  row.className = 'btn-row';
-  row.appendChild(actBtn('🔒 Lock in launch', 'btn btn-gold btn-lg', () => {
-    const a = _pkAim || { angle: 0, power: 0.5 };
-    send({ type: 'commitMove', angle: a.angle, power: a.power });
-  }));
-  area.appendChild(row);
 }
 
 // ---------------------------------------------------------------------------

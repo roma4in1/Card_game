@@ -398,6 +398,66 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 
 .pk-board-wrap { display: flex; justify-content: center; }
 .pk-board { width: 100%; max-width: min(94vw, 460px); border-radius: 16px; overflow: hidden; box-shadow: var(--e2); }
+
+/* ============ Penguin Knockout — CSS 3D arena (Roblox-style ice field) ============ */
+.pk3d-stage {
+  position: relative; width: 100%; aspect-ratio: 1 / 1; perspective: 720px; perspective-origin: 50% 42%;
+  overflow: hidden; border-radius: 16px; touch-action: none; cursor: grab; user-select: none;
+  /* light icy sky over a band of water */
+  background: linear-gradient(#eaf6ff 0%, #dff0fb 34%, #bfe0f2 52%, #7fc0e6 58%, #5aa8d8 62%, #bfe6f5 66%, #d8f0fb 100%);
+}
+.pk3d-stage:active { cursor: grabbing; }
+.pk3d-world { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-style: preserve-3d; }
+.pk3d-obj { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+
+/* square tiled ice slab lying flat on the ground plane */
+.pk3d-floor {
+  background:
+    repeating-linear-gradient(0deg, rgba(120,170,205,0.5) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(90deg, rgba(120,170,205,0.5) 0 1px, transparent 1px 34px),
+    linear-gradient(135deg, #eef8ff, #cfe8f7 60%, #b3d8ef);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.85) inset, 0 0 44px rgba(150,210,255,0.4);
+}
+.pk3d-floor-side { background: linear-gradient(#8fbcd8, #3f6d8c); box-shadow: 0 0 0 2px rgba(255,255,255,0.25) inset; }
+
+/* a real 3D block penguin (cuboids) — NOT billboarded */
+.pk3d-peng { will-change: transform; }
+.pk3d-pengbody { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+/* knocked off: tumble down past the ice edge into the water, then stay hidden */
+.pk3d-peng.out .pk3d-pengbody { animation: pk3dFall 1s cubic-bezier(0.4, 0, 0.9, 0.6) forwards; }
+.pk3d-peng.out .pk3d-hi { display: none; }
+@keyframes pk3dFall {
+  0% { transform: translateY(0) rotateX(0) rotateZ(0); }
+  100% { transform: translateY(340px) rotateX(160deg) rotateZ(90deg); opacity: 0; }
+}
+.pk3d-face { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; }
+.pk3d-face > div { position: absolute; left: 50%; top: 50%; box-sizing: border-box; }
+.pk3d-hi { display: none; }
+.pk3d-peng.mine .pk3d-hi { display: block; position: absolute; left: 50%; top: 50%; width: 52px; height: 16px; border-radius: 50%;
+  background: radial-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0)); transform: translate(-50%,-50%) rotateX(90deg); }
+.pk3d-name {
+  position: absolute; left: 50%; top: 50%; white-space: nowrap;
+  background: rgba(8, 12, 20, 0.9); color: #fff; font: 700 11px 'Outfit', sans-serif;
+  padding: 2px 7px; border-radius: 8px; border: 1px solid var(--accent); pointer-events: none;
+}
+/* flat aim arrow lying on the ice */
+.pk3d-arrow { height: 14px; background: linear-gradient(90deg, var(--gold), #ffe08a); border-radius: 3px; transform-origin: left center; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+.pk3d-arrow::after { content: ''; position: absolute; right: -14px; top: 50%; width: 0; height: 0; border: 14px solid transparent; border-left-color: var(--gold); transform: translateY(-50%); }
+.pk3d-hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; color: rgba(30,60,90,0.6); font: 600 0.72rem 'Outfit', sans-serif; pointer-events: none; }
+.pk3d-lockbtn {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6;
+  padding: 13px 26px; border: none; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  background: linear-gradient(135deg, var(--gold), #ffd877); color: #4a3500;
+  font: 800 1rem 'Outfit', sans-serif; box-shadow: 0 8px 22px rgba(245, 196, 81, 0.45), 0 2px 0 #c9952a inset;
+}
+.pk3d-lockbtn:active { transform: translateX(-50%) translateY(1px) scale(0.98); }
+.pk3d-modebtn {
+  position: absolute; top: 12px; right: 12px; z-index: 6; padding: 9px 14px; border-radius: 999px; cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.85); background: rgba(58, 120, 170, 0.9); color: #fff;
+  font: 800 0.82rem 'Outfit', sans-serif; box-shadow: 0 4px 12px rgba(0,0,0,0.25); backdrop-filter: blur(4px);
+}
+.pk3d-modebtn.look { background: rgba(60, 74, 92, 0.9); }
+.pk3d-modebtn:active { transform: scale(0.96); }
 .pk-svg { width: 100%; height: auto; display: block; touch-action: none; }
 .pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.9); stroke-width: 0.01; }
 .pk-ice-cast { fill: rgba(0, 12, 26, 0.45); pointer-events: none; }
