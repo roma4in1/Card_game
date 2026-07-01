@@ -49,6 +49,7 @@ interface Resolution {
 export interface IFState {
   pieces: (Piece | null)[]; // by seat
   order: number[];
+  hx: number; hy: number; goalHy: number; // pitch half-extents (scale up with player count)
   ball: Ball;
   score: { red: number; blue: number };
   goalsToWin: number;
@@ -81,7 +82,8 @@ const seated = (s: IFState) => s.order.filter((seat) => s.pieces[seat]);
 interface Body { id: number; x: number; y: number; vx: number; vy: number; mass: number; drag: number; radius: number; off: boolean }
 interface Static { x: number; y: number; r: number }
 
-function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[]) {
+function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[], pitch: { hx: number; hy: number; goalHy: number }) {
+  const { hx: HX, hy: HY, goalHy: GOAL_HY } = pitch; // shadow the base constants with this match's pitch
   const frames: Resolution['frames'] = [];
   const pickups: { pieceId: number; type: string }[] = [];
   const impacts: Impact[] = [];
@@ -190,7 +192,7 @@ function resolveRound(s: IFState, now: number) {
       if (pu.type === 'powerShot') v0 *= PU.powerShot;
       else if (pu.type === 'bigPiece') { radius = PU.bigR; mass = PU.bigM; }
       else if (pu.type === 'slick') drag = PU.slickDrag;
-      else if (pu.type === 'wall') statics.push({ x: p.team === 'red' ? -(HX - 0.16) : HX - 0.16, y: 0, r: WALL_R });
+      else if (pu.type === 'wall') statics.push({ x: p.team === 'red' ? -(s.hx - 0.16) : s.hx - 0.16, y: 0, r: WALL_R });
       else if (pu.type === 'freeze' && pu.targetId != null && s.pieces[pu.targetId] && s.pieces[pu.targetId]!.team !== p.team) freezeTargets.add(pu.targetId);
     }
     const a = (c.angle * Math.PI) / 180;
@@ -200,7 +202,7 @@ function resolveRound(s: IFState, now: number) {
   for (const b of bodies) if (freezeTargets.has(b.id)) { b.vx = 0; b.vy = 0; } // frozen pieces can't move this round
 
   const ballBody: Body = { id: -1, x: s.ball.x, y: s.ball.y, vx: s.ball.vx, vy: s.ball.vy, mass: B_MASS, drag: B_DRAG, radius: RB, off: false };
-  const sim = simulate(bodies, ballBody, statics, s.powerUpsOnPitch);
+  const sim = simulate(bodies, ballBody, statics, s.powerUpsOnPitch, { hx: s.hx, hy: s.hy, goalHy: s.goalHy });
 
   // bank pickups; remove taken items
   for (const pk of sim.pickups) { const p = s.pieces[pk.pieceId]; if (p) p.powerUps.push(pk.type); }
@@ -238,9 +240,13 @@ function kickoff(s: IFState) {
 }
 
 function spawnPowerUps(s: IFState) {
-  // deterministic types from the round number (no per-client RNG)
-  s.powerUpsOnPitch = SPAWN_SPOTS.map(([x, y], i) => ({ id: s.nextItemId++, type: ALL_POWERUPS[(s.round + i) % ALL_POWERUPS.length], x, y }));
+  // deterministic types from the round number (no per-client RNG); spots scale with the pitch
+  const sx = s.hx / HX;
+  s.powerUpsOnPitch = SPAWN_SPOTS.map(([x, y], i) => ({ id: s.nextItemId++, type: ALL_POWERUPS[(s.round + i) % ALL_POWERUPS.length], x: +(x * sx).toFixed(4), y: +(y * sx).toFixed(4) }));
 }
+
+// Bigger pitch the more players there are, so it never feels crowded.
+function pitchScale(np: number): number { return +Math.min(2, 1 + Math.max(0, np - 2) * 0.13).toFixed(3); }
 
 function finishGame(s: IFState) {
   s.over = true;
@@ -301,14 +307,15 @@ export const iceFootball: GameDef<IFState> = {
     const order = [...setup.seats];
     const np = order.length;
     const half = Math.ceil(np / 2);
+    const ps = pitchScale(np); // pitch grows with the roster
     const nameBySeat = new Map(setup.players.map((p) => [p.seat, p.name]));
     const pieces: (Piece | null)[] = new Array(MAX_SEATS).fill(null);
     const reds = order.slice(0, half), blues = order.slice(half);
     const place = (members: number[], team: Team) => {
       const m = members.length;
       members.forEach((seat, k) => {
-        const x = (team === 'red' ? -0.5 : 0.5);
-        const y = m === 1 ? 0 : (k / (m - 1) - 0.5) * 0.7;
+        const x = (team === 'red' ? -0.5 : 0.5) * ps;
+        const y = (m === 1 ? 0 : (k / (m - 1) - 0.5) * 0.7) * ps;
         pieces[seat] = { name: nameBySeat.get(seat) ?? `Seat ${seat + 1}`, connected: true, team, x: +x.toFixed(4), y: +y.toFixed(4), homeX: +x.toFixed(4), homeY: +y.toFixed(4), powerUps: [] };
       });
     };
@@ -316,7 +323,8 @@ export const iceFootball: GameDef<IFState> = {
     place(blues, 'blue');
     const timer = Math.round(clamp(setup.options?.timer ?? 20, 10, 45));
     const s: IFState = {
-      pieces, order, ball: { x: 0, y: 0, vx: 0, vy: 0 },
+      pieces, order, hx: +(HX * ps).toFixed(4), hy: +(HY * ps).toFixed(4), goalHy: +(GOAL_HY * ps).toFixed(4),
+      ball: { x: 0, y: 0, vx: 0, vy: 0 },
       score: { red: 0, blue: 0 }, goalsToWin: Math.round(clamp(setup.options?.goals ?? 3, 1, 7)),
       phase: 'commit', round: 1, commitments: {}, powerUpsOnPitch: [], nextItemId: 1,
       commitDeadline: ctx.now + timer * 1000, resolveDeadline: 0, pendingDone: false, lastResolution: null,
@@ -362,7 +370,7 @@ export const iceFootball: GameDef<IFState> = {
       round: s.round,
       score: s.score,
       goalsToWin: s.goalsToWin,
-      pitch: { hx: HX, hy: HY, goalHy: GOAL_HY, rp: RP, rb: RB },
+      pitch: { hx: s.hx, hy: s.hy, goalHy: s.goalHy, rp: RP, rb: RB },
       pieces,
       ball: { x: s.ball.x, y: s.ball.y },
       items: s.powerUpsOnPitch.map((it) => ({ id: it.id, type: it.type, x: it.x, y: it.y })),
@@ -393,7 +401,7 @@ export const iceFootball: GameDef<IFState> = {
     const me = s.pieces[seat];
     if (!me || s.commitments[seat]) return null;
     // aim at the ball, nudging it toward the opponent goal
-    const goalX = me.team === 'red' ? HX : -HX;
+    const goalX = me.team === 'red' ? s.hx : -s.hx;
     const aimX = s.ball.x + (goalX - s.ball.x) * 0.18;
     const dx = aimX - me.x, dy = s.ball.y - me.y;
     const angle = (Math.atan2(dy, dx) * 180) / Math.PI + (ctx.rng() * 14 - 7);

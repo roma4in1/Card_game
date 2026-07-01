@@ -3492,7 +3492,8 @@ function ifSyncSlider() {
 // walls, goals and stadium are built once; only pieces/ball transforms update per frame.
 let _if3dCam = { yaw: -20, tilt: 30, z: 20 };
 let _if3dMode = 'aim';
-const IF3D = { scale: 165, wallH: 46, slabT: 48, goalH: 42 };
+const IF3D = { targetHalf: 168, wallH: 46, slabT: 48, goalH: 42 }; // targetHalf = on-screen half-width; the pitch always fits, players shrink as it grows
+let _if3dScale = 168; // px per world unit — recomputed per match so a bigger pitch still fits the stage
 
 function if3dWorldTransform() {
   return `translateZ(${_if3dCam.z}px) rotateX(${(_if3dCam.tilt - 90).toFixed(2)}deg) rotateY(${_if3dCam.yaw.toFixed(2)}deg)`;
@@ -3544,7 +3545,7 @@ function if3dBuildStadium(hxp, hyp) {
 }
 
 function if3dBuildPitch(scene, s) {
-  const S = IF3D.scale, { hx, hy, goalHy } = s.pitch;
+  const S = _if3dScale, { hx, hy, goalHy } = s.pitch;
   const w = 2 * hx * S, d = 2 * hy * S, T = IF3D.slabT;
   const hxp = hx * S, hyp = hy * S, gp = goalHy * S, H = IF3D.wallH;
   scene.world.appendChild(if3dBuildStadium(hxp, hyp));
@@ -3575,7 +3576,10 @@ function if3dBuildPitch(scene, s) {
 }
 
 function if3dEnsureScene(board, s) {
-  if (board.__if3d) return board.__if3d;
+  // Fit the pitch to the stage: bigger pitch (more players) → smaller scale → players shrink.
+  _if3dScale = IF3D.targetHalf / s.pitch.hx;
+  const key = s.pitch.hx.toFixed(3);
+  if (board.__if3d && board.__if3d.pitchKey === key) return board.__if3d;
   board.innerHTML = '';
   const stage = document.createElement('div'); stage.className = 'if3d-stage';
   const world = document.createElement('div'); world.className = 'pk3d-world';
@@ -3588,7 +3592,7 @@ function if3dEnsureScene(board, s) {
   modebtn.onclick = () => { _if3dMode = _if3dMode === 'aim' ? 'orbit' : 'aim'; if (state && state.gameId === 'ice-football') drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); };
   stage.appendChild(modebtn);
   board.appendChild(stage);
-  const scene = { stage, world, arrow, hint, lock, modebtn, ball: null, pieces: new Map(), items: new Map(), blockers: new Map() };
+  const scene = { stage, world, arrow, hint, lock, modebtn, pitchKey: s.pitch.hx.toFixed(3), ball: null, pieces: new Map(), items: new Map(), blockers: new Map() };
   board.__if3d = scene;
   if3dBuildPitch(scene, s);
   if3dAttachInput(board);
@@ -3601,7 +3605,7 @@ function if3dBall(scene, ballPos, rb) {
     sh = document.createElement('div'); sh.className = 'pk3d-obj if3d-ballshadow'; scene.world.appendChild(sh); scene.ballShadow = sh;
     b = document.createElement('div'); b.className = 'pk3d-obj if3d-ball'; scene.world.appendChild(b); scene.ball = b;
   }
-  const S = IF3D.scale, r = rb * S, x = (ballPos.x * S).toFixed(1), z = (-ballPos.y * S).toFixed(1);
+  const S = _if3dScale, r = rb * S, x = (ballPos.x * S).toFixed(1), z = (-ballPos.y * S).toFixed(1);
   b.style.width = b.style.height = (2 * r).toFixed(1) + 'px';
   // billboarded so it reads as a sphere from any camera angle (its physics is a circle = a sphere on the plane)
   b.style.transform = `translate(-50%,-50%) translate3d(${x}px,${(-r).toFixed(1)}px,${z}px) ${if3dBillboard()}`;
@@ -3613,14 +3617,14 @@ function if3dBall(scene, ballPos, rb) {
 function if3dPiece(scene, p, s, moving) {
   let el = scene.pieces.get(p.id);
   if (!el) { const meta = (s.pieces || []).find((q) => q.seat === p.id); el = pk3dBuildPeng(IF_TEAM[meta ? meta.team : 'red']); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pieces.set(p.id, el); }
-  const S = IF3D.scale, wx = p.x * S, wz = -p.y * S;
+  const S = _if3dScale, wx = p.x * S, wz = -p.y * S;
   let face;
   if (moving && el._lastX != null) {
     const dx = p.x - el._lastX, dy = p.y - el._lastY;
     face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI : (el._face != null ? el._face : 0);
   } else { const b = s.ball || { x: 0, y: 0 }; face = Math.atan2(b.x - p.x, -(b.y - p.y)) * 180 / Math.PI; } // idle → face the ball
   el._lastX = p.x; el._lastY = p.y; el._face = face;
-  const F = (s.pitch.rp * IF3D.scale) / 15; // scale the (30px) block so its body edge = the hitbox
+  const F = (s.pitch.rp * _if3dScale) / 15; // scale the (30px) block so its body edge = the hitbox
   el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face.toFixed(1)}deg) scale3d(${F.toFixed(3)},${F.toFixed(3)},${F.toFixed(3)})`;
   el.classList.toggle('mine', p.id === s.seat);
   el.classList.toggle('out', !!p.o);
@@ -3631,7 +3635,7 @@ function if3dItems(scene, items) {
   for (const it of items) {
     let el = scene.items.get(it.id);
     if (!el) { el = document.createElement('div'); el.className = 'pk3d-obj if3d-item'; el.textContent = IF_PU_ICON[it.type] || '★'; scene.world.appendChild(el); scene.items.set(it.id, el); }
-    const S = IF3D.scale;
+    const S = _if3dScale;
     el.style.transform = `translate(-50%,-50%) translate3d(${(it.x * S).toFixed(0)}px,-22px,${(-it.y * S).toFixed(0)}px) ${if3dBillboard()}`;
     seen.add(it.id);
   }
@@ -3643,8 +3647,8 @@ function if3dBlockers(scene, walls) {
   walls.forEach((w, idx) => {
     const id = 'b' + idx;
     let el = scene.blockers.get(id);
-    if (!el) { el = pk3dBox(2 * w.r * IF3D.scale, 42, 2 * w.r * IF3D.scale, { all: '#c3ccdb' }); scene.world.appendChild(el); scene.blockers.set(id, el); }
-    el.style.transform = `translate3d(${(w.x * IF3D.scale).toFixed(0)}px,-21px,${(-w.y * IF3D.scale).toFixed(0)}px)`;
+    if (!el) { el = pk3dBox(2 * w.r * _if3dScale, 42, 2 * w.r * _if3dScale, { all: '#c3ccdb' }); scene.world.appendChild(el); scene.blockers.set(id, el); }
+    el.style.transform = `translate3d(${(w.x * _if3dScale).toFixed(0)}px,-21px,${(-w.y * _if3dScale).toFixed(0)}px)`;
     seen.add(id);
   });
   for (const [id, el] of scene.blockers) if (!seen.has(id)) { el.remove(); scene.blockers.delete(id); }
@@ -3666,7 +3670,7 @@ function drawIf3d(s, opts) {
   // aim arrow
   const me = list.find((p) => p.id === s.seat && !p.o);
   if (opts.aim && me) {
-    const S = IF3D.scale, len = (0.26 + opts.aim.power * 1.0) * S;
+    const S = _if3dScale, len = (0.26 + opts.aim.power * 1.0) * S;
     scene.arrow.style.display = ''; scene.arrow.style.width = len.toFixed(0) + 'px';
     scene.arrow.style.transform = `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-opts.aim.angle).toFixed(1)}deg)`;
   } else { scene.arrow.style.display = 'none'; }
