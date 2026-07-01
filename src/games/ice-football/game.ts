@@ -16,8 +16,8 @@ const MAX_SEATS = 8;
 // --- pitch + physics constants (normalized; pitch is [-HX,HX] x [-HY,HY]) ---
 const HX = 1.0, HY = 0.6; // pitch half-extents
 const GOAL_HY = 0.26; // goal-mouth half-height (gap in the x-end walls)
-const RP = 0.07, P_MASS = 1, P_DRAG = 0.86; // piece radius / mass / friction
-const RB = 0.05, B_MASS = 0.45, B_DRAG = 0.93; // ball: lighter + slicker → kicks carry
+const RP = 0.045, P_MASS = 1, P_DRAG = 0.86; // piece radius / mass / friction — small vs the pitch
+const RB = 0.035, B_MASS = 0.45, B_DRAG = 0.93; // ball: lighter + slicker → kicks carry
 const VMAX = 0.155, REST = 0.85, WALL_BOUNCE = 0.8;
 const STOP = 0.0009, MAX_TICKS = 320;
 const ITEM_R = 0.05, WALL_R = 0.14;

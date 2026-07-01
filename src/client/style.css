@@ -461,6 +461,30 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .pk3d-modebtn.look { background: rgba(60, 74, 92, 0.9); }
 .pk3d-modebtn:active { transform: scale(0.96); }
+
+/* ============ Ice Football — CSS 3D pitch (stadium, glass walls) ============ */
+.if3d-stage {
+  position: relative; width: 100%; aspect-ratio: 1 / 1; perspective: 760px; perspective-origin: 50% 44%;
+  overflow: hidden; border-radius: 16px; touch-action: none; cursor: grab; user-select: none;
+  background: linear-gradient(#bfe6ff 0%, #a9dbfb 40%, #8fc9ef 52%, #7bb7d6 60%, #6aa3c0 100%);
+}
+.if3d-stage:active { cursor: grabbing; }
+.if3d-pitch-top { background: repeating-linear-gradient(90deg, #2f8a4c 0 24px, #2b8046 24px 48px) !important; box-shadow: 0 0 0 3px rgba(255,255,255,0.8) inset !important; }
+.if3d-pitch-side { background: linear-gradient(#3e6d52, #24402f) !important; }
+.if3d-pitch-bot { background: #1c3325 !important; }
+.if3d-mark { position: absolute; pointer-events: none; }
+.if3d-wall { background: rgba(255,214,0,0.20); border: 1.5px solid rgba(255,214,0,0.7); box-shadow: 0 0 12px rgba(255,214,0,0.32); backface-visibility: visible; }
+.if3d-stand { background: repeating-linear-gradient(0deg, #4a5568 0 5px, #38414f 5px 12px) !important; }
+.if3d-ball {
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.95) 0 6%, transparent 30%),
+    radial-gradient(circle at 62% 70%, #9aa6b4, transparent 55%),
+    radial-gradient(circle at 40% 38%, #ffffff, #dfe5ec 55%, #aeb8c4 82%, #7f8a98 100%);
+  box-shadow: inset -3px -4px 8px rgba(0,0,0,0.32), inset 2px 2px 5px rgba(255,255,255,0.5);
+}
+.if3d-ballshadow { border-radius: 50%; background: radial-gradient(rgba(0,20,10,0.42), rgba(0,20,10,0)); }
+.if3d-item { font-size: 20px; text-align: center; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45)); }
 .pk-svg { width: 100%; height: auto; display: block; touch-action: none; }
 .pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.9); stroke-width: 0.01; }
 .pk-ice-cast { fill: rgba(0, 12, 26, 0.45); pointer-events: none; }

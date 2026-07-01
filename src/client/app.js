@@ -3440,8 +3440,9 @@ function renderIceFootball(s) {
       const me = s.pieces.find((p) => p.seat === s.seat);
       const goalX = me && me.team === 'red' ? s.pitch.hx : -s.pitch.hx; // face the opponent goal
       _ifAim = { angle: me ? (Math.atan2(s.ball.y - me.y, goalX - me.x) * 180) / Math.PI : 0, power: 0.5 };
+      _if3dMode = 'aim';
     }
-    drawIfBoard(s, { ball: s.ball, pieces: null });
+    drawIf3d(s, { ball: null, pieces: null, aim: ifCanAim(s) ? _ifAim : null });
   }
   renderIfActions(s);
   const ul = $('ifLog'); ul.innerHTML = '';
@@ -3484,6 +3485,255 @@ function ifSyncSlider() {
   const pct = Math.round(_ifAim.power * 100);
   if (sl) sl.value = pct;
   if (vl) vl.textContent = pct + '%';
+}
+
+// ── CSS-3D football pitch (rectangular field, glass walls, stadium) ────────────
+// Reuses the penguin 3D toolkit (pk3dBox / pk3dBuildPeng). Persistent DOM: the pitch,
+// walls, goals and stadium are built once; only pieces/ball transforms update per frame.
+let _if3dCam = { yaw: -20, tilt: 30, z: 20 };
+let _if3dMode = 'aim';
+const IF3D = { scale: 165, wallH: 46, slabT: 48, goalH: 42 };
+
+function if3dWorldTransform() {
+  return `translateZ(${_if3dCam.z}px) rotateX(${(_if3dCam.tilt - 90).toFixed(2)}deg) rotateY(${_if3dCam.yaw.toFixed(2)}deg)`;
+}
+function if3dApplyCamera(scene) { scene.world.style.transform = if3dWorldTransform(); }
+function if3dBillboard() { return `rotateY(${(-_if3dCam.yaw).toFixed(1)}deg) rotateX(${(90 - _if3dCam.tilt).toFixed(1)}deg)`; }
+
+// A vertical wall panel spanning a ground segment (px), standing height H.
+function if3dWall(x1, z1, x2, z2, H) {
+  const dx = x2 - x1, dz = z2 - z1, L = Math.hypot(dx, dz);
+  const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, ang = -Math.atan2(dz, dx) * 180 / Math.PI;
+  const el = document.createElement('div'); el.className = 'pk3d-obj if3d-wall';
+  el.style.width = L.toFixed(1) + 'px'; el.style.height = H + 'px';
+  el.style.transform = `translate(-50%,-50%) translate3d(${mx.toFixed(1)}px,${(-H / 2).toFixed(0)}px,${mz.toFixed(1)}px) rotateY(${ang.toFixed(1)}deg)`;
+  return el;
+}
+
+// White goal frame (two posts + crossbar) at goal-line x (px), gap width goalW (px).
+function if3dGoal(sx, goalW) {
+  const g = document.createElement('div'); g.className = 'pk3d-obj'; g.style.transformStyle = 'preserve-3d';
+  const H = IF3D.goalH, pw = 5;
+  const post = (z) => { const b = pk3dBox(pw, H, pw, '#f4f8ff'); b.style.transform = `translate3d(${sx}px,${-H / 2}px,${z}px)`; return b; };
+  const bar = pk3dBox(pw, pw, goalW, '#f4f8ff'); bar.style.transform = `translate3d(${sx}px,${-H}px,0px)`;
+  g.append(post(-goalW / 2), post(goalW / 2), bar);
+  return g;
+}
+
+// A rectangular stadium bowl around the pitch: four striped stands + corner floodlights.
+function if3dBuildStadium(hxp, hyp) {
+  const st = document.createElement('div'); st.className = 'pk3d-obj'; st.style.transformStyle = 'preserve-3d';
+  const gap = 110, standH = 150, standD = 95;
+  const L = 2 * hxp + 2 * gap + standD, D = 2 * hyp + 2 * gap + standD;
+  const mk = (w, h, d, x, z) => { const b = pk3dBox(w, h, d, { all: '#3a4453' }); for (let i = 0; i < 4; i++) { b.children[i].style.background = ''; b.children[i].classList.add('if3d-stand'); } b.style.transform = `translate3d(${x}px,${-h / 2}px,${z}px)`; return b; };
+  st.append(
+    mk(L, standH, standD, 0, -(hyp + gap + standD / 2)),
+    mk(L, standH, standD, 0, (hyp + gap + standD / 2)),
+    mk(standD, standH, D, -(hxp + gap + standD / 2), 0),
+    mk(standD, standH, D, (hxp + gap + standD / 2), 0),
+  );
+  const flood = (x, z) => {
+    const g = document.createElement('div'); g.className = 'pk3d-obj'; g.style.transformStyle = 'preserve-3d';
+    const ph = 210; const pole = pk3dBox(8, ph, 8, '#8893a5'); pole.style.transform = `translate3d(${x}px,${-ph / 2}px,${z}px)`;
+    const lamp = pk3dBox(48, 16, 22, '#fffbe0'); lamp.style.transform = `translate3d(${x}px,${-ph}px,${z}px)`;
+    g.append(pole, lamp); return g;
+  };
+  const cx = hxp + gap, cz = hyp + gap;
+  st.append(flood(-cx, -cz), flood(cx, -cz), flood(-cx, cz), flood(cx, cz));
+  return st;
+}
+
+function if3dBuildPitch(scene, s) {
+  const S = IF3D.scale, { hx, hy, goalHy } = s.pitch;
+  const w = 2 * hx * S, d = 2 * hy * S, T = IF3D.slabT;
+  const hxp = hx * S, hyp = hy * S, gp = goalHy * S, H = IF3D.wallH;
+  scene.world.appendChild(if3dBuildStadium(hxp, hyp));
+  // pitch slab
+  const slab = pk3dBox(w, T, d, { all: '#2e7d46' });
+  const f = slab.children;
+  for (let i = 0; i < 4; i++) { f[i].style.background = ''; f[i].classList.add('if3d-pitch-side'); }
+  f[4].style.background = ''; f[4].classList.add('if3d-pitch-top');
+  f[5].style.background = ''; f[5].classList.add('if3d-pitch-bot');
+  slab.style.transform = `translate3d(0px,${T / 2}px,0px)`;
+  const top = f[4];
+  const mark = (css) => { const m = document.createElement('div'); m.className = 'if3d-mark'; m.style.cssText = css; top.appendChild(m); };
+  mark(`left:50%;top:50%;width:2px;height:100%;transform:translate(-50%,-50%);background:rgba(255,255,255,0.85);`);
+  mark(`left:50%;top:50%;width:${(0.34 * d).toFixed(0)}px;height:${(0.34 * d).toFixed(0)}px;transform:translate(-50%,-50%);border:2px solid rgba(255,255,255,0.85);border-radius:50%;`);
+  const pbW = (0.15 * w).toFixed(0), pbH = (0.58 * d).toFixed(0);
+  mark(`left:0;top:50%;width:${pbW}px;height:${pbH}px;transform:translateY(-50%);border:2px solid rgba(255,255,255,0.8);border-left:none;`);
+  mark(`right:0;top:50%;width:${pbW}px;height:${pbH}px;transform:translateY(-50%);border:2px solid rgba(255,255,255,0.8);border-right:none;`);
+  scene.world.appendChild(slab);
+  // yellow perimeter walls with goal gaps
+  const walls = document.createElement('div'); walls.className = 'pk3d-obj'; walls.style.transformStyle = 'preserve-3d';
+  walls.append(
+    if3dWall(-hxp, -hyp, hxp, -hyp, H), if3dWall(-hxp, hyp, hxp, hyp, H),
+    if3dWall(-hxp, -hyp, -hxp, -gp, H), if3dWall(-hxp, gp, -hxp, hyp, H),
+    if3dWall(hxp, -hyp, hxp, -gp, H), if3dWall(hxp, gp, hxp, hyp, H),
+  );
+  scene.world.appendChild(walls);
+  scene.world.append(if3dGoal(-hxp, 2 * gp), if3dGoal(hxp, 2 * gp));
+}
+
+function if3dEnsureScene(board, s) {
+  if (board.__if3d) return board.__if3d;
+  board.innerHTML = '';
+  const stage = document.createElement('div'); stage.className = 'if3d-stage';
+  const world = document.createElement('div'); world.className = 'pk3d-world';
+  const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
+  world.appendChild(arrow);
+  stage.appendChild(world);
+  const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around'; stage.appendChild(hint);
+  const lock = document.createElement('button'); lock.className = 'pk3d-lockbtn'; lock.style.display = 'none'; lock.onpointerdown = (e) => e.stopPropagation(); stage.appendChild(lock);
+  const modebtn = document.createElement('button'); modebtn.className = 'pk3d-modebtn'; modebtn.style.display = 'none'; modebtn.onpointerdown = (e) => e.stopPropagation();
+  modebtn.onclick = () => { _if3dMode = _if3dMode === 'aim' ? 'orbit' : 'aim'; if (state && state.gameId === 'ice-football') drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); };
+  stage.appendChild(modebtn);
+  board.appendChild(stage);
+  const scene = { stage, world, arrow, hint, lock, modebtn, ball: null, pieces: new Map(), items: new Map(), blockers: new Map() };
+  board.__if3d = scene;
+  if3dBuildPitch(scene, s);
+  if3dAttachInput(board);
+  return scene;
+}
+
+function if3dBall(scene, ballPos, rb) {
+  let b = scene.ball, sh = scene.ballShadow;
+  if (!b) {
+    sh = document.createElement('div'); sh.className = 'pk3d-obj if3d-ballshadow'; scene.world.appendChild(sh); scene.ballShadow = sh;
+    b = document.createElement('div'); b.className = 'pk3d-obj if3d-ball'; scene.world.appendChild(b); scene.ball = b;
+  }
+  const S = IF3D.scale, r = rb * S, x = (ballPos.x * S).toFixed(1), z = (-ballPos.y * S).toFixed(1);
+  b.style.width = b.style.height = (2 * r).toFixed(1) + 'px';
+  // billboarded so it reads as a sphere from any camera angle (its physics is a circle = a sphere on the plane)
+  b.style.transform = `translate(-50%,-50%) translate3d(${x}px,${(-r).toFixed(1)}px,${z}px) ${if3dBillboard()}`;
+  // a flat contact shadow on the pitch, directly under the ball
+  sh.style.width = (2.2 * r).toFixed(1) + 'px'; sh.style.height = (1.1 * r).toFixed(1) + 'px';
+  sh.style.transform = `translate(-50%,-50%) translate3d(${x}px,-1px,${z}px) rotateX(90deg)`;
+}
+
+function if3dPiece(scene, p, s, moving) {
+  let el = scene.pieces.get(p.id);
+  if (!el) { const meta = (s.pieces || []).find((q) => q.seat === p.id); el = pk3dBuildPeng(IF_TEAM[meta ? meta.team : 'red']); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pieces.set(p.id, el); }
+  const S = IF3D.scale, wx = p.x * S, wz = -p.y * S;
+  let face;
+  if (moving && el._lastX != null) {
+    const dx = p.x - el._lastX, dy = p.y - el._lastY;
+    face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI : (el._face != null ? el._face : 0);
+  } else { const b = s.ball || { x: 0, y: 0 }; face = Math.atan2(b.x - p.x, -(b.y - p.y)) * 180 / Math.PI; } // idle → face the ball
+  el._lastX = p.x; el._lastY = p.y; el._face = face;
+  const F = (s.pitch.rp * IF3D.scale) / 15; // scale the (30px) block so its body edge = the hitbox
+  el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face.toFixed(1)}deg) scale3d(${F.toFixed(3)},${F.toFixed(3)},${F.toFixed(3)})`;
+  el.classList.toggle('mine', p.id === s.seat);
+  el.classList.toggle('out', !!p.o);
+}
+
+function if3dItems(scene, items) {
+  const seen = new Set();
+  for (const it of items) {
+    let el = scene.items.get(it.id);
+    if (!el) { el = document.createElement('div'); el.className = 'pk3d-obj if3d-item'; el.textContent = IF_PU_ICON[it.type] || '★'; scene.world.appendChild(el); scene.items.set(it.id, el); }
+    const S = IF3D.scale;
+    el.style.transform = `translate(-50%,-50%) translate3d(${(it.x * S).toFixed(0)}px,-22px,${(-it.y * S).toFixed(0)}px) ${if3dBillboard()}`;
+    seen.add(it.id);
+  }
+  for (const [id, el] of scene.items) if (!seen.has(id)) { el.remove(); scene.items.delete(id); }
+}
+
+function if3dBlockers(scene, walls) {
+  const seen = new Set();
+  walls.forEach((w, idx) => {
+    const id = 'b' + idx;
+    let el = scene.blockers.get(id);
+    if (!el) { el = pk3dBox(2 * w.r * IF3D.scale, 42, 2 * w.r * IF3D.scale, { all: '#c3ccdb' }); scene.world.appendChild(el); scene.blockers.set(id, el); }
+    el.style.transform = `translate3d(${(w.x * IF3D.scale).toFixed(0)}px,-21px,${(-w.y * IF3D.scale).toFixed(0)}px)`;
+    seen.add(id);
+  });
+  for (const [id, el] of scene.blockers) if (!seen.has(id)) { el.remove(); scene.blockers.delete(id); }
+}
+
+function drawIf3d(s, opts) {
+  const board = $('ifBoard');
+  const scene = if3dEnsureScene(board, s);
+  if3dApplyCamera(scene);
+  if3dBall(scene, opts.ball || s.ball, s.pitch.rb);
+  const piecePos = opts.pieces;
+  const list = piecePos ? piecePos.map((fp) => ({ id: fp.id, x: fp.x, y: fp.y, o: fp.o })) : (s.pieces || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, o: false }));
+  const moving = !!piecePos;
+  const seen = new Set();
+  for (const p of list) { if3dPiece(scene, p, s, moving); seen.add(p.id); }
+  for (const [id, el] of scene.pieces) if (!seen.has(id)) { el.remove(); scene.pieces.delete(id); }
+  if3dItems(scene, s.items || []);
+  if3dBlockers(scene, opts.walls || []);
+  // aim arrow
+  const me = list.find((p) => p.id === s.seat && !p.o);
+  if (opts.aim && me) {
+    const S = IF3D.scale, len = (0.26 + opts.aim.power * 1.0) * S;
+    scene.arrow.style.display = ''; scene.arrow.style.width = len.toFixed(0) + 'px';
+    scene.arrow.style.transform = `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-opts.aim.angle).toFixed(1)}deg)`;
+  } else { scene.arrow.style.display = 'none'; }
+  // lock + mode toggle
+  const canCommit = s.phase === 'commit' && s.you && !s.you.committed && !s.you.spectator;
+  scene.lock.style.display = canCommit ? '' : 'none';
+  scene.modebtn.style.display = canCommit ? '' : 'none';
+  if (canCommit) {
+    scene.lock.textContent = `🔒 Lock in · ${Math.round((_ifAim ? _ifAim.power : 0.5) * 100)}%`;
+    scene.lock.onclick = () => {
+      if (_ifPU && _ifPU.type === 'freeze' && _ifPU.targetId == null) { toast('Pick an opponent to freeze first.', 'err'); return; }
+      const a = _ifAim || { angle: 0, power: 0.5 };
+      send({ type: 'commitMove', angle: a.angle, power: a.power, usePowerUp: _ifPU || undefined });
+    };
+    scene.modebtn.textContent = _if3dMode === 'aim' ? '🎯 Aim mode' : '🔄 Look mode';
+    scene.modebtn.classList.toggle('look', _if3dMode !== 'aim');
+  }
+  scene.hint.textContent = canCommit ? (_if3dMode === 'aim' ? 'drag anywhere to aim' : 'drag to look around') : 'drag to look around';
+  scene.hint.style.display = s.phase === 'commit' ? '' : 'none';
+}
+
+function if3dAttachInput(board) {
+  const scene = board.__if3d, stage = scene.stage;
+  let st = null, mode = null, onSeat = null, moved = false;
+  stage.style.touchAction = 'none';
+  const meLive = () => (state && state.pieces ? state.pieces.find((p) => p.seat === state.seat) : null);
+  stage.onpointerdown = (e) => {
+    st = { x: e.clientX, y: e.clientY, yaw: _if3dCam.yaw, tilt: _if3dCam.tilt };
+    moved = false;
+    const pe = e.target && e.target.closest ? e.target.closest('.pk3d-peng') : null;
+    onSeat = pe ? Number(pe.dataset.pseat) : null;
+    mode = state && ifCanAim(state) && _if3dMode === 'aim' ? 'aim' : 'orbit';
+    try { stage.setPointerCapture(e.pointerId); } catch { /* ok */ }
+  };
+  stage.onpointermove = (e) => {
+    if (!st) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!moved && Math.hypot(dx, dy) > 5) moved = true;
+    if (!moved) return;
+    if (mode === 'orbit') {
+      _if3dCam.yaw = st.yaw + dx * 0.4;
+      _if3dCam.tilt = Math.max(8, Math.min(82, st.tilt + dy * 0.3));
+      if3dApplyCamera(scene);
+    } else if (mode === 'aim') {
+      const me = meLive(); if (!me) return;
+      const yaw = _if3dCam.yaw * Math.PI / 180;
+      const fx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
+      const fz = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
+      _ifAim = _ifAim || { angle: 0, power: 0.5 };
+      _ifAim.angle = Math.atan2(-fz, fx) * 180 / Math.PI;
+      _ifAim.power = Math.min(1, Math.hypot(dx, dy) / 150);
+      drawIf3d(state, { ball: null, pieces: null, aim: _ifAim });
+      ifSyncSlider();
+    }
+  };
+  stage.onpointerup = () => {
+    if (st && !moved && onSeat != null && _ifPU && _ifPU.type === 'freeze') { // tap opponent to freeze
+      const tgt = (state.pieces || []).find((p) => p.seat === onSeat);
+      if (tgt && state.you && tgt.team !== state.you.team) { _ifPU.targetId = tgt.seat; renderIfActions(state); drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); }
+    }
+    st = null; mode = null;
+  };
+  stage.onwheel = (e) => {
+    e.preventDefault();
+    _if3dCam.z = Math.max(-260, Math.min(260, _if3dCam.z + (e.deltaY < 0 ? 28 : -28)));
+    if3dApplyCamera(scene);
+  };
 }
 
 function drawIfBoard(s, opts) {
@@ -3597,7 +3847,7 @@ function ifPlayResolution(s) {
   _ifPovDir = null; // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
-  if (total < 2) { drawIfBoard(s, { ball: frames[0] ? frames[0].b : s.ball, pieces: frames[0] ? frames[0].p : null, walls: res.walls }); return; }
+  if (total < 2) { drawIf3d(s, { ball: frames[0] ? frames[0].b : s.ball, pieces: frames[0] ? frames[0].p : null, walls: res.walls }); return; }
   const start = performance.now();
   // Stretch the sim to a watchable length (min 10s) and interpolate between ticks for smoothness.
   const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
@@ -3606,8 +3856,7 @@ function ifPlayResolution(s) {
     const ff = prog * (total - 1);
     const i = Math.round(ff);
     const f = ifLerpFrame(frames, ff);
-    if (_ifPov) drawIfPov(s, res, f, i);
-    else drawIfBoard(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
+    drawIf3d(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
     if (prog < 1) _ifReplay.raf = requestAnimationFrame(step);
     else _ifReplay.raf = 0;
   };
@@ -3768,16 +4017,7 @@ function renderIfActions(s) {
     return;
   }
   if (s.phase === 'resolve') {
-    const c = callout('⚽ Kick! Watch it play out…', true);
-    if (s.you && !s.you.spectator) {
-      const btn = document.createElement('button');
-      btn.className = 'if-povtoggle';
-      const label = () => (btn.textContent = _ifPov ? '📺 Overhead view' : '🥽 First-person');
-      label();
-      btn.onclick = () => { _ifPov = !_ifPov; label(); ifRedrawCurrent(); };
-      c.appendChild(btn);
-    }
-    area.appendChild(c);
+    area.appendChild(callout('⚽ Kick! Watch it play out… (drag to look around)', true));
     return;
   }
   if (you.spectator) { area.appendChild(callout('Spectating this match.', true)); return; }
@@ -3786,7 +4026,8 @@ function renderIfActions(s) {
     area.appendChild(callout(`Locked in — waiting for ${left} more`, true));
     return;
   }
-  area.appendChild(prompt('Drag to <b>aim &amp; power up</b> in one motion (or fine-tune power below), then lock in.'));
+  area.appendChild(prompt('Drag on the pitch to <b>aim &amp; power up</b>, then hit <b>Lock in</b> on the pitch. <i>(fine-tune power below)</i>'));
+  const redraw3d = () => { if (state && state.gameId === 'ice-football') drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); };
   // power-ups you've banked
   if ((you.powerUps || []).length) {
     const purow = document.createElement('div');
@@ -3798,7 +4039,7 @@ function renderIfActions(s) {
       const b = actBtn(`${IF_PU_ICON[t] || '★'} ${IF_PU_NAME[t] || t}${counts[t] > 1 ? ` ×${counts[t]}` : ''}${armed && t === 'freeze' && _ifPU.targetId != null ? ' ✓' : ''}`, 'if-pubtn' + (armed ? ' on' : ''), () => {
         _ifPU = armed ? null : { type: t };
         renderIfActions(s);
-        drawIfBoard(s, { ball: s.ball, pieces: null });
+        redraw3d();
       });
       purow.appendChild(b);
     });
@@ -3813,19 +4054,9 @@ function renderIfActions(s) {
     _ifAim = _ifAim || { angle: 0, power: 0 };
     _ifAim.power = e.target.value / 100;
     meter.querySelector('.pk-powerval').textContent = e.target.value + '%';
-    const me = (s.pieces || []).find((p) => p.seat === s.seat);
-    const svgEl = $('ifBoard').querySelector('svg');
-    if (me && svgEl) ifUpdateArrow(svgEl, me, _ifAim);
+    redraw3d();
   };
   area.appendChild(meter);
-  const row = document.createElement('div');
-  row.className = 'btn-row';
-  row.appendChild(actBtn('🔒 Lock in', 'btn btn-gold btn-lg', () => {
-    if (_ifPU && _ifPU.type === 'freeze' && _ifPU.targetId == null) { toast('Pick an opponent to freeze first.', 'err'); return; }
-    const a = _ifAim || { angle: 0, power: 0.5 };
-    send({ type: 'commitMove', angle: a.angle, power: a.power, usePowerUp: _ifPU || undefined });
-  }));
-  area.appendChild(row);
 }
 
 // ---------------------------------------------------------------------------
