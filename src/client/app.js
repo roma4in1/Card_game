@@ -882,7 +882,7 @@ function renderLIActions(s) {
     const present = [...new Set(t.dice)].sort((a, b) => a - b);
     present.forEach((v) => {
       const count = t.dice.filter((d) => d === v).length;
-      const b = actBtn('', 'btn btn-neutral li-pick', () => send({ type: 'pick', target: v }));
+      const b = actBtn('', 'btn btn-neutral li-pick', () => { tapAck(b); send({ type: 'pick', target: v }); });
       b.innerHTML = `<b class="pn">${v}</b><small>×${count}</small>`;
       row.appendChild(b);
     });
@@ -1037,7 +1037,9 @@ function renderYzDice(s) {
     setDie(die, v);
     if (t.yourTurn && t.rollsUsed < 3 && !s.over) {
       die.classList.add('tappable');
-      die.onclick = () => send({ type: 'hold', index: i });
+      // Optimistic: flip the hold highlight instantly so a tap feels immediate; the
+      // authoritative server state reconciles on the next render (it will match).
+      die.onclick = () => { die.classList.toggle('kept'); send({ type: 'hold', index: i }); };
     }
     box.appendChild(die);
     return { die, v, kept: t.kept[i] };
@@ -1167,7 +1169,7 @@ function renderYzCard(s) {
             c.classList.add('pick');
             if (pv.value > 0) c.classList.add('good');
             c.textContent = pv.value;
-            c.onclick = () => send({ type: 'score', category: row.cat });
+            c.onclick = () => { tapAck(c); send({ type: 'score', category: row.cat }); };
           } else {
             c.classList.add('locked');
             c.textContent = '–';
@@ -1357,7 +1359,7 @@ function renderSgVoting(area, s) {
     const grid = document.createElement('div');
     grid.className = 'sg-votegrid';
     (v.options || []).forEach((o) => {
-      const b = actBtn('', 'sg-votebtn', () => send({ type: 'castVote', target: o.seat }));
+      const b = actBtn('', 'sg-votebtn', () => { tapAck(b); send({ type: 'castVote', target: o.seat }); });
       b.innerHTML =
         `<span class="avatar sm" style="background:${seatColor(o.seat)}">${initial(o.name)}</span>` +
         `<span>${escapeHtml(o.name)}${bots.has(o.seat) ? ' 🤖' : ''}</span>`;
@@ -1576,7 +1578,7 @@ function renderCnGrid(s) {
     const guessable = !s.over && you.canGuess && !card.revealed;
     if (guessable) {
       el.classList.add('guessable');
-      el.onclick = () => send({ type: 'guessCard', cardIndex: i });
+      el.onclick = () => { tapAck(el); send({ type: 'guessCard', cardIndex: i }); };
     } else {
       el.disabled = true;
     }
@@ -1749,7 +1751,7 @@ function renderQrBoard(s) {
       }
       if (yourTurn && mode === 'move' && you.canMove && moveSet.has(r + ',' + c)) {
         cell.classList.add('qr-target');
-        cell.onclick = () => send({ type: 'movePawn', toCell: [r, c] });
+        cell.onclick = () => { tapAck(cell); send({ type: 'movePawn', toCell: [r, c] }); };
       }
       board.appendChild(cell);
     }
@@ -2155,7 +2157,7 @@ function renderMMBoard(s) {
       // backs are identical — you can't tell a word card from an image card
       el.innerHTML = '<span class="mm-back">?</span>';
     }
-    if (canFlip && !c.faceUp) el.onclick = () => send({ type: 'flipCard', cardId: c.cardId });
+    if (canFlip && !c.faceUp) el.onclick = () => { tapAck(el); send({ type: 'flipCard', cardId: c.cardId }); };
     else el.disabled = true;
     box.appendChild(el);
   }
@@ -2381,7 +2383,7 @@ function renderYourHand(s) {
         el.title = 'You cannot reveal the liar';
       } else {
         el.classList.add('selectable');
-        el.onclick = () => send({ type: 'reveal', cardIndex: i });
+        el.onclick = () => { tapAck(el); send({ type: 'reveal', cardIndex: i }); };
       }
     }
     box.appendChild(el);
@@ -2504,7 +2506,7 @@ function renderWaMenu(area, s) {
   };
   const qbtn = (row, label, qtype, param) => {
     const key = `${qtype}:${param}`;
-    const b = actBtn(label, 'wa-qbtn', () => send({ type: 'askQuestion', qtype, param }));
+    const b = actBtn(label, 'wa-qbtn', () => { tapAck(b); b.disabled = true; send({ type: 'askQuestion', qtype, param }); });
     if (asked.has(key)) { b.disabled = true; b.classList.add('done'); }
     row.appendChild(b);
   };
@@ -2836,7 +2838,7 @@ function drawPkPov(s, res, positions, i) {
   svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="url(#pkPovSky)"/>`;
 
   // ice floor: project the rim, fill everything below the rim curve as ice (camera is on the floe)
-  const N = 96, rimPts = [];
+  const N = 56, rimPts = []; // enough to read as a smooth rim; every point costs trig per frame
   for (let k = 0; k < N; k++) {
     const th = (k / N) * Math.PI * 2;
     const p = project(res.radius * Math.cos(th), res.radius * Math.sin(th), 0);
@@ -3030,7 +3032,7 @@ function drawPkBoard(s, opts) {
   }
   svg += '</svg>';
   board.innerHTML = svg;
-  pkAttachInput(s, board.querySelector('svg'));
+  if (s.phase !== 'resolve') pkAttachInput(s, board.querySelector('svg')); // no input binding during the replay
 }
 
 // Drag = aim direction (power comes from the slider). Tap a penguin = reveal its name.
@@ -3317,7 +3319,7 @@ function drawIfBoard(s, opts) {
   }
   svg += '</svg>';
   board.innerHTML = svg;
-  ifAttachInput(s, board.querySelector('svg'));
+  if (s.phase === 'commit') ifAttachInput(s, board.querySelector('svg')); // bind input only when you can aim
 }
 
 function ifAttachInput(s, svgEl) {
@@ -3448,7 +3450,7 @@ function drawIfPov(s, res, frame, i) {
   // pitch floor: project the perimeter, fill below the rim curve
   const rimPts = [];
   const edge = (ax, ay, bx, by, n) => { for (let k = 0; k <= n; k++) { const tt = k / n; const p = project(ax + (bx - ax) * tt, ay + (by - ay) * tt, 0); if (p) rimPts.push(p); } };
-  edge(-hx, -hy, hx, -hy, 28); edge(hx, -hy, hx, hy, 18); edge(hx, hy, -hx, hy, 28); edge(-hx, hy, -hx, -hy, 18);
+  edge(-hx, -hy, hx, -hy, 16); edge(hx, -hy, hx, hy, 10); edge(hx, hy, -hx, hy, 16); edge(-hx, hy, -hx, -hy, 10);
   rimPts.sort((a, b) => a.sx - b.sx);
   if (rimPts.length > 1) {
     let poly = `${clampX(rimPts[0].sx)},${bottom} `;
@@ -3851,6 +3853,16 @@ function actBtn(label, cls, onClick) {
   b.textContent = label;
   b.onclick = onClick;
   return b;
+}
+
+// Instant tap acknowledgement for board cells/cards. The authoritative result is a network
+// round-trip away, so flash the tapped element immediately — the tap never feels dropped.
+// The next server render replaces the element with the real outcome.
+function tapAck(el) {
+  if (!el) return;
+  el.classList.remove('tap-ack');
+  void el.offsetWidth; // restart the animation if tapped again quickly
+  el.classList.add('tap-ack');
 }
 
 function renderLog(s) {

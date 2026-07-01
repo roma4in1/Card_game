@@ -260,6 +260,9 @@ const server = http.createServer((req, res) => {
   }
   serveStatic(req, res);
 });
+// Disable Nagle's algorithm: these are small, interactive messages, so we want each one
+// on the wire immediately rather than batched (~40ms saved per interaction).
+server.on('connection', (socket) => socket.setNoDelay(true));
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws) => {

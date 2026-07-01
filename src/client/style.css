@@ -127,6 +127,15 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .btn:active { transform: translateY(1px) scale(0.99); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Instant tap feedback for board cells/cards while the server result is in flight. */
+.tap-ack { animation: tapAck 0.34s var(--ease); }
+@keyframes tapAck {
+  0% { transform: scale(1); }
+  38% { transform: scale(0.9); filter: brightness(1.25); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .tap-ack { animation: none; } }
 .btn-lg { padding: 16px; font-size: 1.05rem; width: 100%; }
 .btn-primary {
   background: linear-gradient(135deg, var(--love), #ff7aa3);
