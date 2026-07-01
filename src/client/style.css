@@ -410,15 +410,18 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .pk3d-world { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-style: preserve-3d; }
 .pk3d-obj { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
 
-/* square tiled ice slab lying flat on the ground plane */
-.pk3d-floor {
+/* thick square ice slab (a real 3D block): top = tiled ice, sides = ice wall */
+.pk3d-slab-top {
   background:
     repeating-linear-gradient(0deg, rgba(120,170,205,0.5) 0 1px, transparent 1px 34px),
     repeating-linear-gradient(90deg, rgba(120,170,205,0.5) 0 1px, transparent 1px 34px),
-    linear-gradient(135deg, #eef8ff, #cfe8f7 60%, #b3d8ef);
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.85) inset, 0 0 44px rgba(150,210,255,0.4);
+    linear-gradient(135deg, #eef8ff, #cfe8f7 60%, #b3d8ef) !important;
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.85) inset, 0 0 44px rgba(150,210,255,0.35) !important;
 }
-.pk3d-floor-side { background: linear-gradient(#8fbcd8, #3f6d8c); box-shadow: 0 0 0 2px rgba(255,255,255,0.25) inset; }
+.pk3d-slab-side { background: linear-gradient(#cbe6f6 0%, #7fb0d2 45%, #3f6d8c 100%) !important; box-shadow: 0 0 0 2px rgba(255,255,255,0.28) inset !important; }
+.pk3d-slab-bot { background: #2b5070 !important; }
+/* distant icy mountains / icebergs ringing the arena */
+.pk3d-berg { filter: drop-shadow(0 6px 10px rgba(20,50,80,0.25)); }
 
 /* a real 3D block penguin (cuboids) — NOT billboarded */
 .pk3d-peng { will-change: transform; }

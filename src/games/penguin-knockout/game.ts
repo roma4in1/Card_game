@@ -17,10 +17,10 @@ const MAX_SEATS = 8;
 // --- physics constants (normalized: platform radius starts at 1.0, centred at 0,0) ---
 const R0 = 1.0; // starting platform radius
 const RING = 0.62; // starting placement ring
-const RP = 0.075; // penguin radius
-const VMAX = 0.2015; // launch speed at power = 1 (per tick) — 30% faster top speed
+const RP = 0.092; // penguin radius ≈ the block penguin's outer edge (≈30px body at scale 165)
+const VMAX = 0.403; // launch speed at power = 1 (per tick) — doubled power
 const DRAG = 0.86; // velocity retained per tick (friction)
-const REST = 0.9; // collision restitution
+const REST = 1.15; // collision restitution (>1 = extra-bouncy contact between penguins)
 const SHRINK = 0.86; // platform radius multiplier each round
 const STOP = 0.0009; // speed below which a penguin is "stopped"
 const MAX_TICKS = 240; // simulation safety cap

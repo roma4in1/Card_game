@@ -3024,15 +3024,47 @@ function pk3dBuildPeng(color) {
   return peng;
 }
 
+// A ring of icy mountains / icebergs around the arena (static 3D scenery).
+function pk3dBuildScenery() {
+  const scenery = document.createElement('div'); scenery.className = 'pk3d-obj'; scenery.style.transformStyle = 'preserve-3d';
+  const N = 18;
+  let seed = 1337;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + (rnd() - 0.5) * 0.28;
+    const Rm = 290 + rnd() * 120;
+    const w = 44 + rnd() * 70, h = 55 + rnd() * 120, d = 44 + rnd() * 60;
+    const berg = pk3dBox(w, h, d, { top: '#ffffff', front: '#e2eff8', back: '#bcd7ea', left: '#d3e6f3', right: '#c6dcef', bottom: '#9cbdd6' });
+    berg.classList.add('pk3d-berg');
+    const rx = Math.cos(a) * Rm, rz = Math.sin(a) * Rm;
+    berg.style.transform = `translate3d(${rx.toFixed(0)}px,${(-h / 2).toFixed(0)}px,${rz.toFixed(0)}px) rotateY(${(rnd() * 90 - 45).toFixed(0)}deg)`;
+    scenery.append(berg);
+  }
+  return scenery;
+}
+
+// Rebuild the thick ice slab only when the arena resizes (once per round).
+function pk3dSetSlab(scene, side, T) {
+  if (scene.slabSide === side) return;
+  scene.slabSide = side;
+  if (scene.slab) scene.slab.remove();
+  const slab = pk3dBox(side, T, side, { all: '#cfe8f7' });
+  const f = slab.children; // [front, back, right, left, top, bottom]
+  for (let i = 0; i < 4; i++) { f[i].style.background = ''; f[i].classList.add('pk3d-slab-side'); }
+  f[4].style.background = ''; f[4].classList.add('pk3d-slab-top');
+  f[5].style.background = ''; f[5].classList.add('pk3d-slab-bot');
+  slab.style.transform = `translate3d(0px,${(T / 2).toFixed(0)}px,0px)`; // top surface at y = 0
+  scene.world.insertBefore(slab, scene.world.firstChild); // behind penguins/arrow
+  scene.slab = slab;
+}
+
 function pk3dEnsureScene(board) {
   if (board.__pk3d) return board.__pk3d;
   board.innerHTML = '';
   const stage = document.createElement('div'); stage.className = 'pk3d-stage';
   const world = document.createElement('div'); world.className = 'pk3d-world';
-  const side = document.createElement('div'); side.className = 'pk3d-obj pk3d-floor-side';
-  const floor = document.createElement('div'); floor.className = 'pk3d-obj pk3d-floor';
   const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
-  world.append(side, floor, arrow);
+  world.append(pk3dBuildScenery(), arrow);
   stage.appendChild(world);
   const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around';
   stage.appendChild(hint);
@@ -3048,20 +3080,29 @@ function pk3dEnsureScene(board) {
   };
   stage.appendChild(modebtn);
   board.appendChild(stage);
-  const scene = { stage, world, floor, side, arrow, hint, lock, modebtn, pengs: new Map() };
+  const scene = { stage, world, arrow, hint, lock, modebtn, slab: null, slabSide: null, pengs: new Map() };
   board.__pk3d = scene;
   pk3dAttachInput(board);
   return scene;
 }
 
-// Place/refresh one penguin at sim (x, y). Real 3D geometry — oriented to face the arena centre.
-function pk3dPeng(scene, p, s) {
+// Place/refresh one penguin at sim (x, y). Real 3D geometry — while moving it faces its
+// direction of travel; while idle it faces the arena centre.
+function pk3dPeng(scene, p, s, moving) {
   let el = scene.pengs.get(p.id);
   if (!el) { el = pk3dBuildPeng(seatColor(p.id)); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pengs.set(p.id, el); }
   const S = PK3D.scale;
   const wx = (p.x * S), wz = (-p.y * S);
-  const face = (Math.atan2(-p.x, p.y) * 180 / Math.PI).toFixed(1); // front points toward centre
-  el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face}deg)`;
+  let face;
+  if (moving && el._lastX != null) {
+    const dx = p.x - el._lastX, dy = p.y - el._lastY;
+    face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI // face travel direction
+      : (el._face != null ? el._face : Math.atan2(-p.x, p.y) * 180 / Math.PI);
+  } else {
+    face = Math.atan2(-p.x, p.y) * 180 / Math.PI; // idle → face centre
+  }
+  el._lastX = p.x; el._lastY = p.y; el._face = face;
+  el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face.toFixed(1)}deg)`;
   el.classList.toggle('mine', p.id === s.seat);
   el.classList.toggle('out', !p.a);
   const nameEl = el.querySelector('.pk3d-name');
@@ -3080,15 +3121,13 @@ function drawPk3d(s, opts) {
   const scene = pk3dEnsureScene(board);
   pk3dApplyCamera(scene);
   const S = PK3D.scale;
-  // square ice slab sized to the current (shrinking) boundary, lying flat
-  const side = (opts.radius * 2 * S).toFixed(1);
-  for (const f of [scene.floor, scene.side]) { f.style.width = side + 'px'; f.style.height = side + 'px'; }
-  scene.floor.style.transform = `translate(-50%,-50%) rotateX(90deg)`;
-  scene.side.style.transform = `translate(-50%,-50%) translateY(12px) rotateX(90deg)`; // faux slab thickness
+  // thick square ice slab sized to the current (shrinking) boundary
+  pk3dSetSlab(scene, +(opts.radius * 2 * S).toFixed(1), 72);
   // penguins (from the replay frame if given, else live state)
   const list = opts.positions || (s.penguins || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, a: p.alive }));
+  const moving = !!opts.positions; // replay / shrink frames → orient penguins by travel direction
   const seen = new Set();
-  for (const p of list) { pk3dPeng(scene, p, s); seen.add(p.id); }
+  for (const p of list) { pk3dPeng(scene, p, s, moving); seen.add(p.id); }
   for (const [id, el] of scene.pengs) if (!seen.has(id)) { el.remove(); scene.pengs.delete(id); }
   // flat aim arrow on the ice
   const me = list.find((p) => p.id === s.seat && p.a);
