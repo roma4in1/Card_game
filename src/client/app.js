@@ -621,9 +621,11 @@ function renderLobby(s) {
   renderGamePicker(s);
 
   const start = $('startBtn');
+  const addBot = $('addBotBtn');
   if (lob.matchInProgress) {
     // You stepped out and are waiting in the lobby while the others finish the match.
     start.style.display = 'none';
+    addBot.style.display = 'none';
     $('lobbyMsg').textContent = 'A match is in progress — you’ll rejoin the lobby when it ends.';
   } else if (s.youAreHost) {
     const need = (lob.minPlayers ?? 2);
@@ -632,9 +634,14 @@ function renderLobby(s) {
     start.disabled = short;
     start.textContent = short ? 'Waiting for players…' : `Start game (${s.roster.length})`;
     start.onclick = () => send({ type: 'start' });
-    $('lobbyMsg').textContent = short ? (need <= 1 ? 'Add players, or start solo.' : 'Share the invite link to add players.') : '';
+    // Fill empty seats with AI players (every game ships a bot brain).
+    const sel = (lob.games || []).find((g) => g.id === lob.selectedGame);
+    addBot.style.display = sel && s.roster.length < sel.maxPlayers ? '' : 'none';
+    addBot.onclick = () => send({ type: 'addBot' });
+    $('lobbyMsg').textContent = short ? (need <= 1 ? 'Add players, or start solo.' : 'Share the invite link to add players, or fill seats with bots.') : '';
   } else {
     start.style.display = 'none';
+    addBot.style.display = 'none';
     $('lobbyMsg').textContent = 'Waiting for the host to start…';
   }
 }
@@ -2941,22 +2948,60 @@ function a3dImpacts(scene, cam, impacts, frame, S) {
   for (const [idx, el] of scene.impacts) if (!seen.has(idx)) { el.remove(); scene.impacts.delete(idx); }
 }
 
-// Stretch the (often short) sim to a watchable length — min 10s — and interpolate
-// between ticks so it stays smooth at any speed. Kept ≤ the server's resolve hold.
-// `draw` gets (ff, i): the fractional frame for lerping and the rounded index for
-// frame-keyed effects (impacts).
+// Play the sim at a watchable ~200ms/tick, floored at 4s so a blink of action still
+// reads, capped at 12s, interpolating between ticks so it stays smooth at any speed.
+// Kept ≤ the server's resolve hold (see each game's resolveDeadline).
+// `draw` gets (ff, i, k): fractional frame for lerping, rounded index for frame-keyed
+// effects (impacts), and overall progress 0→1 (reveal arrows fade on it).
 function a3dPlayFrames(replay, total, draw, onDone) {
-  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
+  const REPLAY_MS = Math.min(12000, Math.max(4000, total * 200));
   const start = performance.now();
   const step = (t) => {
     const prog = Math.min(1, (t - start) / REPLAY_MS);
     const ff = prog * (total - 1);
-    draw(ff, Math.round(ff));
+    draw(ff, Math.round(ff), prog);
     if (prog < 1) replay.raf = requestAnimationFrame(step);
     else if (onDone) onDone();
     else replay.raf = 0;
   };
   replay.raf = requestAnimationFrame(step);
+}
+
+// Ghost arrows at replay start: everyone's committed launch (the simultaneous reveal),
+// drawn at their starting spots in their seat/team colour, fading as the action begins.
+// `reveals` = [{id, angle, power}]; `positions` = the replay's frame 0.
+const A3D_REVEAL_K = 0.18; // fraction of the replay the ghosts stay visible
+function a3dReveal(scene, reveals, k, positions, S, base, span, colorOf) {
+  if (!scene.reveals) scene.reveals = new Map();
+  const seen = new Set();
+  if (reveals && k != null && k < A3D_REVEAL_K && positions) for (const r of reveals) {
+    const p = positions.find((q) => q.id === r.id);
+    if (!p) continue;
+    seen.add(r.id);
+    let el = scene.reveals.get(r.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'pk3d-obj pk3d-arrow pk3d-ghost';
+      el.style.setProperty('--arrow-c', colorOf(r.id));
+      scene.world.appendChild(el);
+      scene.reveals.set(r.id, el);
+    }
+    el.style.width = (((base + r.power * span) * S)).toFixed(0) + 'px';
+    el.style.opacity = (0.9 * (1 - k / A3D_REVEAL_K)).toFixed(2);
+    el.style.transform =
+      `translate(0,-50%) translate3d(${(p.x * S).toFixed(1)}px,-2px,${(-p.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-r.angle).toFixed(1)}deg)`;
+  }
+  for (const [id, el] of scene.reveals) if (!seen.has(id)) { el.remove(); scene.reveals.delete(id); }
+}
+
+// A big centred announcement over the arena (goal, last penguin standing), auto-dismissing.
+function a3dBanner(scene, text, color) {
+  const el = document.createElement('div');
+  el.className = 'a3d-banner';
+  el.textContent = text;
+  if (color) el.style.color = color;
+  scene.stage.appendChild(el);
+  setTimeout(() => el.remove(), 2400);
 }
 
 // ---------------------------------------------------------------------------
@@ -3136,6 +3181,7 @@ function drawPk3d(s, opts) {
   for (const p of list) { pk3dPeng(scene, p, s, moving); seen.add(p.id); }
   for (const [id, el] of scene.pengs) if (!seen.has(id)) { el.remove(); scene.pengs.delete(id); }
   a3dImpacts(scene, _pkView.cam, opts.impacts, opts.frame, S);
+  a3dReveal(scene, opts.reveal, opts.revealK, opts.revealPos, S, 0.28, 1.05, seatColor);
   const me = list.find((p) => p.id === s.seat && p.a);
   a3dArrow(scene, me, opts.aim, S, 0.28, 1.05);
   const canCommit = s.phase === 'commit' && s.you && s.you.alive && !s.you.committed && !s.you.spectator;
@@ -3158,7 +3204,7 @@ function pkPlayResolution(s) {
   if (total < 2) { drawPk3d(s, { radius: res.radius, positions: frames[0] || [], aim: null }); return; }
   const melted = new Set(res.melted || []);
   a3dPlayFrames(_pkReplay, total,
-    (ff, i) => drawPk3d(s, { radius: res.radius, positions: pkLerpFrame(frames, ff), aim: null, impacts: res.impacts, frame: i }),
+    (ff, i, k) => drawPk3d(s, { radius: res.radius, positions: pkLerpFrame(frames, ff), aim: null, impacts: res.impacts, frame: i, reveal: res.reveal, revealK: k, revealPos: frames[0] }),
     () => pkAnimateShrink(s, res, melted));
 }
 
@@ -3172,9 +3218,23 @@ function pkAnimateShrink(s, res, melted) {
     const pos = finalFrame.map((p) => ({ id: p.id, x: p.x, y: p.y, a: p.a && !(melted.has(p.id) && k > 0.5) }));
     drawPk3d(s, { radius, positions: pos, aim: null });
     if (k < 1) _pkReplay.raf = requestAnimationFrame(anim);
-    else _pkReplay.raf = 0;
+    else { _pkReplay.raf = 0; pkFinalBanner(s, finalFrame, melted); }
   };
   _pkReplay.raf = requestAnimationFrame(anim);
+}
+
+// The match-deciding moment, announced in the arena: last penguin standing (or a wipeout).
+function pkFinalBanner(s, finalFrame, melted) {
+  const alive = finalFrame.filter((p) => p.a && !melted.has(p.id));
+  if (alive.length > 1) return; // the match goes on — no moment to land
+  const scene = $('pkBoard').__a3d;
+  if (!scene) return;
+  if (alive.length === 1) {
+    const meta = (s.penguins || []).find((q) => q.seat === alive[0].id);
+    a3dBanner(scene, `🏆 ${meta ? meta.name : 'Last penguin'} takes the ice!`, seatColor(alive[0].id));
+  } else {
+    a3dBanner(scene, '💥 Total wipeout!');
+  }
 }
 
 function renderPkActions(s) {
@@ -3446,6 +3506,8 @@ function drawIf3d(s, opts) {
   if3dItems(scene, s.items || []);
   if3dBlockers(scene, opts.walls || []);
   a3dImpacts(scene, _ifView.cam, opts.impacts, opts.frame, S);
+  const teamColor = (id) => { const meta = (s.pieces || []).find((q) => q.seat === id); return IF_TEAM[meta ? meta.team : 'red']; };
+  a3dReveal(scene, opts.reveal, opts.revealK, opts.revealPos, S, 0.26, 1.0, teamColor);
   const me = list.find((p) => p.id === s.seat && !p.o);
   a3dArrow(scene, me, opts.aim, S, 0.26, 1.0);
   const canCommit = s.phase === 'commit' && s.you && !s.you.committed && !s.you.spectator;
@@ -3468,9 +3530,13 @@ function ifPlayResolution(s) {
   const frames = res.frames || [];
   const total = frames.length;
   if (total < 2) { drawIf3d(s, { ball: frames[0] ? frames[0].b : s.ball, pieces: frames[0] ? frames[0].p : null, walls: res.walls }); return; }
-  a3dPlayFrames(_ifReplay, total, (ff, i) => {
+  a3dPlayFrames(_ifReplay, total, (ff, i, k) => {
     const f = ifLerpFrame(frames, ff);
-    drawIf3d(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
+    drawIf3d(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i, reveal: res.reveal, revealK: k, revealPos: frames[0].p });
+  }, () => {
+    _ifReplay.raf = 0;
+    // land the payoff: the goal gets its own moment, not just a score digit
+    if (res.goal) a3dBanner($('ifBoard').__a3d, `⚽ ${res.goal.toUpperCase()} SCORES!`, IF_TEAM[res.goal]);
   });
 }
 

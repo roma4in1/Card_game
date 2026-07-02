@@ -443,9 +443,27 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
   background: rgba(8, 12, 20, 0.9); color: #fff; font: 700 11px 'Outfit', sans-serif;
   padding: 2px 7px; border-radius: 8px; border: 1px solid var(--accent); pointer-events: none;
 }
-/* flat aim arrow lying on the ice */
-.pk3d-arrow { height: 14px; background: linear-gradient(90deg, var(--gold), #ffe08a); border-radius: 3px; transform-origin: left center; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
-.pk3d-arrow::after { content: ''; position: absolute; right: -14px; top: 50%; width: 0; height: 0; border: 14px solid transparent; border-left-color: var(--gold); transform: translateY(-50%); }
+/* flat aim arrow lying on the ice — --arrow-c recolours it (reveal ghosts use seat/team colours) */
+.pk3d-arrow { height: 14px; background: linear-gradient(90deg, var(--arrow-c, var(--gold)), color-mix(in srgb, var(--arrow-c, var(--gold)) 55%, #fff)); border-radius: 3px; transform-origin: left center; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+.pk3d-arrow::after { content: ''; position: absolute; right: -14px; top: 50%; width: 0; height: 0; border: 14px solid transparent; border-left-color: var(--arrow-c, var(--gold)); transform: translateY(-50%); }
+/* the committed-move reveal at replay start: slimmer, translucent, fading out via JS */
+.pk3d-ghost { height: 9px; box-shadow: none; }
+.pk3d-ghost::after { border-width: 9px; right: -9px; }
+/* big centred announcement over the arena (goal / last penguin standing) */
+.a3d-banner {
+  position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 8;
+  font: 900 clamp(1.6rem, 6vw, 2.6rem) 'Outfit', sans-serif; letter-spacing: 0.03em; white-space: nowrap;
+  color: #fff; paint-order: stroke; -webkit-text-stroke: 0;
+  text-shadow: 0 3px 0 rgba(0,0,0,0.25), 0 6px 24px rgba(0,0,0,0.45), 0 0 2px rgba(0,0,0,0.6);
+  pointer-events: none; animation: a3dBannerPop 2.4s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+@keyframes a3dBannerPop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  20% { transform: translate(-50%, -50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -56%) scale(1); }
+}
 .pk3d-hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; color: rgba(30,60,90,0.6); font: 600 0.72rem 'Outfit', sans-serif; pointer-events: none; }
 .pk3d-lockbtn {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6;
@@ -485,8 +503,9 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .if3d-ballshadow { border-radius: 50%; background: radial-gradient(rgba(0,20,10,0.42), rgba(0,20,10,0)); }
 .if3d-item { font-size: 20px; text-align: center; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45)); }
-/* collision flash (shared Arena 3D engine): a billboarded ring, sized/faded per frame */
-.pk3d-impact { border: 3px solid rgba(255, 255, 255, 0.92); border-radius: 50%; box-shadow: 0 0 14px rgba(255, 233, 168, 0.85), 0 0 4px rgba(255, 255, 255, 0.9) inset; pointer-events: none; }
+/* collision flash (shared Arena 3D engine): a billboarded ring, sized/faded per frame —
+   warm ring + dark halo so it reads against the white ice AND the green pitch */
+.pk3d-impact { border: 4px solid #ffb547; border-radius: 50%; box-shadow: 0 0 18px 4px rgba(255, 150, 40, 0.85), 0 0 0 2px rgba(60, 30, 0, 0.35), 0 0 10px rgba(255, 240, 200, 0.9) inset; pointer-events: none; }
 
 .pk-powerbar { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--muted); margin: 8px 0; }
 .pk-powerbar > span { flex: none; }

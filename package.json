@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.ts\"",
+    "smoke": "node smoke/smoke.cjs",
     "start": "node src/server.ts",
     "dev": "node --watch src/server.ts"
   },
@@ -16,6 +17,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "playwright-core": "^1.61.1"
   }
 }

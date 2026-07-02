@@ -17,6 +17,7 @@ import {
   join as joinRoom,
   selectGame,
   setOption,
+  addBot,
   startMatch,
   setConnected,
   act,
@@ -171,6 +172,8 @@ function dispatch(room: Room, seat: number, msg: Record<string, unknown>): { err
       return selectGame(room, seat, String(msg.gameId ?? ''));
     case 'setOption':
       return setOption(room, seat, String(msg.key ?? ''), msg.value);
+    case 'addBot':
+      return addBot(room, seat);
     case 'start':
       return startMatch(room, seat);
     case 'rematch':

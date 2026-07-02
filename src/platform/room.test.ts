@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createRoom, join, setConnected, selectGame, setOption, startMatch, act, rematch, restart, backToLobby, kick, leave, botMove, hasHumans, hasConnectedHumans, viewFor,
+  createRoom, join, setConnected, selectGame, setOption, addBot, startMatch, act, rematch, restart, backToLobby, kick, leave, botMove, hasHumans, hasConnectedHumans, viewFor,
   type Room,
 } from './room.ts';
 
@@ -164,6 +164,29 @@ test('mid-match the host kick hands the seat to a bot so play continues (human i
   assert.ok(room.members[victim], 'seat is still occupied (not freed mid-match)');
   assert.equal(room.members[victim]!.bot, true, 'a bot finishes the kicked seat');
   assert.equal(room.phase, 'playing', 'the match continues');
+});
+
+test('the host can add lobby bots; they get seats, play via botMove, and count toward limits', () => {
+  const room = lobby(2);
+  const host = room.host;
+  const guest = seatList(room).find((s) => s !== host)!;
+  assert.match(addBot(room, guest).error!, /host/i, 'non-host cannot add bots');
+  assert.equal(addBot(room, host).error, undefined);
+  const botSeat = seatList(room).find((s) => room.members[s]!.bot)!;
+  assert.ok(botSeat !== undefined, 'the bot occupies a seat');
+  const hv = viewFor(room, host) as any;
+  assert.equal(hv.roster.find((r: any) => r.seat === botSeat).bot, true, 'roster flags the bot');
+
+  // the bot is a full participant: match starts with it and botMove drives it
+  assert.equal(startMatch(room, host).error, undefined);
+  const mv = botMove(room);
+  assert.ok(mv === null || mv.seat === botSeat, 'only the bot seat is AI-driven');
+
+  // limits: at the selected game's max, adding another bot is refused
+  const cap = lobby(2);
+  for (let i = 0; i < 6; i++) assert.equal(addBot(cap, cap.host).error, undefined); // win-or-die max is 8
+  assert.match(addBot(cap, cap.host).error!, /at most|full/i);
+  assert.match(addBot(room, host).error!, /lobby/i, 'no adding bots mid-match');
 });
 
 test('a bot plays its turn through botMove', () => {

@@ -139,6 +139,21 @@ export function setOption(room: Room, seat: number, key: string, value: unknown)
   return ok;
 }
 
+/** Host adds an AI player to the lobby. It occupies a real seat, plays through the
+ *  game's bot brain (every game ships one), and can be kicked like anyone else. */
+export function addBot(room: Room, seat: number): ActionResult {
+  if (room.phase !== 'lobby') return fail('Bots can only be added in the lobby.');
+  if (seat !== room.host) return fail('Only the host can add bots.');
+  const def = GAMES[room.gameId];
+  if (connectedSeats(room).length >= def.maxPlayers) return fail(`${def.name} supports at most ${def.maxPlayers} players.`);
+  const free = room.members.findIndex((m) => m === null);
+  if (free === -1) return fail('The room is full.');
+  const name = `Bot ${free + 1}`;
+  room.members[free] = { token: randomBytes(16).toString('hex'), name, connected: true, bot: true };
+  log(room, `${name} joined the lobby.`);
+  return ok;
+}
+
 /** Host starts the selected game with everyone currently connected. */
 export function startMatch(room: Room, seat: number): ActionResult {
   if (room.phase !== 'lobby') return fail('The match has already started.');

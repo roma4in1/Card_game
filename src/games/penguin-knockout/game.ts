@@ -149,9 +149,9 @@ function resolveRound(s: PKState, now: number) {
   };
 
   s.phase = 'resolve';
-  // Hold long enough for the (min 10s) interpolated replay + the shrink + a short beat,
-  // scaling up a little for longer rounds. Keep client REPLAY_MS in app.js in sync.
-  s.resolveDeadline = now + Math.min(13500, Math.max(11500, frames.length * 200 + 1500));
+  // Hold long enough for the interpolated replay (min 4s, ~200ms/tick) + the shrink +
+  // a short beat. Keep client REPLAY_MS in app.js in sync.
+  s.resolveDeadline = now + Math.min(13500, Math.max(5500, frames.length * 200 + 1500));
   s.pendingDone = livingSeats(s).length <= 1;
 }
 
