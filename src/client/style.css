@@ -485,22 +485,8 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .if3d-ballshadow { border-radius: 50%; background: radial-gradient(rgba(0,20,10,0.42), rgba(0,20,10,0)); }
 .if3d-item { font-size: 20px; text-align: center; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45)); }
-.pk-svg { width: 100%; height: auto; display: block; touch-action: none; }
-.pk-ice { fill: url(#pkIce); stroke: rgba(255, 255, 255, 0.9); stroke-width: 0.01; }
-.pk-ice-cast { fill: rgba(0, 12, 26, 0.45); pointer-events: none; }
-.pk-ice-sheen { fill: #ffffff; opacity: 0.22; pointer-events: none; }
-.pk-peng .pk-body { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.012; }
-.pk-peng.mine .pk-body { stroke: #fff; stroke-width: 0.02; }
-.pk-pshadow { fill: rgba(0, 25, 45, 0.32); pointer-events: none; }
-.pk-face { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.pk-namelabel rect { fill: rgba(8, 12, 20, 0.9); stroke: var(--accent); stroke-width: 0.006; }
-.pk-namelabel text { fill: #fff; font: 700 0.085px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; }
-.pk-aim { stroke: var(--gold); stroke-width: 0.03; stroke-linecap: round; opacity: 0.95; }
-.pk-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.006; }
-.pk-pov .pk-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.012; paint-order: stroke; }
-.pk-povname { fill: #fff; font: 700 0.07px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(4, 10, 18, 0.85); stroke-width: 0.02; }
-.pk-povtoggle { margin-left: 10px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent); background: rgba(94, 200, 255, 0.12); color: var(--accent); font: 700 0.8rem 'Outfit', sans-serif; cursor: pointer; }
-.pk-povtoggle:hover { background: rgba(94, 200, 255, 0.22); }
+/* collision flash (shared Arena 3D engine): a billboarded ring, sized/faded per frame */
+.pk3d-impact { border: 3px solid rgba(255, 255, 255, 0.92); border-radius: 50%; box-shadow: 0 0 14px rgba(255, 233, 168, 0.85), 0 0 4px rgba(255, 255, 255, 0.9) inset; pointer-events: none; }
 
 .pk-powerbar { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--muted); margin: 8px 0; }
 .pk-powerbar > span { flex: none; }
@@ -517,28 +503,6 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .if-target { font-size: 0.7rem; color: var(--faint); }
 .if-board-wrap { display: flex; justify-content: center; }
 .if-board { width: 100%; max-width: min(96vw, 540px); border-radius: 14px; overflow: hidden; box-shadow: var(--e2); }
-.if-svg { width: 100%; height: auto; display: block; touch-action: none; background: #0c2740; }
-.if-ice { fill: url(#ifIce); }
-.if-line { stroke: rgba(40, 80, 120, 0.4); stroke-width: 0.012; fill: none; }
-.if-wall { stroke: #2b4a66; stroke-width: 0.03; stroke-linecap: round; }
-.if-goal { opacity: 0.9; }
-.if-goal.red { fill: rgba(232, 83, 107, 0.55); }
-.if-goal.blue { fill: rgba(79, 155, 242, 0.55); }
-.if-item circle { fill: rgba(255, 255, 255, 0.9); stroke: var(--gold); stroke-width: 0.01; }
-.if-item text { text-anchor: middle; dominant-baseline: central; font-size: 0.07px; }
-.if-block { fill: #9aa7bd; stroke: #5b6678; stroke-width: 0.01; }
-.if-peng .if-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.01; }
-.if-peng.mine .if-body { stroke: #fff; stroke-width: 0.02; }
-.if-pinit { text-anchor: middle; dominant-baseline: central; fill: #fff; font-weight: 800; pointer-events: none; }
-.if-pshadow { fill: rgba(0, 20, 40, 0.3); pointer-events: none; }
-.if-ball { fill: #fff; stroke: #111; stroke-width: 0.008; }
-.if-aim { stroke: var(--gold); stroke-width: 0.028; stroke-linecap: round; }
-.if-aimhead { fill: var(--gold); stroke: #6b4d00; stroke-width: 0.005; }
-.if-pov .if-body { stroke: rgba(0, 0, 0, 0.4); stroke-width: 0.012; paint-order: stroke; }
-.if-pov .if-pinit, .if-povitem { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.if-povname { fill: #fff; font: 700 0.07px 'Outfit', sans-serif; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(4, 10, 18, 0.85); stroke-width: 0.02; }
-.if-povtoggle { margin-left: 10px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent); background: rgba(111, 208, 160, 0.14); color: var(--accent); font: 700 0.8rem 'Outfit', sans-serif; cursor: pointer; }
-.if-povtoggle:hover { background: rgba(111, 208, 160, 0.24); }
 .if-purow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .if-pubtn { padding: 7px 11px; border-radius: var(--r-sm); border: 1.5px solid var(--line-strong); background: var(--surface-2); color: var(--ink); font-weight: 700; font-size: 0.82rem; cursor: pointer; }
 .if-pubtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }

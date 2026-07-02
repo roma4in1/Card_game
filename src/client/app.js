@@ -2742,37 +2742,230 @@ function renderGpGrid(s) {
 let _lastGpCount = 0;
 
 // ---------------------------------------------------------------------------
+// Arena 3D — the CSS-3D engine shared by the ice games (Penguin Knockout,
+// Ice Football). Persistent DOM: each game builds its scene once (slab, pitch,
+// scenery), then only element transforms update per frame (no innerHTML churn).
+// Camera: tilt = look-down angle (0 = across the ice, 90 = top-down); z = dolly.
+// CSS classes keep their historical pk3d- prefix (see style.css).
+//
+// A game plugs in with a `view` ({cam, mode}) it owns, plus hooks:
+//   stageClass        — CSS class for the stage element
+//   build(scene)      — populate scene.world; must append scene.arrow where it
+//                       should paint relative to the floor
+//   canAim()          — a drag in Aim mode should steer the arrow right now
+//   hasMe()           — the local player has a piece on the ice
+//   onAim(angle, pow) — an aim drag moved: store it, redraw, sync the slider
+//   onTap(seat)       — a tap (not a drag) landed on a penguin/piece
+//   redraw()          — repaint from live state (mode toggle, name timers)
+// ---------------------------------------------------------------------------
+
+function a3dWorldTransform(cam) {
+  return `translateZ(${cam.z}px) rotateX(${(cam.tilt - 90).toFixed(2)}deg) rotateY(${cam.yaw.toFixed(2)}deg)`;
+}
+function a3dApplyCamera(scene, cam) { scene.world.style.transform = a3dWorldTransform(cam); }
+// Counter-rotation that makes a flat element face the camera (billboard).
+function a3dBillboard(cam) { return `rotateY(${(-cam.yaw).toFixed(1)}deg) rotateX(${(90 - cam.tilt).toFixed(1)}deg)`; }
+
+// Build one cuboid (6 faces) centred on its own origin. `colors` = string or per-face map.
+function a3dBox(w, h, d, colors) {
+  const box = document.createElement('div');
+  box.className = 'pk3d-face';
+  const c = typeof colors === 'string' ? { all: colors } : colors;
+  const col = (k) => c[k] || c.all || '#888';
+  const face = (bg, tf, fw, fh, extra) => {
+    const el = document.createElement('div');
+    el.style.width = fw + 'px'; el.style.height = fh + 'px'; el.style.background = bg;
+    el.style.transform = tf; el.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.10) inset';
+    if (extra) el.style.cssText += extra;
+    return el;
+  };
+  box.append(
+    face(col('front'), `translate(-50%,-50%) translateZ(${d / 2}px)`, w, h),
+    face(col('back'), `translate(-50%,-50%) translateZ(${-d / 2}px) rotateY(180deg)`, w, h),
+    face(col('right'), `translate(-50%,-50%) translateX(${w / 2}px) rotateY(90deg)`, d, h),
+    face(col('left'), `translate(-50%,-50%) translateX(${-w / 2}px) rotateY(-90deg)`, d, h),
+    face(col('top'), `translate(-50%,-50%) translateY(${-h / 2}px) rotateX(90deg)`, w, d),
+    face(col('bottom'), `translate(-50%,-50%) translateY(${h / 2}px) rotateX(-90deg)`, w, d),
+  );
+  return box;
+}
+
+// Assemble a blocky penguin (body + belly + head + beak + eyes + feet), origin at the feet.
+// The cuboids live in an inner wrapper so it can tumble off the edge while the outer
+// element keeps its world position.
+function a3dBuildPeng(color) {
+  const peng = document.createElement('div');
+  peng.className = 'pk3d-obj pk3d-peng';
+  const bodyWrap = document.createElement('div'); bodyWrap.className = 'pk3d-pengbody';
+  const belly = '#f6fbff', dark = 'rgba(0,0,0,0.18)';
+  const put = (el, x, y, z) => { el.style.transform = `translate3d(${x}px,${y}px,${z}px)`; return el; };
+  const body = a3dBox(30, 34, 26, { front: belly, back: color, left: color, right: color, top: color, bottom: dark });
+  const head = a3dBox(26, 22, 24, { front: color, back: color, left: color, right: color, top: color, bottom: color });
+  const beak = a3dBox(9, 6, 8, '#f4b41a');
+  const footL = a3dBox(11, 5, 15, '#f4b41a'), footR = a3dBox(11, 5, 15, '#f4b41a');
+  const eyeL = a3dBox(4, 6, 2, '#12233a'), eyeR = a3dBox(4, 6, 2, '#12233a');
+  bodyWrap.append(
+    put(body, 0, -23, 0), put(head, 0, -51, 0), put(beak, 0, -50, 14),
+    put(eyeL, -5, -55, 12.5), put(eyeR, 5, -55, 12.5),
+    put(footL, -8, -2, 4), put(footR, 8, -2, 4),
+  );
+  const hi = document.createElement('div'); hi.className = 'pk3d-hi';
+  const name = document.createElement('div'); name.className = 'pk3d-name'; name.style.display = 'none';
+  peng.append(bodyWrap, hi, name);
+  return peng;
+}
+
+// While moving, face the direction of travel; when idle (or unknown), face `idleFace`.
+function a3dFacing(el, p, moving, idleFace) {
+  let face;
+  if (moving && el._lastX != null) {
+    const dx = p.x - el._lastX, dy = p.y - el._lastY;
+    face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI : (el._face != null ? el._face : idleFace);
+  } else {
+    face = idleFace;
+  }
+  el._lastX = p.x; el._lastY = p.y; el._face = face;
+  return face;
+}
+
+function a3dEnsureScene(board, key, view, hooks) {
+  if (board.__a3d && board.__a3d.key === key) return board.__a3d;
+  board.innerHTML = '';
+  const stage = document.createElement('div'); stage.className = hooks.stageClass;
+  const world = document.createElement('div'); world.className = 'pk3d-world';
+  const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
+  stage.appendChild(world);
+  const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around';
+  stage.appendChild(hint);
+  const lock = document.createElement('button'); lock.className = 'pk3d-lockbtn'; lock.style.display = 'none';
+  lock.onpointerdown = (e) => e.stopPropagation(); // don't let the stage grab this as an orbit
+  stage.appendChild(lock);
+  // Aim / Look mode toggle (mobile): flip whether a drag adjusts your arrow or the camera.
+  const modebtn = document.createElement('button'); modebtn.className = 'pk3d-modebtn'; modebtn.style.display = 'none';
+  modebtn.onpointerdown = (e) => e.stopPropagation();
+  modebtn.onclick = () => { view.mode = view.mode === 'aim' ? 'orbit' : 'aim'; hooks.redraw(); };
+  stage.appendChild(modebtn);
+  board.appendChild(stage);
+  const scene = { key, stage, world, arrow, hint, lock, modebtn, pengs: new Map(), impacts: new Map() };
+  board.__a3d = scene;
+  hooks.build(scene);
+  a3dAttachInput(scene, view, hooks);
+  return scene;
+}
+
+// Orbit on drag (Look mode), steer your arrow on drag (Aim mode), tap a piece for
+// the game's tap action, wheel to dolly the camera.
+function a3dAttachInput(scene, view, hooks) {
+  const stage = scene.stage;
+  let st = null, mode = null, onSeat = null, moved = false;
+  stage.style.touchAction = 'none';
+  stage.onpointerdown = (e) => {
+    st = { x: e.clientX, y: e.clientY, yaw: view.cam.yaw, tilt: view.cam.tilt };
+    moved = false;
+    const pe = e.target && e.target.closest ? e.target.closest('.pk3d-peng') : null;
+    onSeat = pe ? Number(pe.dataset.pseat) : null;
+    mode = hooks.canAim() && view.mode === 'aim' ? 'aim' : 'orbit';
+    try { stage.setPointerCapture(e.pointerId); } catch { /* ok */ }
+  };
+  stage.onpointermove = (e) => {
+    if (!st) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!moved && Math.hypot(dx, dy) > 5) moved = true;
+    if (!moved) return;
+    if (mode === 'orbit') {
+      view.cam.yaw = st.yaw + dx * 0.4;
+      view.cam.tilt = Math.max(8, Math.min(82, st.tilt + dy * 0.3));
+      a3dApplyCamera(scene, view.cam);
+    } else if (mode === 'aim') {
+      if (!hooks.hasMe()) return;
+      // rotate the screen drag by the camera yaw so the arrow follows the finger
+      const yaw = view.cam.yaw * Math.PI / 180;
+      const fx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
+      const fz = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
+      hooks.onAim(Math.atan2(-fz, fx) * 180 / Math.PI, Math.min(1, Math.hypot(dx, dy) / 150)); // ice y is -z
+    }
+  };
+  stage.onpointerup = () => {
+    if (st && !moved && onSeat != null) hooks.onTap(onSeat);
+    st = null; mode = null;
+  };
+  stage.onwheel = (e) => {
+    e.preventDefault();
+    view.cam.z = Math.max(-260, Math.min(260, view.cam.z + (e.deltaY < 0 ? 28 : -28)));
+    a3dApplyCamera(scene, view.cam);
+  };
+}
+
+// Flat aim arrow on the ice at `me`; length = (base + power · span) world units.
+function a3dArrow(scene, me, aim, S, base, span) {
+  if (!me || !aim) { scene.arrow.style.display = 'none'; return; }
+  const len = (base + aim.power * span) * S;
+  scene.arrow.style.display = '';
+  scene.arrow.style.width = len.toFixed(0) + 'px';
+  scene.arrow.style.transform =
+    `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-aim.angle).toFixed(1)}deg)`;
+}
+
+// Lock-in button, Aim/Look toggle and hint, overlaid on the arena.
+function a3dChrome(scene, view, canCommit, inCommitPhase, opts) {
+  scene.lock.style.display = canCommit ? '' : 'none';
+  scene.modebtn.style.display = canCommit ? '' : 'none';
+  if (canCommit) {
+    scene.lock.textContent = opts.lockLabel;
+    scene.lock.onclick = opts.onLock;
+    scene.modebtn.textContent = view.mode === 'aim' ? '🎯 Aim mode' : '🔄 Look mode';
+    scene.modebtn.classList.toggle('look', view.mode !== 'aim');
+  }
+  scene.hint.textContent = canCommit ? (view.mode === 'aim' ? opts.aimHint : 'drag to look around') : 'drag to look around';
+  scene.hint.style.display = inCommitPhase ? '' : 'none';
+}
+
+// Collision flashes during a replay: billboarded rings that expand and fade over a
+// few frames, driven by the sim's impact list ({f, x, y, s} — both games ship it).
+const A3D_IMPACT_SPAN = 7;
+function a3dImpacts(scene, cam, impacts, frame, S) {
+  const seen = new Set();
+  if (impacts && frame != null) impacts.forEach((im, idx) => {
+    const age = frame - im.f;
+    if (age < 0 || age > A3D_IMPACT_SPAN) return;
+    seen.add(idx);
+    let el = scene.impacts.get(idx);
+    if (!el) { el = document.createElement('div'); el.className = 'pk3d-obj pk3d-impact'; scene.world.appendChild(el); scene.impacts.set(idx, el); }
+    const k = age / A3D_IMPACT_SPAN;
+    const ease = 1 - (1 - k) * (1 - k); // ease-out radius, same curve the old SVG flash used
+    const r = (0.03 + 0.085 * im.s) * (0.3 + ease) * S;
+    el.style.width = el.style.height = (2 * r).toFixed(0) + 'px';
+    el.style.opacity = ((1 - k) * (0.55 + 0.4 * im.s)).toFixed(2);
+    el.style.transform = `translate(-50%,-50%) translate3d(${(im.x * S).toFixed(1)}px,-8px,${(-im.y * S).toFixed(1)}px) ${a3dBillboard(cam)}`;
+  });
+  for (const [idx, el] of scene.impacts) if (!seen.has(idx)) { el.remove(); scene.impacts.delete(idx); }
+}
+
+// Stretch the (often short) sim to a watchable length — min 10s — and interpolate
+// between ticks so it stays smooth at any speed. Kept ≤ the server's resolve hold.
+// `draw` gets (ff, i): the fractional frame for lerping and the rounded index for
+// frame-keyed effects (impacts).
+function a3dPlayFrames(replay, total, draw, onDone) {
+  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
+  const start = performance.now();
+  const step = (t) => {
+    const prog = Math.min(1, (t - start) / REPLAY_MS);
+    const ff = prog * (total - 1);
+    draw(ff, Math.round(ff));
+    if (prog < 1) replay.raf = requestAnimationFrame(step);
+    else if (onDone) onDone();
+    else replay.raf = 0;
+  };
+  replay.raf = requestAnimationFrame(step);
+}
+
+// ---------------------------------------------------------------------------
 // Penguin Knockout (simultaneous physics battle)
 // ---------------------------------------------------------------------------
-const PK_VB = 1.28; // svg view extent (normalized coords)
-const PK_TILT = 0.6; // vertical squash → the ice reads as a 3D disc seen at an angle
 let _pkAim = null; // {angle, power} you're aiming this round (pre-commit)
 let _pkReplay = { round: -1, raf: 0 }; // active replay animation
 let _pkNameShow = null; // seat whose name label is currently shown (tap to reveal)
 let _pkNameTimer = 0;
-const pkDisp = (x, y) => ({ x, y: -y * PK_TILT }); // physics → display (flip + perspective)
-
-// Shared collision-flash burst for both physics replays: an expanding ring + spark spikes
-// that fades over IMPACT_SPAN frames. k = age fraction 0→1, strength = hit hardness 0→1.
-const IMPACT_SPAN = 7;
-function pkImpactSvg(cx, cy, k, strength) {
-  const ease = 1 - (1 - k) * (1 - k); // ease-out radius
-  const r = (0.03 + 0.085 * strength) * (0.3 + ease);
-  const op = (1 - k) * (0.55 + 0.4 * strength);
-  let s = `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(3)}" fill="none" stroke="#fff" stroke-width="${(0.012 * (1 - k)).toFixed(4)}" opacity="${op.toFixed(2)}"/>`;
-  if (k < 0.5) { // bright core flash early on
-    s += `<circle cx="${cx}" cy="${cy}" r="${(r * 0.42).toFixed(3)}" fill="#ffe9a8" opacity="${((0.5 - k) * 1.4 * strength).toFixed(2)}"/>`;
-  }
-  return s;
-}
-
-// ── First-person replay camera (pseudo-3D, pure SVG) ───────────────────────────
-// Ride your own penguin: a pinhole camera sits at your piece at eye height, looks
-// along your direction of travel, and billboards the other penguins on the ice.
-let _pkPov = true;          // first-person replay on/off (planning is always top-down)
-let _pkPovDir = null;       // smoothed look direction {x,y}
-let _pkPovCtx = null;       // {s,res,i} of the last POV frame — lets the toggle redraw
-const PK_POV = { h: 0.05, focal: 1.4, near: 0.05, vbX: 1, vbTop: -0.72, vbH: 1.6 };
 
 // Blend two ticks for smooth slow-motion playback. ff = fractional frame index.
 function pkLerpFrame(frames, ff) {
@@ -2785,108 +2978,6 @@ function pkLerpFrame(frames, ff) {
     const b = B.find((q) => q.id === a.id) || a;
     return { id: a.id, x: a.x + (b.x - a.x) * fr, y: a.y + (b.y - a.y) * fr, a: a.a };
   });
-}
-
-function pkPovLookDir(frames, i, myId, camx, camy) {
-  const cur = frames[i] && frames[i].find((q) => q.id === myId);
-  const prevF = frames[Math.max(0, i - 2)];
-  const prev = prevF && prevF.find((q) => q.id === myId);
-  let dx = 0, dy = 0;
-  if (cur && prev) { dx = cur.x - prev.x; dy = cur.y - prev.y; }
-  if (Math.hypot(dx, dy) > 0.002) {
-    const sp = Math.hypot(dx, dy), nd = { x: dx / sp, y: dy / sp };
-    _pkPovDir = _pkPovDir ? { x: _pkPovDir.x * 0.7 + nd.x * 0.3, y: _pkPovDir.y * 0.7 + nd.y * 0.3 } : nd;
-  } else if (!_pkPovDir) { // stationary → face the arena centre so there's something to see
-    const c = Math.hypot(camx, camy) || 1;
-    _pkPovDir = { x: -camx / c, y: -camy / c };
-  }
-  const m = Math.hypot(_pkPovDir.x, _pkPovDir.y) || 1;
-  return { x: _pkPovDir.x / m, y: _pkPovDir.y / m };
-}
-
-function drawPkPov(s, res, positions, i) {
-  const board = $('pkBoard');
-  const frames = res.frames || [];
-  const frame = positions || frames[i] || [];
-  const myId = s.seat;
-  const me = frame.find((q) => q.id === myId && q.a);
-  if (!me) { // you're a spectator or already melted — fall back to the overhead view
-    drawPkBoard(s, { radius: res.radius, positions: frame, aim: null, impacts: res.impacts, frame: i });
-    return;
-  }
-  _pkPovCtx = { s, res, positions: frame, i };
-  const C = { x: me.x, y: me.y };
-  const f = pkPovLookDir(frames, i, myId, C.x, C.y);
-  const R = { x: f.y, y: -f.x }; // camera-right = forward rotated −90°
-  const rp = s.penguinRadius || 0.075;
-  const { h, focal, near, vbX, vbTop, vbH } = PK_POV;
-  const bottom = vbTop + vbH;
-  const clampX = (x) => Math.max(-vbX * 1.6, Math.min(vbX * 1.6, x));
-  const project = (wx, wy, z) => {
-    const rx = wx - C.x, ry = wy - C.y;
-    const d = rx * f.x + ry * f.y;
-    if (d < near) return null;
-    const u = rx * R.x + ry * R.y;
-    return { sx: focal * u / d, sy: focal * (h - z) / d, d };
-  };
-
-  let svg = `<svg viewBox="${-vbX} ${vbTop} ${2 * vbX} ${vbH}" class="pk-svg pk-pov" preserveAspectRatio="xMidYMid slice">`;
-  svg += '<defs>'
-    + '<linearGradient id="pkPovSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#071a2c"/><stop offset="0.5" stop-color="#103252"/><stop offset="0.62" stop-color="#1f5076"/></linearGradient>'
-    + '<radialGradient id="pkPovIce" cx="50%" cy="-10%" r="130%"><stop offset="0" stop-color="#dcefff"/><stop offset="1" stop-color="#8bbde2"/></radialGradient>'
-    + '</defs>';
-  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="url(#pkPovSky)"/>`;
-
-  // ice floor: project the rim, fill everything below the rim curve as ice (camera is on the floe)
-  const N = 56, rimPts = []; // enough to read as a smooth rim; every point costs trig per frame
-  for (let k = 0; k < N; k++) {
-    const th = (k / N) * Math.PI * 2;
-    const p = project(res.radius * Math.cos(th), res.radius * Math.sin(th), 0);
-    if (p) rimPts.push(p);
-  }
-  rimPts.sort((a, b) => a.sx - b.sx);
-  if (rimPts.length > 1) {
-    let poly = `${clampX(rimPts[0].sx)},${bottom} `;
-    for (const p of rimPts) poly += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
-    poly += `${clampX(rimPts[rimPts.length - 1].sx)},${bottom}`;
-    svg += `<polygon points="${poly}" fill="url(#pkPovIce)"/>`;
-    let rim = '';
-    for (const p of rimPts) rim += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
-    svg += `<polyline points="${rim.trim()}" fill="none" stroke="#f2faff" stroke-width="0.014" opacity="0.75"/>`;
-  }
-
-  // other penguins as billboards, far → near
-  const others = frame.filter((p) => p.a && p.id !== myId)
-    .map((p) => ({ p, pr: project(p.x, p.y, rp) }))
-    .filter((o) => o.pr).sort((a, b) => b.pr.d - a.pr.d);
-  for (const { p, pr } of others) {
-    const rad = Math.min(0.95, focal * rp / pr.d);
-    const base = focal * h / pr.d;
-    svg += `<ellipse cx="${pr.sx.toFixed(3)}" cy="${base.toFixed(3)}" rx="${(rad * 1.05).toFixed(3)}" ry="${(rad * 0.32).toFixed(3)}" class="pk-pshadow"/>`;
-    svg += `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" fill="${seatColor(p.id)}" class="pk-body"/>`;
-    svg += `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="pk-face" style="font-size:${(rad * 1.5).toFixed(3)}px">🐧</text>`;
-    const nm = (s.penguins || []).find((q) => q.seat === p.id);
-    if (nm && rad > 0.05) svg += `<text x="${pr.sx.toFixed(3)}" y="${(pr.sy - rad - 0.05).toFixed(3)}" class="pk-povname">${escapeHtml(nm.name)}</text>`;
-  }
-
-  // impact flashes, projected to ice level
-  if (res.impacts) for (const im of res.impacts) {
-    const age = i - im.f;
-    if (age < 0 || age > IMPACT_SPAN) continue;
-    const pr = project(im.x, im.y, 0.02);
-    if (pr) svg += pkImpactSvg(pr.sx, pr.sy, age / IMPACT_SPAN, im.s);
-  }
-  // your colour vignette so you know whose eyes you're in
-  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="none" stroke="${seatColor(myId)}" stroke-width="0.05" opacity="0.5"/>`;
-  svg += '</svg>';
-  board.innerHTML = svg;
-}
-
-function pkRedrawCurrent() {
-  if (!_pkPovCtx) return;
-  const { s, res, positions, i } = _pkPovCtx;
-  if (_pkPov) drawPkPov(s, res, positions, i);
-  else drawPkBoard(s, { radius: res.radius, positions: positions || res.frames[i] || [], aim: null, impacts: res.impacts, frame: i });
 }
 
 function renderPenguinKnockout(s) {
@@ -2904,7 +2995,7 @@ function renderPenguinKnockout(s) {
     if (pkCanAim(s) && !_pkAim) { // default: aim toward the centre at half power, in Aim mode
       const me = s.penguins.find((p) => p.seat === s.seat);
       _pkAim = { angle: me ? (Math.atan2(-me.y, -me.x) * 180) / Math.PI : 0, power: 0.5 };
-      _pk3dMode = 'aim';
+      _pkView.mode = 'aim';
     }
     drawPk3d(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
   }
@@ -2932,26 +3023,6 @@ function renderPkScores(s) {
   });
 }
 
-// Aim arrow geometry (display coords): a shaft + a triangular arrowhead.
-function pkArrowGeom(me, aim) {
-  const a = (aim.angle * Math.PI) / 180;
-  const len = 0.14 + aim.power * 0.95;
-  const s0 = pkDisp(me.x, me.y);
-  const e0 = pkDisp(me.x + Math.cos(a) * len, me.y + Math.sin(a) * len);
-  const da = Math.atan2(e0.y - s0.y, e0.x - s0.x);
-  const hl = 0.12, hw = 0.075;
-  const bx = e0.x - Math.cos(da) * hl, by = e0.y - Math.sin(da) * hl;
-  const lx = bx + Math.cos(da + Math.PI / 2) * hw, ly = by + Math.sin(da + Math.PI / 2) * hw;
-  const rx = bx + Math.cos(da - Math.PI / 2) * hw, ry = by + Math.sin(da - Math.PI / 2) * hw;
-  return { line: [s0.x, s0.y, bx, by], head: `${e0.x},${e0.y} ${lx},${ly} ${rx},${ry}` };
-}
-function pkUpdateArrow(svgEl, me, aim) {
-  const g = pkArrowGeom(me, aim);
-  const ln = svgEl.querySelector('.pk-aim');
-  const hd = svgEl.querySelector('.pk-aimhead');
-  if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
-  if (hd) hd.setAttribute('points', g.head);
-}
 // keep the power slider + readout in sync when a drag sets the power
 function pkSyncSlider() {
   if (!_pkAim) return;
@@ -2962,66 +3033,13 @@ function pkSyncSlider() {
   if (vl) vl.textContent = pct + '%';
 }
 
-// ── CSS-3D arena (Roblox-style square ice field, real block penguins) ──────────
-// Persistent DOM: the scene is built once, then only element transforms update each
-// frame (no innerHTML churn). Reuses the deterministic sim frames for the replay.
-// Camera: tilt = look-down angle (0 = across the ice, 90 = top-down); z = dolly (zoom).
-let _pk3dCam = { yaw: -20, tilt: 30, z: 30 };
-let _pk3dMode = 'aim'; // 'aim' → drag adjusts your arrow; 'orbit' → drag moves the camera
+// ── The Penguin Knockout arena, on the shared Arena 3D engine ──────────────────
+// Roblox-style square ice floe ringed by icebergs; the slab shrinks each round.
+const _pkView = { cam: { yaw: -20, tilt: 30, z: 30 }, mode: 'aim' };
 const PK3D = { scale: 165 }; // px per world unit
 
-function pk3dWorldTransform() {
-  return `translateZ(${_pk3dCam.z}px) rotateX(${(_pk3dCam.tilt - 90).toFixed(2)}deg) rotateY(${_pk3dCam.yaw.toFixed(2)}deg)`;
-}
-function pk3dApplyCamera(scene) { scene.world.style.transform = pk3dWorldTransform(); }
-
-// Build one cuboid (6 faces) centred on its own origin. `colors` = string or per-face map.
-function pk3dBox(w, h, d, colors) {
-  const box = document.createElement('div');
-  box.className = 'pk3d-face';
-  const c = typeof colors === 'string' ? { all: colors } : colors;
-  const col = (k) => c[k] || c.all || '#888';
-  const face = (bg, tf, fw, fh, extra) => {
-    const el = document.createElement('div');
-    el.style.width = fw + 'px'; el.style.height = fh + 'px'; el.style.background = bg;
-    el.style.transform = tf; el.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.10) inset';
-    if (extra) el.style.cssText += extra;
-    return el;
-  };
-  box.append(
-    face(col('front'), `translate(-50%,-50%) translateZ(${d / 2}px)`, w, h),
-    face(col('back'), `translate(-50%,-50%) translateZ(${-d / 2}px) rotateY(180deg)`, w, h),
-    face(col('right'), `translate(-50%,-50%) translateX(${w / 2}px) rotateY(90deg)`, d, h),
-    face(col('left'), `translate(-50%,-50%) translateX(${-w / 2}px) rotateY(-90deg)`, d, h),
-    face(col('top'), `translate(-50%,-50%) translateY(${-h / 2}px) rotateX(90deg)`, w, d),
-    face(col('bottom'), `translate(-50%,-50%) translateY(${h / 2}px) rotateX(-90deg)`, w, d),
-  );
-  return box;
-}
-
-// Assemble a blocky penguin (body + belly + head + beak + eyes + feet), origin at the feet.
-// The cuboids live in an inner wrapper so it can tumble off the edge while the outer
-// element keeps its world position.
-function pk3dBuildPeng(color) {
-  const peng = document.createElement('div');
-  peng.className = 'pk3d-obj pk3d-peng';
-  const bodyWrap = document.createElement('div'); bodyWrap.className = 'pk3d-pengbody';
-  const belly = '#f6fbff', dark = 'rgba(0,0,0,0.18)';
-  const put = (el, x, y, z) => { el.style.transform = `translate3d(${x}px,${y}px,${z}px)`; return el; };
-  const body = pk3dBox(30, 34, 26, { front: belly, back: color, left: color, right: color, top: color, bottom: dark });
-  const head = pk3dBox(26, 22, 24, { front: color, back: color, left: color, right: color, top: color, bottom: color });
-  const beak = pk3dBox(9, 6, 8, '#f4b41a');
-  const footL = pk3dBox(11, 5, 15, '#f4b41a'), footR = pk3dBox(11, 5, 15, '#f4b41a');
-  const eyeL = pk3dBox(4, 6, 2, '#12233a'), eyeR = pk3dBox(4, 6, 2, '#12233a');
-  bodyWrap.append(
-    put(body, 0, -23, 0), put(head, 0, -51, 0), put(beak, 0, -50, 14),
-    put(eyeL, -5, -55, 12.5), put(eyeR, 5, -55, 12.5),
-    put(footL, -8, -2, 4), put(footR, 8, -2, 4),
-  );
-  const hi = document.createElement('div'); hi.className = 'pk3d-hi';
-  const name = document.createElement('div'); name.className = 'pk3d-name'; name.style.display = 'none';
-  peng.append(bodyWrap, hi, name);
-  return peng;
+function pkRedraw() {
+  if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
 }
 
 // A ring of icy mountains / icebergs around the arena (static 3D scenery).
@@ -3034,7 +3052,7 @@ function pk3dBuildScenery() {
     const a = (i / N) * Math.PI * 2 + (rnd() - 0.5) * 0.28;
     const Rm = 290 + rnd() * 120;
     const w = 44 + rnd() * 70, h = 55 + rnd() * 120, d = 44 + rnd() * 60;
-    const berg = pk3dBox(w, h, d, { top: '#ffffff', front: '#e2eff8', back: '#bcd7ea', left: '#d3e6f3', right: '#c6dcef', bottom: '#9cbdd6' });
+    const berg = a3dBox(w, h, d, { top: '#ffffff', front: '#e2eff8', back: '#bcd7ea', left: '#d3e6f3', right: '#c6dcef', bottom: '#9cbdd6' });
     berg.classList.add('pk3d-berg');
     const rx = Math.cos(a) * Rm, rz = Math.sin(a) * Rm;
     berg.style.transform = `translate3d(${rx.toFixed(0)}px,${(-h / 2).toFixed(0)}px,${rz.toFixed(0)}px) rotateY(${(rnd() * 90 - 45).toFixed(0)}deg)`;
@@ -3048,7 +3066,7 @@ function pk3dSetSlab(scene, side, T) {
   if (scene.slabSide === side) return;
   scene.slabSide = side;
   if (scene.slab) scene.slab.remove();
-  const slab = pk3dBox(side, T, side, { all: '#cfe8f7' });
+  const slab = a3dBox(side, T, side, { all: '#cfe8f7' });
   const f = slab.children; // [front, back, right, left, top, bottom]
   for (let i = 0; i < 4; i++) { f[i].style.background = ''; f[i].classList.add('pk3d-slab-side'); }
   f[4].style.background = ''; f[4].classList.add('pk3d-slab-top');
@@ -3058,50 +3076,39 @@ function pk3dSetSlab(scene, side, T) {
   scene.slab = slab;
 }
 
-function pk3dEnsureScene(board) {
-  if (board.__pk3d) return board.__pk3d;
-  board.innerHTML = '';
-  const stage = document.createElement('div'); stage.className = 'pk3d-stage';
-  const world = document.createElement('div'); world.className = 'pk3d-world';
-  const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
-  world.append(pk3dBuildScenery(), arrow);
-  stage.appendChild(world);
-  const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around';
-  stage.appendChild(hint);
-  const lock = document.createElement('button'); lock.className = 'pk3d-lockbtn'; lock.style.display = 'none';
-  lock.onpointerdown = (e) => e.stopPropagation(); // don't let the stage grab this as an orbit
-  stage.appendChild(lock);
-  // Aim / Look mode toggle (mobile): flip whether a drag adjusts your arrow or the camera.
-  const modebtn = document.createElement('button'); modebtn.className = 'pk3d-modebtn'; modebtn.style.display = 'none';
-  modebtn.onpointerdown = (e) => e.stopPropagation();
-  modebtn.onclick = () => {
-    _pk3dMode = _pk3dMode === 'aim' ? 'orbit' : 'aim';
-    if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
-  };
-  stage.appendChild(modebtn);
-  board.appendChild(stage);
-  const scene = { stage, world, arrow, hint, lock, modebtn, slab: null, slabSide: null, pengs: new Map() };
-  board.__pk3d = scene;
-  pk3dAttachInput(board);
-  return scene;
+function pkScene(board) {
+  return a3dEnsureScene(board, 'pk', _pkView, {
+    stageClass: 'pk3d-stage',
+    build(scene) {
+      scene.slab = null; scene.slabSide = null;
+      scene.world.append(pk3dBuildScenery(), scene.arrow);
+    },
+    canAim: () => !!(state && state.gameId === 'penguin-knockout' && pkCanAim(state)),
+    hasMe: () => !!(state && state.penguins && state.penguins.find((p) => p.seat === state.seat)),
+    onAim(angle, power) {
+      _pkAim = _pkAim || { angle: 0, power: 0.5 };
+      _pkAim.angle = angle; _pkAim.power = power;
+      drawPk3d(state, { radius: state.radius, positions: null, aim: _pkAim });
+      pkSyncSlider();
+    },
+    onTap(seat) { // tap → reveal the penguin's name for a moment
+      _pkNameShow = seat;
+      pkRedraw();
+      clearTimeout(_pkNameTimer);
+      _pkNameTimer = setTimeout(() => { _pkNameShow = null; if (state && state.phase !== 'resolve') pkRedraw(); }, 2600);
+    },
+    redraw: pkRedraw,
+  });
 }
 
 // Place/refresh one penguin at sim (x, y). Real 3D geometry — while moving it faces its
 // direction of travel; while idle it faces the arena centre.
 function pk3dPeng(scene, p, s, moving) {
   let el = scene.pengs.get(p.id);
-  if (!el) { el = pk3dBuildPeng(seatColor(p.id)); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pengs.set(p.id, el); }
+  if (!el) { el = a3dBuildPeng(seatColor(p.id)); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pengs.set(p.id, el); }
   const S = PK3D.scale;
   const wx = (p.x * S), wz = (-p.y * S);
-  let face;
-  if (moving && el._lastX != null) {
-    const dx = p.x - el._lastX, dy = p.y - el._lastY;
-    face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI // face travel direction
-      : (el._face != null ? el._face : Math.atan2(-p.x, p.y) * 180 / Math.PI);
-  } else {
-    face = Math.atan2(-p.x, p.y) * 180 / Math.PI; // idle → face centre
-  }
-  el._lastX = p.x; el._lastY = p.y; el._face = face;
+  const face = a3dFacing(el, p, moving, Math.atan2(-p.x, p.y) * 180 / Math.PI); // idle → face centre
   el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face.toFixed(1)}deg)`;
   el.classList.toggle('mine', p.id === s.seat);
   el.classList.toggle('out', !p.a);
@@ -3112,14 +3119,13 @@ function pk3dPeng(scene, p, s, moving) {
     const meta = (s.penguins || []).find((q) => q.seat === p.id);
     nameEl.textContent = meta ? meta.name : '';
     // counter the penguin's facing + camera so the label stays readable
-    nameEl.style.transform = `translate(-50%,-50%) translate3d(0,-84px,0) rotateY(${(-face - _pk3dCam.yaw).toFixed(1)}deg) rotateX(${(90 - _pk3dCam.tilt).toFixed(1)}deg)`;
+    nameEl.style.transform = `translate(-50%,-50%) translate3d(0,-84px,0) rotateY(${(-face - _pkView.cam.yaw).toFixed(1)}deg) rotateX(${(90 - _pkView.cam.tilt).toFixed(1)}deg)`;
   }
 }
 
 function drawPk3d(s, opts) {
-  const board = $('pkBoard');
-  const scene = pk3dEnsureScene(board);
-  pk3dApplyCamera(scene);
+  const scene = pkScene($('pkBoard'));
+  a3dApplyCamera(scene, _pkView.cam);
   const S = PK3D.scale;
   // thick square ice slab sized to the current (shrinking) boundary
   pk3dSetSlab(scene, +(opts.radius * 2 * S).toFixed(1), 72);
@@ -3129,205 +3135,15 @@ function drawPk3d(s, opts) {
   const seen = new Set();
   for (const p of list) { pk3dPeng(scene, p, s, moving); seen.add(p.id); }
   for (const [id, el] of scene.pengs) if (!seen.has(id)) { el.remove(); scene.pengs.delete(id); }
-  // flat aim arrow on the ice
+  a3dImpacts(scene, _pkView.cam, opts.impacts, opts.frame, S);
   const me = list.find((p) => p.id === s.seat && p.a);
-  if (opts.aim && me) {
-    const len = (0.28 + opts.aim.power * 1.05) * S;
-    scene.arrow.style.display = '';
-    scene.arrow.style.width = len.toFixed(0) + 'px';
-    scene.arrow.style.transform =
-      `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-opts.aim.angle).toFixed(1)}deg)`;
-  } else {
-    scene.arrow.style.display = 'none';
-  }
-  // lock-in button + Aim/Look mode toggle, overlaid on the arena
+  a3dArrow(scene, me, opts.aim, S, 0.28, 1.05);
   const canCommit = s.phase === 'commit' && s.you && s.you.alive && !s.you.committed && !s.you.spectator;
-  scene.lock.style.display = canCommit ? '' : 'none';
-  scene.modebtn.style.display = canCommit ? '' : 'none';
-  if (canCommit) {
-    scene.lock.textContent = `🔒 Lock in launch · ${Math.round((_pkAim ? _pkAim.power : 0.5) * 100)}%`;
-    scene.lock.onclick = () => { const a = _pkAim || { angle: 0, power: 0.5 }; send({ type: 'commitMove', angle: a.angle, power: a.power }); };
-    scene.modebtn.textContent = _pk3dMode === 'aim' ? '🎯 Aim mode' : '🔄 Look mode';
-    scene.modebtn.classList.toggle('look', _pk3dMode !== 'aim');
-  }
-  scene.hint.textContent = canCommit ? (_pk3dMode === 'aim' ? 'drag anywhere to aim your arrow' : 'drag to look around') : 'drag to look around';
-  scene.hint.style.display = s.phase === 'commit' ? '' : 'none';
-}
-
-// Orbit on empty-space drag; aim on drag from your own penguin; tap a penguin to name it.
-function pk3dAttachInput(board) {
-  const scene = board.__pk3d;
-  const stage = scene.stage;
-  let st = null, mode = null, onSeat = null, moved = false;
-  stage.style.touchAction = 'none';
-  const meLive = () => (state && state.penguins ? state.penguins.find((p) => p.seat === state.seat) : null);
-  const redraw = () => { if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null }); };
-  stage.onpointerdown = (e) => {
-    st = { x: e.clientX, y: e.clientY, yaw: _pk3dCam.yaw, tilt: _pk3dCam.tilt };
-    moved = false;
-    const pe = e.target && e.target.closest ? e.target.closest('.pk3d-peng') : null;
-    onSeat = pe ? Number(pe.dataset.pseat) : null;
-    // Aim mode → a drag anywhere adjusts your arrow; Look mode → a drag orbits the camera.
-    mode = state && pkCanAim(state) && _pk3dMode === 'aim' ? 'aim' : 'orbit';
-    try { stage.setPointerCapture(e.pointerId); } catch { /* ok */ }
-  };
-  stage.onpointermove = (e) => {
-    if (!st) return;
-    const dx = e.clientX - st.x, dy = e.clientY - st.y;
-    if (!moved && Math.hypot(dx, dy) > 5) moved = true;
-    if (!moved) return;
-    if (mode === 'orbit') {
-      _pk3dCam.yaw = st.yaw + dx * 0.4;
-      _pk3dCam.tilt = Math.max(8, Math.min(82, st.tilt + dy * 0.3));
-      pk3dApplyCamera(scene);
-    } else if (mode === 'aim') {
-      const me = meLive(); if (!me) return;
-      const yaw = _pk3dCam.yaw * Math.PI / 180;
-      const fx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
-      const fz = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
-      _pkAim = _pkAim || { angle: 0, power: 0.5 };
-      _pkAim.angle = Math.atan2(-fz, fx) * 180 / Math.PI; // ice y is -z
-      _pkAim.power = Math.min(1, Math.hypot(dx, dy) / 150);
-      drawPk3d(state, { radius: state.radius, positions: null, aim: _pkAim });
-      pkSyncSlider();
-    }
-  };
-  stage.onpointerup = () => {
-    if (st && !moved && onSeat != null) { // tap → reveal name
-      _pkNameShow = onSeat;
-      redraw();
-      clearTimeout(_pkNameTimer);
-      _pkNameTimer = setTimeout(() => { _pkNameShow = null; if (state && state.phase !== 'resolve') redraw(); }, 2600);
-    }
-    st = null; mode = null;
-  };
-  stage.onwheel = (e) => {
-    e.preventDefault();
-    _pk3dCam.z = Math.max(-260, Math.min(260, _pk3dCam.z + (e.deltaY < 0 ? 28 : -28)));
-    pk3dApplyCamera(scene);
-  };
-}
-
-// Draw the 3D-perspective ice + penguins (+ optional aim arrow). `positions` overrides during replay.
-function drawPkBoard(s, opts) {
-  const board = $('pkBoard');
-  const R = opts.radius;
-  const rp = s.penguinRadius || 0.075;
-  const ry = R * PK_TILT; // squashed vertical radius
-  const depth = Math.max(0.07, R * 0.17); // ice thickness
-  const list = (opts.positions || (s.penguins || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, a: p.alive }))).slice().sort((a, b) => b.y - a.y); // back→front
-  const nameOf = (id) => { const p = (s.penguins || []).find((q) => q.seat === id); return p ? p.name : ''; };
-
-  let svg = `<svg viewBox="${-PK_VB} ${-PK_VB} ${2 * PK_VB} ${2 * PK_VB}" class="pk-svg" preserveAspectRatio="xMidYMid meet">`;
-  svg += '<defs>'
-    + '<radialGradient id="pkSea" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="#13314c"/><stop offset="1" stop-color="#08182a"/></radialGradient>'
-    + '<radialGradient id="pkIce" cx="42%" cy="30%" r="80%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.55" stop-color="#dcefff"/><stop offset="1" stop-color="#9ec9e8"/></radialGradient>'
-    + '<linearGradient id="pkWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fb4d8"/><stop offset="0.55" stop-color="#4d83a8"/><stop offset="1" stop-color="#2b5070"/></linearGradient>'
-    + '</defs>';
-  // sea
-  svg += `<rect x="${-PK_VB}" y="${-PK_VB}" width="${2 * PK_VB}" height="${2 * PK_VB}" fill="url(#pkSea)"/>`;
-  // soft shadow the slab casts on the water
-  svg += `<ellipse cx="0" cy="${depth * 1.6}" rx="${R * 1.02}" ry="${ry * 1.04}" class="pk-ice-cast"/>`;
-  // ice slab — "coin" trick: a lower ellipse peeks out below the top as a curved frozen edge (no hard corners)
-  svg += `<ellipse cx="0" cy="${depth}" rx="${R}" ry="${ry}" fill="url(#pkWall)"/>`;
-  svg += `<ellipse cx="0" cy="0" rx="${R}" ry="${ry}" class="pk-ice"/>`;
-  // glossy sheen across the top surface
-  svg += `<ellipse cx="${-R * 0.12}" cy="${-ry * 0.22}" rx="${R * 0.72}" ry="${ry * 0.52}" class="pk-ice-sheen"/>`;
-
-  for (const p of list) {
-    if (!p.a) continue;
-    const d = pkDisp(p.x, p.y);
-    const mine = p.id === s.seat;
-    svg += `<g class="pk-peng${mine ? ' mine' : ''}">`
-      + `<ellipse cx="${d.x}" cy="${d.y + rp * 0.72}" rx="${rp * 0.95}" ry="${rp * 0.34}" class="pk-pshadow"/>`
-      + `<circle cx="${d.x}" cy="${d.y}" r="${rp}" fill="${seatColor(p.id)}" class="pk-body" data-pseat="${p.id}"/>`
-      + `<text x="${d.x}" y="${d.y}" class="pk-face" style="font-size:${rp * 1.5}px" data-pseat="${p.id}">🐧</text>`
-      + `</g>`;
-  }
-  // name label (tap to reveal)
-  if (_pkNameShow != null) {
-    const p = (s.penguins || []).find((q) => q.seat === _pkNameShow && q.alive) || list.find((q) => q.id === _pkNameShow && q.a);
-    const pp = (s.penguins || []).find((q) => q.seat === _pkNameShow);
-    if (pp && pp.alive) {
-      const d = pkDisp(pp.x, pp.y);
-      const txt = nameOf(_pkNameShow);
-      const w = Math.max(0.2, txt.length * 0.052 + 0.12);
-      svg += `<g class="pk-namelabel" pointer-events="none">`
-        + `<rect x="${d.x - w / 2}" y="${d.y - rp - 0.17}" width="${w}" height="0.13" rx="0.05"/>`
-        + `<text x="${d.x}" y="${d.y - rp - 0.105}">${escapeHtml(txt)}</text>`
-        + `</g>`;
-    }
-    void p;
-  }
-  // collision flashes — expanding rings during the replay (juice)
-  if (opts.impacts && opts.frame != null) {
-    for (const im of opts.impacts) {
-      const age = opts.frame - im.f;
-      if (age < 0 || age > IMPACT_SPAN) continue;
-      const d = pkDisp(im.x, im.y);
-      svg += pkImpactSvg(d.x, d.y, age / IMPACT_SPAN, im.s);
-    }
-  }
-  // aim arrow
-  if (opts.aim) {
-    const me = (s.penguins || []).find((p) => p.seat === s.seat);
-    if (me && me.alive) {
-      const g = pkArrowGeom(me, opts.aim);
-      svg += `<line x1="${g.line[0]}" y1="${g.line[1]}" x2="${g.line[2]}" y2="${g.line[3]}" class="pk-aim"/>`
-        + `<polygon points="${g.head}" class="pk-aimhead"/>`;
-    }
-  }
-  svg += '</svg>';
-  board.innerHTML = svg;
-  if (s.phase !== 'resolve') pkAttachInput(s, board.querySelector('svg')); // no input binding during the replay
-}
-
-// Drag = aim direction (power comes from the slider). Tap a penguin = reveal its name.
-function pkAttachInput(s, svgEl) {
-  if (s.phase === 'resolve') return; // no interaction while the replay animates
-  const me = (s.penguins || []).find((p) => p.seat === s.seat);
-  const canAim = pkCanAim(s) && me && me.alive;
-  const toPhys = (e) => {
-    const r = svgEl.getBoundingClientRect();
-    const vx = ((e.clientX - r.left) / r.width) * (2 * PK_VB) - PK_VB;
-    const vy = ((e.clientY - r.top) / r.height) * (2 * PK_VB) - PK_VB;
-    return { x: vx, y: -vy / PK_TILT };
-  };
-  let st = null, moved = false, onSeat = null;
-  svgEl.style.touchAction = 'none';
-  svgEl.onpointerdown = (e) => {
-    st = { x: e.clientX, y: e.clientY };
-    moved = false;
-    onSeat = e.target && e.target.getAttribute ? e.target.getAttribute('data-pseat') : null;
-    try { svgEl.setPointerCapture(e.pointerId); } catch { /* ok */ }
-  };
-  svgEl.onpointermove = (e) => {
-    if (!st || !canAim) return;
-    if (!moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 6) moved = true;
-    if (!moved) return;
-    const p = toPhys(e);
-    const dx = p.x - me.x, dy = p.y - me.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.02) return;
-    // one motion sets BOTH: direction = angle, drag length = power
-    _pkAim = _pkAim || { angle: 0, power: 0.5 };
-    _pkAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    _pkAim.power = Math.min(1, dist / 0.85);
-    pkUpdateArrow(svgEl, me, _pkAim); // update in place — don't rebuild mid-drag
-    pkSyncSlider();
-  };
-  svgEl.onpointerup = () => {
-    if (st && !moved && onSeat != null) {
-      _pkNameShow = Number(onSeat);
-      drawPkBoard(s, { radius: s.radius, positions: null, aim: pkCanAim(s) ? _pkAim : null });
-      clearTimeout(_pkNameTimer);
-      _pkNameTimer = setTimeout(() => {
-        _pkNameShow = null;
-        if (state && state.gameId === 'penguin-knockout' && state.phase !== 'resolve') drawPkBoard(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
-      }, 2600);
-    }
-    st = null;
-  };
+  a3dChrome(scene, _pkView, canCommit, s.phase === 'commit', {
+    lockLabel: `🔒 Lock in launch · ${Math.round((_pkAim ? _pkAim.power : 0.5) * 100)}%`,
+    onLock: () => { const a = _pkAim || { angle: 0, power: 0.5 }; send({ type: 'commitMove', angle: a.angle, power: a.power }); },
+    aimHint: 'drag anywhere to aim your arrow',
+  });
 }
 
 // Replay the resolution frames, then animate the shrink + melts.
@@ -3337,25 +3153,13 @@ function pkPlayResolution(s) {
   if (_pkReplay.raf) cancelAnimationFrame(_pkReplay.raf);
   _pkReplay = { round: s.round, raf: 0 };
   _pkNameShow = null; // hide any name tag during the launch
-  _pkPovDir = null;   // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
   if (total < 2) { drawPk3d(s, { radius: res.radius, positions: frames[0] || [], aim: null }); return; }
-  const start = performance.now();
-  // Stretch the (often short) sim to a watchable length — min 10s — and interpolate between
-  // ticks so it stays smooth at any speed. Kept ≤ the server's resolve hold.
-  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
   const melted = new Set(res.melted || []);
-  const step = (t) => {
-    const prog = Math.min(1, (t - start) / REPLAY_MS);
-    const ff = prog * (total - 1);
-    const i = Math.round(ff);
-    const positions = pkLerpFrame(frames, ff);
-    drawPk3d(s, { radius: res.radius, positions, aim: null, impacts: res.impacts, frame: i });
-    if (prog < 1) _pkReplay.raf = requestAnimationFrame(step);
-    else pkAnimateShrink(s, res, melted);
-  };
-  _pkReplay.raf = requestAnimationFrame(step);
+  a3dPlayFrames(_pkReplay, total,
+    (ff, i) => drawPk3d(s, { radius: res.radius, positions: pkLerpFrame(frames, ff), aim: null, impacts: res.impacts, frame: i }),
+    () => pkAnimateShrink(s, res, melted));
 }
 
 function pkAnimateShrink(s, res, melted) {
@@ -3405,7 +3209,7 @@ function renderPkActions(s) {
     _pkAim = _pkAim || { angle: 0, power: 0 };
     _pkAim.power = slider.value / 100;
     valEl.textContent = slider.value + '%';
-    if (state && state.gameId === 'penguin-knockout') drawPk3d(state, { radius: state.radius, positions: null, aim: pkCanAim(state) ? _pkAim : null });
+    pkRedraw();
   };
   area.appendChild(meter);
 }
@@ -3419,11 +3223,6 @@ const IF_PU_NAME = { powerShot: 'Power shot', bigPiece: 'Big body', slick: 'Slic
 let _ifAim = null;       // {angle, power}
 let _ifPU = null;        // armed power-up {type, targetId?}
 let _ifReplay = { round: -1, raf: 0 };
-let _ifPov = true;       // first-person replay on/off (planning is always top-down)
-let _ifPovDir = null;    // smoothed look direction {x,y}
-let _ifPovCtx = null;    // {s,res,frame,i} of the last POV frame — lets the toggle redraw
-const IF_POV = { h: 0.045, focal: 1.4, near: 0.05, vbX: 1, vbTop: -0.72, vbH: 1.6 };
-const ifDisp = (x, y) => ({ x, y: -y }); // top-down (just flip y)
 
 function renderIceFootball(s) {
   $('ifRoom').textContent = s.room;
@@ -3440,7 +3239,7 @@ function renderIceFootball(s) {
       const me = s.pieces.find((p) => p.seat === s.seat);
       const goalX = me && me.team === 'red' ? s.pitch.hx : -s.pitch.hx; // face the opponent goal
       _ifAim = { angle: me ? (Math.atan2(s.ball.y - me.y, goalX - me.x) * 180) / Math.PI : 0, power: 0.5 };
-      _if3dMode = 'aim';
+      _ifView.mode = 'aim';
     }
     drawIf3d(s, { ball: null, pieces: null, aim: ifCanAim(s) ? _ifAim : null });
   }
@@ -3460,24 +3259,6 @@ function renderIfScore(s) {
     `<span class="if-target">to ${s.goalsToWin}</span>`;
 }
 
-function ifArrowGeom(me, aim) {
-  const a = (aim.angle * Math.PI) / 180;
-  const len = 0.12 + aim.power * 0.85;
-  const s0 = ifDisp(me.x, me.y);
-  const e0 = ifDisp(me.x + Math.cos(a) * len, me.y + Math.sin(a) * len);
-  const da = Math.atan2(e0.y - s0.y, e0.x - s0.x);
-  const hl = 0.1, hw = 0.065;
-  const bx = e0.x - Math.cos(da) * hl, by = e0.y - Math.sin(da) * hl;
-  const lx = bx + Math.cos(da + Math.PI / 2) * hw, ly = by + Math.sin(da + Math.PI / 2) * hw;
-  const rx = bx + Math.cos(da - Math.PI / 2) * hw, ry = by + Math.sin(da - Math.PI / 2) * hw;
-  return { line: [s0.x, s0.y, bx, by], head: `${e0.x},${e0.y} ${lx},${ly} ${rx},${ry}` };
-}
-function ifUpdateArrow(svgEl, me, aim) {
-  const g = ifArrowGeom(me, aim);
-  const ln = svgEl.querySelector('.if-aim'), hd = svgEl.querySelector('.if-aimhead');
-  if (ln) { ln.setAttribute('x1', g.line[0]); ln.setAttribute('y1', g.line[1]); ln.setAttribute('x2', g.line[2]); ln.setAttribute('y2', g.line[3]); }
-  if (hd) hd.setAttribute('points', g.head);
-}
 function ifSyncSlider() {
   if (!_ifAim) return;
   const sl = $('ifActions').querySelector('.pk-slider');
@@ -3487,19 +3268,16 @@ function ifSyncSlider() {
   if (vl) vl.textContent = pct + '%';
 }
 
-// ── CSS-3D football pitch (rectangular field, glass walls, stadium) ────────────
-// Reuses the penguin 3D toolkit (pk3dBox / pk3dBuildPeng). Persistent DOM: the pitch,
-// walls, goals and stadium are built once; only pieces/ball transforms update per frame.
-let _if3dCam = { yaw: -20, tilt: 30, z: 20 };
-let _if3dMode = 'aim';
+// ── The Ice Football pitch, on the shared Arena 3D engine ──────────────────────
+// Rectangular field with glass walls, goal frames and a stadium bowl. Persistent DOM:
+// the pitch, walls, goals and stadium are built once; only pieces/ball update per frame.
+const _ifView = { cam: { yaw: -20, tilt: 30, z: 20 }, mode: 'aim' };
 const IF3D = { targetHalf: 168, wallH: 46, slabT: 48, goalH: 42 }; // targetHalf = on-screen half-width; the pitch always fits, players shrink as it grows
 let _if3dScale = 168; // px per world unit — recomputed per match so a bigger pitch still fits the stage
 
-function if3dWorldTransform() {
-  return `translateZ(${_if3dCam.z}px) rotateX(${(_if3dCam.tilt - 90).toFixed(2)}deg) rotateY(${_if3dCam.yaw.toFixed(2)}deg)`;
+function ifRedraw() {
+  if (state && state.gameId === 'ice-football') drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null });
 }
-function if3dApplyCamera(scene) { scene.world.style.transform = if3dWorldTransform(); }
-function if3dBillboard() { return `rotateY(${(-_if3dCam.yaw).toFixed(1)}deg) rotateX(${(90 - _if3dCam.tilt).toFixed(1)}deg)`; }
 
 // A vertical wall panel spanning a ground segment (px), standing height H.
 function if3dWall(x1, z1, x2, z2, H) {
@@ -3515,8 +3293,8 @@ function if3dWall(x1, z1, x2, z2, H) {
 function if3dGoal(sx, goalW) {
   const g = document.createElement('div'); g.className = 'pk3d-obj'; g.style.transformStyle = 'preserve-3d';
   const H = IF3D.goalH, pw = 5;
-  const post = (z) => { const b = pk3dBox(pw, H, pw, '#f4f8ff'); b.style.transform = `translate3d(${sx}px,${-H / 2}px,${z}px)`; return b; };
-  const bar = pk3dBox(pw, pw, goalW, '#f4f8ff'); bar.style.transform = `translate3d(${sx}px,${-H}px,0px)`;
+  const post = (z) => { const b = a3dBox(pw, H, pw, '#f4f8ff'); b.style.transform = `translate3d(${sx}px,${-H / 2}px,${z}px)`; return b; };
+  const bar = a3dBox(pw, pw, goalW, '#f4f8ff'); bar.style.transform = `translate3d(${sx}px,${-H}px,0px)`;
   g.append(post(-goalW / 2), post(goalW / 2), bar);
   return g;
 }
@@ -3526,7 +3304,7 @@ function if3dBuildStadium(hxp, hyp) {
   const st = document.createElement('div'); st.className = 'pk3d-obj'; st.style.transformStyle = 'preserve-3d';
   const gap = 110, standH = 150, standD = 95;
   const L = 2 * hxp + 2 * gap + standD, D = 2 * hyp + 2 * gap + standD;
-  const mk = (w, h, d, x, z) => { const b = pk3dBox(w, h, d, { all: '#3a4453' }); for (let i = 0; i < 4; i++) { b.children[i].style.background = ''; b.children[i].classList.add('if3d-stand'); } b.style.transform = `translate3d(${x}px,${-h / 2}px,${z}px)`; return b; };
+  const mk = (w, h, d, x, z) => { const b = a3dBox(w, h, d, { all: '#3a4453' }); for (let i = 0; i < 4; i++) { b.children[i].style.background = ''; b.children[i].classList.add('if3d-stand'); } b.style.transform = `translate3d(${x}px,${-h / 2}px,${z}px)`; return b; };
   st.append(
     mk(L, standH, standD, 0, -(hyp + gap + standD / 2)),
     mk(L, standH, standD, 0, (hyp + gap + standD / 2)),
@@ -3535,8 +3313,8 @@ function if3dBuildStadium(hxp, hyp) {
   );
   const flood = (x, z) => {
     const g = document.createElement('div'); g.className = 'pk3d-obj'; g.style.transformStyle = 'preserve-3d';
-    const ph = 210; const pole = pk3dBox(8, ph, 8, '#8893a5'); pole.style.transform = `translate3d(${x}px,${-ph / 2}px,${z}px)`;
-    const lamp = pk3dBox(48, 16, 22, '#fffbe0'); lamp.style.transform = `translate3d(${x}px,${-ph}px,${z}px)`;
+    const ph = 210; const pole = a3dBox(8, ph, 8, '#8893a5'); pole.style.transform = `translate3d(${x}px,${-ph / 2}px,${z}px)`;
+    const lamp = a3dBox(48, 16, 22, '#fffbe0'); lamp.style.transform = `translate3d(${x}px,${-ph}px,${z}px)`;
     g.append(pole, lamp); return g;
   };
   const cx = hxp + gap, cz = hyp + gap;
@@ -3550,7 +3328,7 @@ function if3dBuildPitch(scene, s) {
   const hxp = hx * S, hyp = hy * S, gp = goalHy * S, H = IF3D.wallH;
   scene.world.appendChild(if3dBuildStadium(hxp, hyp));
   // pitch slab
-  const slab = pk3dBox(w, T, d, { all: '#2e7d46' });
+  const slab = a3dBox(w, T, d, { all: '#2e7d46' });
   const f = slab.children;
   for (let i = 0; i < 4; i++) { f[i].style.background = ''; f[i].classList.add('if3d-pitch-side'); }
   f[4].style.background = ''; f[4].classList.add('if3d-pitch-top');
@@ -3575,28 +3353,32 @@ function if3dBuildPitch(scene, s) {
   scene.world.append(if3dGoal(-hxp, 2 * gp), if3dGoal(hxp, 2 * gp));
 }
 
-function if3dEnsureScene(board, s) {
+function ifScene(board, s) {
   // Fit the pitch to the stage: bigger pitch (more players) → smaller scale → players shrink.
   _if3dScale = IF3D.targetHalf / s.pitch.hx;
-  const key = s.pitch.hx.toFixed(3);
-  if (board.__if3d && board.__if3d.pitchKey === key) return board.__if3d;
-  board.innerHTML = '';
-  const stage = document.createElement('div'); stage.className = 'if3d-stage';
-  const world = document.createElement('div'); world.className = 'pk3d-world';
-  const arrow = document.createElement('div'); arrow.className = 'pk3d-obj pk3d-arrow'; arrow.style.display = 'none';
-  world.appendChild(arrow);
-  stage.appendChild(world);
-  const hint = document.createElement('div'); hint.className = 'pk3d-hint'; hint.textContent = 'drag to look around'; stage.appendChild(hint);
-  const lock = document.createElement('button'); lock.className = 'pk3d-lockbtn'; lock.style.display = 'none'; lock.onpointerdown = (e) => e.stopPropagation(); stage.appendChild(lock);
-  const modebtn = document.createElement('button'); modebtn.className = 'pk3d-modebtn'; modebtn.style.display = 'none'; modebtn.onpointerdown = (e) => e.stopPropagation();
-  modebtn.onclick = () => { _if3dMode = _if3dMode === 'aim' ? 'orbit' : 'aim'; if (state && state.gameId === 'ice-football') drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); };
-  stage.appendChild(modebtn);
-  board.appendChild(stage);
-  const scene = { stage, world, arrow, hint, lock, modebtn, pitchKey: s.pitch.hx.toFixed(3), ball: null, pieces: new Map(), items: new Map(), blockers: new Map() };
-  board.__if3d = scene;
-  if3dBuildPitch(scene, s);
-  if3dAttachInput(board);
-  return scene;
+  return a3dEnsureScene(board, s.pitch.hx.toFixed(3), _ifView, {
+    stageClass: 'if3d-stage',
+    build(scene) {
+      scene.world.appendChild(scene.arrow);
+      scene.ball = null; scene.ballShadow = null;
+      scene.items = new Map(); scene.blockers = new Map();
+      if3dBuildPitch(scene, s);
+    },
+    canAim: () => !!(state && state.gameId === 'ice-football' && ifCanAim(state)),
+    hasMe: () => !!(state && state.pieces && state.pieces.find((p) => p.seat === state.seat)),
+    onAim(angle, power) {
+      _ifAim = _ifAim || { angle: 0, power: 0.5 };
+      _ifAim.angle = angle; _ifAim.power = power;
+      drawIf3d(state, { ball: null, pieces: null, aim: _ifAim });
+      ifSyncSlider();
+    },
+    onTap(seat) { // tap an opponent while Freeze is armed = pick the target
+      if (!(_ifPU && _ifPU.type === 'freeze')) return;
+      const tgt = (state.pieces || []).find((p) => p.seat === seat);
+      if (tgt && state.you && tgt.team !== state.you.team) { _ifPU.targetId = tgt.seat; renderIfActions(state); ifRedraw(); }
+    },
+    redraw: ifRedraw,
+  });
 }
 
 function if3dBall(scene, ballPos, rb) {
@@ -3608,22 +3390,18 @@ function if3dBall(scene, ballPos, rb) {
   const S = _if3dScale, r = rb * S, x = (ballPos.x * S).toFixed(1), z = (-ballPos.y * S).toFixed(1);
   b.style.width = b.style.height = (2 * r).toFixed(1) + 'px';
   // billboarded so it reads as a sphere from any camera angle (its physics is a circle = a sphere on the plane)
-  b.style.transform = `translate(-50%,-50%) translate3d(${x}px,${(-r).toFixed(1)}px,${z}px) ${if3dBillboard()}`;
+  b.style.transform = `translate(-50%,-50%) translate3d(${x}px,${(-r).toFixed(1)}px,${z}px) ${a3dBillboard(_ifView.cam)}`;
   // a flat contact shadow on the pitch, directly under the ball
   sh.style.width = (2.2 * r).toFixed(1) + 'px'; sh.style.height = (1.1 * r).toFixed(1) + 'px';
   sh.style.transform = `translate(-50%,-50%) translate3d(${x}px,-1px,${z}px) rotateX(90deg)`;
 }
 
 function if3dPiece(scene, p, s, moving) {
-  let el = scene.pieces.get(p.id);
-  if (!el) { const meta = (s.pieces || []).find((q) => q.seat === p.id); el = pk3dBuildPeng(IF_TEAM[meta ? meta.team : 'red']); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pieces.set(p.id, el); }
+  let el = scene.pengs.get(p.id);
+  if (!el) { const meta = (s.pieces || []).find((q) => q.seat === p.id); el = a3dBuildPeng(IF_TEAM[meta ? meta.team : 'red']); el.dataset.pseat = p.id; scene.world.appendChild(el); scene.pengs.set(p.id, el); }
   const S = _if3dScale, wx = p.x * S, wz = -p.y * S;
-  let face;
-  if (moving && el._lastX != null) {
-    const dx = p.x - el._lastX, dy = p.y - el._lastY;
-    face = Math.hypot(dx, dy) > 0.004 ? Math.atan2(dx, -dy) * 180 / Math.PI : (el._face != null ? el._face : 0);
-  } else { const b = s.ball || { x: 0, y: 0 }; face = Math.atan2(b.x - p.x, -(b.y - p.y)) * 180 / Math.PI; } // idle → face the ball
-  el._lastX = p.x; el._lastY = p.y; el._face = face;
+  const b = s.ball || { x: 0, y: 0 };
+  const face = a3dFacing(el, p, moving, Math.atan2(b.x - p.x, -(b.y - p.y)) * 180 / Math.PI); // idle → face the ball
   const F = (s.pitch.rp * _if3dScale) / 15; // scale the (30px) block so its body edge = the hitbox
   el.style.transform = `translate(-50%,-50%) translate3d(${wx.toFixed(1)}px,0px,${wz.toFixed(1)}px) rotateY(${face.toFixed(1)}deg) scale3d(${F.toFixed(3)},${F.toFixed(3)},${F.toFixed(3)})`;
   el.classList.toggle('mine', p.id === s.seat);
@@ -3636,7 +3414,7 @@ function if3dItems(scene, items) {
     let el = scene.items.get(it.id);
     if (!el) { el = document.createElement('div'); el.className = 'pk3d-obj if3d-item'; el.textContent = IF_PU_ICON[it.type] || '★'; scene.world.appendChild(el); scene.items.set(it.id, el); }
     const S = _if3dScale;
-    el.style.transform = `translate(-50%,-50%) translate3d(${(it.x * S).toFixed(0)}px,-22px,${(-it.y * S).toFixed(0)}px) ${if3dBillboard()}`;
+    el.style.transform = `translate(-50%,-50%) translate3d(${(it.x * S).toFixed(0)}px,-22px,${(-it.y * S).toFixed(0)}px) ${a3dBillboard(_ifView.cam)}`;
     seen.add(it.id);
   }
   for (const [id, el] of scene.items) if (!seen.has(id)) { el.remove(); scene.items.delete(id); }
@@ -3647,7 +3425,7 @@ function if3dBlockers(scene, walls) {
   walls.forEach((w, idx) => {
     const id = 'b' + idx;
     let el = scene.blockers.get(id);
-    if (!el) { el = pk3dBox(2 * w.r * _if3dScale, 42, 2 * w.r * _if3dScale, { all: '#c3ccdb' }); scene.world.appendChild(el); scene.blockers.set(id, el); }
+    if (!el) { el = a3dBox(2 * w.r * _if3dScale, 42, 2 * w.r * _if3dScale, { all: '#c3ccdb' }); scene.world.appendChild(el); scene.blockers.set(id, el); }
     el.style.transform = `translate3d(${(w.x * _if3dScale).toFixed(0)}px,-21px,${(-w.y * _if3dScale).toFixed(0)}px)`;
     seen.add(id);
   });
@@ -3655,192 +3433,31 @@ function if3dBlockers(scene, walls) {
 }
 
 function drawIf3d(s, opts) {
-  const board = $('ifBoard');
-  const scene = if3dEnsureScene(board, s);
-  if3dApplyCamera(scene);
+  const scene = ifScene($('ifBoard'), s);
+  a3dApplyCamera(scene, _ifView.cam);
+  const S = _if3dScale;
   if3dBall(scene, opts.ball || s.ball, s.pitch.rb);
   const piecePos = opts.pieces;
   const list = piecePos ? piecePos.map((fp) => ({ id: fp.id, x: fp.x, y: fp.y, o: fp.o })) : (s.pieces || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, o: false }));
   const moving = !!piecePos;
   const seen = new Set();
   for (const p of list) { if3dPiece(scene, p, s, moving); seen.add(p.id); }
-  for (const [id, el] of scene.pieces) if (!seen.has(id)) { el.remove(); scene.pieces.delete(id); }
+  for (const [id, el] of scene.pengs) if (!seen.has(id)) { el.remove(); scene.pengs.delete(id); }
   if3dItems(scene, s.items || []);
   if3dBlockers(scene, opts.walls || []);
-  // aim arrow
+  a3dImpacts(scene, _ifView.cam, opts.impacts, opts.frame, S);
   const me = list.find((p) => p.id === s.seat && !p.o);
-  if (opts.aim && me) {
-    const S = _if3dScale, len = (0.26 + opts.aim.power * 1.0) * S;
-    scene.arrow.style.display = ''; scene.arrow.style.width = len.toFixed(0) + 'px';
-    scene.arrow.style.transform = `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-opts.aim.angle).toFixed(1)}deg)`;
-  } else { scene.arrow.style.display = 'none'; }
-  // lock + mode toggle
+  a3dArrow(scene, me, opts.aim, S, 0.26, 1.0);
   const canCommit = s.phase === 'commit' && s.you && !s.you.committed && !s.you.spectator;
-  scene.lock.style.display = canCommit ? '' : 'none';
-  scene.modebtn.style.display = canCommit ? '' : 'none';
-  if (canCommit) {
-    scene.lock.textContent = `🔒 Lock in · ${Math.round((_ifAim ? _ifAim.power : 0.5) * 100)}%`;
-    scene.lock.onclick = () => {
+  a3dChrome(scene, _ifView, canCommit, s.phase === 'commit', {
+    lockLabel: `🔒 Lock in · ${Math.round((_ifAim ? _ifAim.power : 0.5) * 100)}%`,
+    onLock: () => {
       if (_ifPU && _ifPU.type === 'freeze' && _ifPU.targetId == null) { toast('Pick an opponent to freeze first.', 'err'); return; }
       const a = _ifAim || { angle: 0, power: 0.5 };
       send({ type: 'commitMove', angle: a.angle, power: a.power, usePowerUp: _ifPU || undefined });
-    };
-    scene.modebtn.textContent = _if3dMode === 'aim' ? '🎯 Aim mode' : '🔄 Look mode';
-    scene.modebtn.classList.toggle('look', _if3dMode !== 'aim');
-  }
-  scene.hint.textContent = canCommit ? (_if3dMode === 'aim' ? 'drag anywhere to aim' : 'drag to look around') : 'drag to look around';
-  scene.hint.style.display = s.phase === 'commit' ? '' : 'none';
-}
-
-function if3dAttachInput(board) {
-  const scene = board.__if3d, stage = scene.stage;
-  let st = null, mode = null, onSeat = null, moved = false;
-  stage.style.touchAction = 'none';
-  const meLive = () => (state && state.pieces ? state.pieces.find((p) => p.seat === state.seat) : null);
-  stage.onpointerdown = (e) => {
-    st = { x: e.clientX, y: e.clientY, yaw: _if3dCam.yaw, tilt: _if3dCam.tilt };
-    moved = false;
-    const pe = e.target && e.target.closest ? e.target.closest('.pk3d-peng') : null;
-    onSeat = pe ? Number(pe.dataset.pseat) : null;
-    mode = state && ifCanAim(state) && _if3dMode === 'aim' ? 'aim' : 'orbit';
-    try { stage.setPointerCapture(e.pointerId); } catch { /* ok */ }
-  };
-  stage.onpointermove = (e) => {
-    if (!st) return;
-    const dx = e.clientX - st.x, dy = e.clientY - st.y;
-    if (!moved && Math.hypot(dx, dy) > 5) moved = true;
-    if (!moved) return;
-    if (mode === 'orbit') {
-      _if3dCam.yaw = st.yaw + dx * 0.4;
-      _if3dCam.tilt = Math.max(8, Math.min(82, st.tilt + dy * 0.3));
-      if3dApplyCamera(scene);
-    } else if (mode === 'aim') {
-      const me = meLive(); if (!me) return;
-      const yaw = _if3dCam.yaw * Math.PI / 180;
-      const fx = dx * Math.cos(yaw) + dy * Math.sin(yaw);
-      const fz = -dx * Math.sin(yaw) + dy * Math.cos(yaw);
-      _ifAim = _ifAim || { angle: 0, power: 0.5 };
-      _ifAim.angle = Math.atan2(-fz, fx) * 180 / Math.PI;
-      _ifAim.power = Math.min(1, Math.hypot(dx, dy) / 150);
-      drawIf3d(state, { ball: null, pieces: null, aim: _ifAim });
-      ifSyncSlider();
-    }
-  };
-  stage.onpointerup = () => {
-    if (st && !moved && onSeat != null && _ifPU && _ifPU.type === 'freeze') { // tap opponent to freeze
-      const tgt = (state.pieces || []).find((p) => p.seat === onSeat);
-      if (tgt && state.you && tgt.team !== state.you.team) { _ifPU.targetId = tgt.seat; renderIfActions(state); drawIf3d(state, { ball: null, pieces: null, aim: ifCanAim(state) ? _ifAim : null }); }
-    }
-    st = null; mode = null;
-  };
-  stage.onwheel = (e) => {
-    e.preventDefault();
-    _if3dCam.z = Math.max(-260, Math.min(260, _if3dCam.z + (e.deltaY < 0 ? 28 : -28)));
-    if3dApplyCamera(scene);
-  };
-}
-
-function drawIfBoard(s, opts) {
-  const board = $('ifBoard');
-  const { hx, hy, goalHy, rp, rb } = s.pitch;
-  const pad = 0.16;
-  const ballPos = opts.ball || s.ball;
-  const piecePos = opts.pieces; // [{id,x,y,o}] during replay, else null
-  let svg = `<svg viewBox="${-hx - pad} ${-hy - pad} ${2 * (hx + pad)} ${2 * (hy + pad)}" class="if-svg" preserveAspectRatio="xMidYMid meet">`;
-  svg += '<defs><radialGradient id="ifIce" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#eaf6ff"/><stop offset="1" stop-color="#bcdcf2"/></radialGradient></defs>';
-  // goals (defending team tint) just outside each end
-  svg += `<rect x="${-hx - 0.07}" y="${-goalHy}" width="0.07" height="${2 * goalHy}" class="if-goal red"/>`;
-  svg += `<rect x="${hx}" y="${-goalHy}" width="0.07" height="${2 * goalHy}" class="if-goal blue"/>`;
-  // pitch surface
-  svg += `<rect x="${-hx}" y="${-hy}" width="${2 * hx}" height="${2 * hy}" rx="0.04" class="if-ice"/>`;
-  svg += `<line x1="0" y1="${-hy}" x2="0" y2="${hy}" class="if-line"/><circle cx="0" cy="0" r="0.18" class="if-line if-center"/>`;
-  // perimeter walls (solid to ball) — drawn as thick lines, broken at the goal gaps
-  const wall = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="if-wall"/>`;
-  svg += wall(-hx, -hy, hx, -hy) + wall(-hx, hy, hx, hy); // top & bottom (display y flipped, doesn't matter symmetric)
-  svg += wall(-hx, -hy, -hx, -goalHy) + wall(-hx, goalHy, -hx, hy); // left, gap in middle
-  svg += wall(hx, -hy, hx, -goalHy) + wall(hx, goalHy, hx, hy); // right
-  // power-up items on the pitch
-  for (const it of s.items || []) {
-    const d = ifDisp(it.x, it.y);
-    svg += `<g class="if-item"><circle cx="${d.x}" cy="${d.y}" r="0.055"/><text x="${d.x}" y="${d.y}">${IF_PU_ICON[it.type] || '★'}</text></g>`;
-  }
-  // wall blockers (during replay)
-  if (opts.walls) for (const w of opts.walls) { const d = ifDisp(w.x, w.y); svg += `<circle cx="${d.x}" cy="${d.y}" r="${w.r}" class="if-block"/>`; }
-  // pieces (team-coloured), back→front
-  const pieces = (piecePos
-    ? piecePos.map((fp) => { const meta = s.pieces.find((p) => p.seat === fp.id); return { id: fp.id, x: fp.x, y: fp.y, off: fp.o, team: meta ? meta.team : 'red', name: meta ? meta.name : '' }; })
-    : (s.pieces || []).map((p) => ({ id: p.seat, x: p.x, y: p.y, off: false, team: p.team, name: p.name }))
-  ).slice().sort((a, b) => b.y - a.y);
-  for (const p of pieces) {
-    if (p.off) continue;
-    const d = ifDisp(p.x, p.y);
-    const mine = p.id === s.seat;
-    svg += `<g class="if-peng${mine ? ' mine' : ''}">`
-      + `<ellipse cx="${d.x}" cy="${d.y + rp * 0.7}" rx="${rp * 0.9}" ry="${rp * 0.3}" class="if-pshadow"/>`
-      + `<circle cx="${d.x}" cy="${d.y}" r="${rp}" fill="${IF_TEAM[p.team]}" class="if-body" data-pseat="${p.id}"/>`
-      + `<text x="${d.x}" y="${d.y}" class="if-pinit" style="font-size:${rp}px" data-pseat="${p.id}">${escapeHtml(initial(p.name))}</text>`
-      + `</g>`;
-  }
-  // ball
-  const bd = ifDisp(ballPos.x, ballPos.y);
-  svg += `<ellipse cx="${bd.x}" cy="${bd.y + rb * 0.8}" rx="${rb}" ry="${rb * 0.4}" class="if-pshadow"/>`;
-  svg += `<circle cx="${bd.x}" cy="${bd.y}" r="${rb}" class="if-ball"/>`;
-  // collision flashes during the replay (juice)
-  if (opts.impacts && opts.frame != null) {
-    for (const im of opts.impacts) {
-      const age = opts.frame - im.f;
-      if (age < 0 || age > IMPACT_SPAN) continue;
-      const d = ifDisp(im.x, im.y);
-      svg += pkImpactSvg(d.x, d.y, age / IMPACT_SPAN, im.s);
-    }
-  }
-  // aim arrow
-  if (ifCanAim(s)) {
-    const me = (s.pieces || []).find((p) => p.seat === s.seat);
-    if (me && _ifAim) { const g = ifArrowGeom(me, _ifAim); svg += `<line x1="${g.line[0]}" y1="${g.line[1]}" x2="${g.line[2]}" y2="${g.line[3]}" class="if-aim"/><polygon points="${g.head}" class="if-aimhead"/>`; }
-  }
-  svg += '</svg>';
-  board.innerHTML = svg;
-  if (s.phase === 'commit') ifAttachInput(s, board.querySelector('svg')); // bind input only when you can aim
-}
-
-function ifAttachInput(s, svgEl) {
-  if (s.phase !== 'commit') return;
-  const me = (s.pieces || []).find((p) => p.seat === s.seat);
-  if (!me || s.you.committed) return;
-  const { hx, hy } = s.pitch;
-  const toPhys = (e) => {
-    const r = svgEl.getBoundingClientRect();
-    const vbW = 2 * (hx + 0.16), vbH = 2 * (hy + 0.16);
-    const vx = ((e.clientX - r.left) / r.width) * vbW - (hx + 0.16);
-    const vy = ((e.clientY - r.top) / r.height) * vbH - (hy + 0.16);
-    return { x: vx, y: -vy };
-  };
-  let st = null, moved = false, onSeat = null;
-  svgEl.style.touchAction = 'none';
-  svgEl.onpointerdown = (e) => { st = { x: e.clientX, y: e.clientY }; moved = false; onSeat = e.target && e.target.getAttribute ? e.target.getAttribute('data-pseat') : null; try { svgEl.setPointerCapture(e.pointerId); } catch { /* ok */ } };
-  svgEl.onpointermove = (e) => {
-    if (!st) return;
-    if (!moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 6) moved = true;
-    if (!moved) return;
-    const p = toPhys(e); const dx = p.x - me.x, dy = p.y - me.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.02) return;
-    // one motion sets BOTH: direction = angle, drag length = power
-    _ifAim = _ifAim || { angle: 0, power: 0.5 };
-    _ifAim.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    _ifAim.power = Math.min(1, dist / 0.85);
-    ifUpdateArrow(svgEl, me, _ifAim);
-    ifSyncSlider();
-  };
-  svgEl.onpointerup = () => {
-    // tap on an opponent while Freeze is armed = pick the target
-    if (st && !moved && onSeat != null && _ifPU && _ifPU.type === 'freeze') {
-      const tgt = (s.pieces || []).find((p) => p.seat === Number(onSeat));
-      if (tgt && tgt.team !== s.you.team) { _ifPU.targetId = tgt.seat; renderIfActions(s); }
-    }
-    st = null;
-  };
+    },
+    aimHint: 'drag anywhere to aim',
+  });
 }
 
 function ifPlayResolution(s) {
@@ -3848,23 +3465,13 @@ function ifPlayResolution(s) {
   if (_ifReplay.round === s.round && _ifReplay.raf) return;
   if (_ifReplay.raf) cancelAnimationFrame(_ifReplay.raf);
   _ifReplay = { round: s.round, raf: 0 };
-  _ifPovDir = null; // fresh camera heading for this round
   const frames = res.frames || [];
   const total = frames.length;
   if (total < 2) { drawIf3d(s, { ball: frames[0] ? frames[0].b : s.ball, pieces: frames[0] ? frames[0].p : null, walls: res.walls }); return; }
-  const start = performance.now();
-  // Stretch the sim to a watchable length (min 10s) and interpolate between ticks for smoothness.
-  const REPLAY_MS = Math.min(12000, Math.max(10000, total * 200));
-  const step = (t) => {
-    const prog = Math.min(1, (t - start) / REPLAY_MS);
-    const ff = prog * (total - 1);
-    const i = Math.round(ff);
+  a3dPlayFrames(_ifReplay, total, (ff, i) => {
     const f = ifLerpFrame(frames, ff);
     drawIf3d(s, { ball: f.b, pieces: f.p, walls: res.walls, impacts: res.impacts, frame: i });
-    if (prog < 1) _ifReplay.raf = requestAnimationFrame(step);
-    else _ifReplay.raf = 0;
-  };
-  _ifReplay.raf = requestAnimationFrame(step);
+  });
 }
 
 // Blend two ticks (ball + pieces) for smooth slow-motion playback.
@@ -3877,137 +3484,6 @@ function ifLerpFrame(frames, ff) {
   const b = { x: A.b.x + (B.b.x - A.b.x) * fr, y: A.b.y + (B.b.y - A.b.y) * fr };
   const p = A.p.map((a) => { const bb = B.p.find((q) => q.id === a.id) || a; return { id: a.id, x: a.x + (bb.x - a.x) * fr, y: a.y + (bb.y - a.y) * fr, o: a.o }; });
   return { b, p };
-}
-
-// ── Ice Football first-person replay camera (pseudo-3D, pure SVG) ───────────────
-function ifPovLookDir(frames, i, myId, cam, ball) {
-  const cur = frames[i] && frames[i].p.find((q) => q.id === myId);
-  const prevF = frames[Math.max(0, i - 2)];
-  const prev = prevF && prevF.p.find((q) => q.id === myId);
-  let dx = 0, dy = 0;
-  if (cur && prev) { dx = cur.x - prev.x; dy = cur.y - prev.y; }
-  if (Math.hypot(dx, dy) > 0.002) {
-    const sp = Math.hypot(dx, dy), nd = { x: dx / sp, y: dy / sp };
-    _ifPovDir = _ifPovDir ? { x: _ifPovDir.x * 0.7 + nd.x * 0.3, y: _ifPovDir.y * 0.7 + nd.y * 0.3 } : nd;
-  } else if (!_ifPovDir) { // stationary → look at the ball
-    const bx = ball.x - cam.x, by = ball.y - cam.y, m = Math.hypot(bx, by) || 1;
-    _ifPovDir = { x: bx / m, y: by / m };
-  }
-  const m = Math.hypot(_ifPovDir.x, _ifPovDir.y) || 1;
-  return { x: _ifPovDir.x / m, y: _ifPovDir.y / m };
-}
-
-function drawIfPov(s, res, frame, i) {
-  const board = $('ifBoard');
-  const { hx, hy, goalHy, rp, rb } = s.pitch;
-  const myId = s.seat;
-  const me = frame.p.find((q) => q.id === myId && !q.o);
-  if (!me) { // spectator or off-pitch — overhead fallback
-    drawIfBoard(s, { ball: frame.b, pieces: frame.p, walls: res.walls, impacts: res.impacts, frame: i });
-    return;
-  }
-  _ifPovCtx = { s, res, frame, i };
-  const C = { x: me.x, y: me.y };
-  const f = ifPovLookDir(res.frames, i, myId, C, frame.b);
-  const R = { x: f.y, y: -f.x };
-  const { h, focal, near, vbX, vbTop, vbH } = IF_POV;
-  const bottom = vbTop + vbH;
-  const clampX = (x) => Math.max(-vbX * 1.6, Math.min(vbX * 1.6, x));
-  const project = (wx, wy, z) => {
-    const rx = wx - C.x, ry = wy - C.y;
-    const d = rx * f.x + ry * f.y;
-    if (d < near) return null;
-    const u = rx * R.x + ry * R.y;
-    return { sx: focal * u / d, sy: focal * (h - z) / d, d };
-  };
-
-  let svg = `<svg viewBox="${-vbX} ${vbTop} ${2 * vbX} ${vbH}" class="if-svg if-pov" preserveAspectRatio="xMidYMid slice">`;
-  svg += '<defs>'
-    + '<linearGradient id="ifPovSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1c2e"/><stop offset="0.5" stop-color="#143a4a"/><stop offset="0.62" stop-color="#1c5a5e"/></linearGradient>'
-    + '<radialGradient id="ifPovIce" cx="50%" cy="-10%" r="130%"><stop offset="0" stop-color="#eef8ff"/><stop offset="1" stop-color="#a9d2ec"/></radialGradient>'
-    + '</defs>';
-  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="url(#ifPovSky)"/>`;
-
-  // pitch floor: project the perimeter, fill below the rim curve
-  const rimPts = [];
-  const edge = (ax, ay, bx, by, n) => { for (let k = 0; k <= n; k++) { const tt = k / n; const p = project(ax + (bx - ax) * tt, ay + (by - ay) * tt, 0); if (p) rimPts.push(p); } };
-  edge(-hx, -hy, hx, -hy, 16); edge(hx, -hy, hx, hy, 10); edge(hx, hy, -hx, hy, 16); edge(-hx, hy, -hx, -hy, 10);
-  rimPts.sort((a, b) => a.sx - b.sx);
-  if (rimPts.length > 1) {
-    let poly = `${clampX(rimPts[0].sx)},${bottom} `;
-    for (const p of rimPts) poly += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `;
-    poly += `${clampX(rimPts[rimPts.length - 1].sx)},${bottom}`;
-    svg += `<polygon points="${poly}" fill="url(#ifPovIce)"/>`;
-  }
-  // halfway line for orientation
-  let mid = '';
-  for (let k = 0; k <= 20; k++) { const p = project(0, -hy + (2 * hy) * (k / 20), 0); if (p) mid += `${clampX(p.sx).toFixed(3)},${p.sy.toFixed(3)} `; }
-  if (mid) svg += `<polyline points="${mid.trim()}" fill="none" stroke="#ffffff" stroke-width="0.01" opacity="0.4"/>`;
-
-  // goals (posts + crossbar + tinted mouth) at each end
-  const goal = (ex, color) => {
-    const postH = 0.16, gy = goalHy;
-    const bl = project(ex, -gy, 0), br = project(ex, gy, 0), tl = project(ex, -gy, postH), tr = project(ex, gy, postH);
-    let g = '';
-    if (bl && br && tl && tr) g += `<polygon points="${bl.sx.toFixed(3)},${bl.sy.toFixed(3)} ${br.sx.toFixed(3)},${br.sy.toFixed(3)} ${tr.sx.toFixed(3)},${tr.sy.toFixed(3)} ${tl.sx.toFixed(3)},${tl.sy.toFixed(3)}" fill="${color}" opacity="0.2"/>`;
-    const post = (a, b) => (a && b) ? `<line x1="${a.sx.toFixed(3)}" y1="${a.sy.toFixed(3)}" x2="${b.sx.toFixed(3)}" y2="${b.sy.toFixed(3)}" stroke="${color}" stroke-width="0.028" stroke-linecap="round"/>` : '';
-    g += post(bl, tl) + post(br, tr) + post(tl, tr);
-    return g;
-  };
-  svg += goal(-hx, IF_TEAM.red) + goal(hx, IF_TEAM.blue);
-
-  // depth-sorted billboards: ball, other pieces, pickups, wall blockers
-  const bills = [];
-  const pb = project(frame.b.x, frame.b.y, rb);
-  if (pb) bills.push({ d: pb.d, svg:
-    `<ellipse cx="${pb.sx.toFixed(3)}" cy="${(focal * h / pb.d).toFixed(3)}" rx="${(focal * rb / pb.d * 1.05).toFixed(3)}" ry="${(focal * rb / pb.d * 0.3).toFixed(3)}" class="if-pshadow"/>`
-    + `<circle cx="${pb.sx.toFixed(3)}" cy="${pb.sy.toFixed(3)}" r="${Math.min(0.5, focal * rb / pb.d).toFixed(3)}" class="if-ball"/>` });
-  for (const p of frame.p) {
-    if (p.o || p.id === myId) continue;
-    const pr = project(p.x, p.y, rp);
-    if (!pr) continue;
-    const rad = Math.min(0.85, focal * rp / pr.d);
-    const meta = (s.pieces || []).find((q) => q.seat === p.id);
-    const team = meta ? meta.team : 'red';
-    let g = `<ellipse cx="${pr.sx.toFixed(3)}" cy="${(focal * h / pr.d).toFixed(3)}" rx="${(rad * 1.05).toFixed(3)}" ry="${(rad * 0.3).toFixed(3)}" class="if-pshadow"/>`
-      + `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" fill="${IF_TEAM[team]}" class="if-body"/>`
-      + `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="if-pinit" style="font-size:${rad.toFixed(3)}px">${escapeHtml(initial(meta ? meta.name : ''))}</text>`;
-    if (meta && rad > 0.05) g += `<text x="${pr.sx.toFixed(3)}" y="${(pr.sy - rad - 0.05).toFixed(3)}" class="if-povname">${escapeHtml(meta.name)}</text>`;
-    bills.push({ d: pr.d, svg: g });
-  }
-  for (const it of s.items || []) {
-    const pr = project(it.x, it.y, 0.04);
-    if (!pr) continue;
-    const rad = Math.min(0.5, focal * 0.05 / pr.d);
-    bills.push({ d: pr.d, svg: `<text x="${pr.sx.toFixed(3)}" y="${pr.sy.toFixed(3)}" class="if-povitem" style="font-size:${(rad * 2).toFixed(3)}px">${IF_PU_ICON[it.type] || '★'}</text>` });
-  }
-  if (res.walls) for (const w of res.walls) {
-    const pr = project(w.x, w.y, 0.05);
-    if (!pr) continue;
-    const rad = Math.min(0.6, focal * w.r / pr.d);
-    bills.push({ d: pr.d, svg: `<circle cx="${pr.sx.toFixed(3)}" cy="${pr.sy.toFixed(3)}" r="${rad.toFixed(3)}" class="if-block"/>` });
-  }
-  bills.sort((a, b) => b.d - a.d);
-  for (const bi of bills) svg += bi.svg;
-
-  // impact flashes, projected to ice level
-  if (res.impacts) for (const im of res.impacts) {
-    const age = i - im.f;
-    if (age < 0 || age > IMPACT_SPAN) continue;
-    const pr = project(im.x, im.y, 0.02);
-    if (pr) svg += pkImpactSvg(pr.sx, pr.sy, age / IMPACT_SPAN, im.s);
-  }
-  // your team-colour vignette
-  svg += `<rect x="${-vbX}" y="${vbTop}" width="${2 * vbX}" height="${vbH}" fill="none" stroke="${IF_TEAM[s.you ? s.you.team : 'red']}" stroke-width="0.05" opacity="0.5"/>`;
-  svg += '</svg>';
-  board.innerHTML = svg;
-}
-
-function ifRedrawCurrent() {
-  if (!_ifPovCtx) return;
-  const { s, res, frame, i } = _ifPovCtx;
-  if (_ifPov) drawIfPov(s, res, frame, i);
-  else drawIfBoard(s, { ball: frame.b, pieces: frame.p, walls: res.walls, impacts: res.impacts, frame: i });
 }
 
 function renderIfActions(s) {

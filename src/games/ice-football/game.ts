@@ -10,6 +10,7 @@
 // resolve). No RNG in the physics → every client replays the identical animation.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { simulate as runSim, type Impact, type SimBody, type StaticCircle } from '../shared/physics.ts';
 
 const MAX_SEATS = 8;
 
@@ -19,7 +20,7 @@ const GOAL_HY = 0.26; // goal-mouth half-height (gap in the x-end walls)
 const RP = 0.045, P_MASS = 1, P_DRAG = 0.86; // piece radius / mass / friction — small vs the pitch
 const RB = 0.035, B_MASS = 0.45, B_DRAG = 0.93; // ball: lighter + slicker → kicks carry
 const VMAX = 0.155, REST = 0.85, WALL_BOUNCE = 0.8;
-const STOP = 0.0009, MAX_TICKS = 320;
+const STOP = 0.0009, MAX_TICKS = 320, MAX_SUBSTEPS = 20;
 const ITEM_R = 0.05, WALL_R = 0.14;
 const PU = { powerShot: 1.9, bigR: RP * 1.6, bigM: 2.3, slickDrag: 0.96 } as const;
 const ALL_POWERUPS = ['powerShot', 'bigPiece', 'slick', 'freeze', 'wall'];
@@ -36,7 +37,6 @@ interface Commit { angle: number; power: number; usePowerUp?: { type: string; ta
 type Phase = 'commit' | 'resolve' | 'done';
 
 interface PFrame { id: number; x: number; y: number; o: boolean }
-interface Impact { f: number; x: number; y: number; s: number } // collision flash: frame, position, strength
 interface Resolution {
   frames: { b: { x: number; y: number }; p: PFrame[] }[];
   reveal: { id: number; angle: number; power: number; powerUp: string | null }[];
@@ -76,77 +76,30 @@ const nameOf = (s: IFState, seat: number) => s.pieces[seat]!.name;
 const seated = (s: IFState) => s.order.filter((seat) => s.pieces[seat]);
 
 // ---------------------------------------------------------------------------
-// Deterministic physics (pieces + ball + static blockers), no RNG
+// Physics — the shared arena engine, plus this game's rules: a selective
+// boundary (solid wall to the ball with goal gaps, open edge to pieces),
+// goal detection and power-up pickups.
 // ---------------------------------------------------------------------------
 
-interface Body { id: number; x: number; y: number; vx: number; vy: number; mass: number; drag: number; radius: number; off: boolean }
-interface Static { x: number; y: number; r: number }
-
-function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[], pitch: { hx: number; hy: number; goalHy: number }) {
+function simulate(pieces: SimBody[], ball: SimBody, statics: StaticCircle[], items: Item[], pitch: { hx: number; hy: number; goalHy: number }) {
   const { hx: HX, hy: HY, goalHy: GOAL_HY } = pitch; // shadow the base constants with this match's pitch
   const frames: Resolution['frames'] = [];
   const pickups: { pieceId: number; type: string }[] = [];
-  const impacts: Impact[] = [];
   const taken = new Set<number>();
   let goal: Team | null = null;
-  const snap = () => frames.push({
-    b: { x: +ball.x.toFixed(4), y: +ball.y.toFixed(4) },
-    p: pieces.map((p) => ({ id: p.id, x: +p.x.toFixed(4), y: +p.y.toFixed(4), o: p.off })),
-  });
-  const dynPair = (a: Body, b: Body) => {
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const d = Math.hypot(dx, dy);
-    const min = a.radius + b.radius;
-    if (d <= 0 || d >= min) return;
-    const nx = dx / d, ny = dy / d;
-    const overlap = min - d;
-    const wa = b.mass / (a.mass + b.mass), wb = a.mass / (a.mass + b.mass);
-    a.x -= nx * overlap * wa; a.y -= ny * overlap * wa;
-    b.x += nx * overlap * wb; b.y += ny * overlap * wb;
-    const closing = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-    if (closing > 0) {
-      const j = ((1 + REST) * closing) / (1 / a.mass + 1 / b.mass);
-      a.vx -= (j / a.mass) * nx; a.vy -= (j / a.mass) * ny;
-      b.vx += (j / b.mass) * nx; b.vy += (j / b.mass) * ny;
-      if (closing > 0.012 && impacts.length < 40) impacts.push({ f: frames.length, x: +((a.x + b.x) / 2).toFixed(3), y: +((a.y + b.y) / 2).toFixed(3), s: +Math.min(1, closing * 3).toFixed(2) });
-    }
-  };
-  const staticHit = (d: Body, st: Static) => {
-    const dx = d.x - st.x, dy = d.y - st.y;
-    const dist = Math.hypot(dx, dy);
-    const min = d.radius + st.r;
-    if (dist <= 0 || dist >= min) return;
-    const nx = dx / dist, ny = dy / dist;
-    d.x += nx * (min - dist); d.y += ny * (min - dist);
-    const vn = d.vx * nx + d.vy * ny;
-    if (vn < 0) { d.vx -= (1 + REST) * vn * nx; d.vy -= (1 + REST) * vn * ny; }
-  };
-  const allDyn = [...pieces, ball];
-  const moving = (b: Body) => b !== ball && b.off; // off pieces stop simulating
 
-  snap();
-  let scored = false;
-  for (let t = 0; t < MAX_TICKS && !scored; t++) {
-    // Substep so the (fast, slick) ball can't tunnel through a wall, goal mouth or piece.
-    let maxV = 0;
-    for (const b of allDyn) if (!moving(b)) maxV = Math.max(maxV, Math.hypot(b.vx, b.vy));
-    const sub = Math.max(1, Math.min(20, Math.ceil(maxV / (RB * 0.5))));
-    for (let k = 0; k < sub && !scored; k++) {
-      for (const b of allDyn) if (!moving(b)) { b.x += b.vx / sub; b.y += b.vy / sub; }
-
-      for (let pass = 0; pass < 2; pass++) {
-        for (let i = 0; i < allDyn.length; i++) {
-          for (let j = i + 1; j < allDyn.length; j++) {
-            if (moving(allDyn[i]) || moving(allDyn[j])) continue;
-            dynPair(allDyn[i], allDyn[j]);
-          }
-        }
-        for (const d of allDyn) if (!moving(d)) for (const st of statics) staticHit(d, st);
-      }
-
+  const { impacts } = runSim([...pieces, ball], {
+    restitution: REST,
+    statics,
+    // Substep length keyed to the ball — fast and slick, it's the likeliest to tunnel.
+    substepLen: RB * 0.5,
+    maxSubsteps: MAX_SUBSTEPS,
+    maxTicks: MAX_TICKS,
+    stopSpeed: STOP,
+    onSubstep() {
       // ball: goal first, then bounce off the solid perimeter (gap only at the goal mouths)
-      if (Math.abs(ball.y) < GOAL_HY && ball.x > HX) { goal = 'red'; scored = true; break; }
-      if (Math.abs(ball.y) < GOAL_HY && ball.x < -HX) { goal = 'blue'; scored = true; break; }
+      if (Math.abs(ball.y) < GOAL_HY && ball.x > HX) { goal = 'red'; return true; }
+      if (Math.abs(ball.y) < GOAL_HY && ball.x < -HX) { goal = 'blue'; return true; }
       const inGap = Math.abs(ball.y) < GOAL_HY;
       if (!inGap && ball.x + RB > HX) { ball.x = HX - RB; ball.vx = -ball.vx * WALL_BOUNCE; }
       if (!inGap && ball.x - RB < -HX) { ball.x = -HX + RB; ball.vx = -ball.vx * WALL_BOUNCE; }
@@ -154,19 +107,21 @@ function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[], 
       if (ball.y - RB < -HY) { ball.y = -HY + RB; ball.vy = -ball.vy * WALL_BOUNCE; }
 
       // pieces: the perimeter is OPEN to them — slide off and they're out for the round
-      for (const p of pieces) if (!p.off && (Math.abs(p.x) > HX || Math.abs(p.y) > HY)) p.off = true;
+      for (const p of pieces) if (!p.out && (Math.abs(p.x) > HX || Math.abs(p.y) > HY)) p.out = true;
 
       // power-up pickups (pass over an item)
-      for (const p of pieces) if (!p.off) for (const it of items) {
+      for (const p of pieces) if (!p.out) for (const it of items) {
         if (!taken.has(it.id) && Math.hypot(p.x - it.x, p.y - it.y) < p.radius + ITEM_R) { taken.add(it.id); pickups.push({ pieceId: p.id, type: it.type }); }
       }
-    }
-
-    for (const b of allDyn) if (!moving(b)) { b.vx *= b.drag; b.vy *= b.drag; }
-    snap();
-    if (allDyn.every((b) => (b !== ball && b.off) || Math.hypot(b.vx, b.vy) < STOP)) break;
-  }
-  return { frames, goal, pickups, impacts, takenItems: [...taken], offIds: pieces.filter((p) => p.off).map((p) => p.id), finalPieces: pieces, finalBall: ball };
+    },
+    onSnap() {
+      frames.push({
+        b: { x: +ball.x.toFixed(4), y: +ball.y.toFixed(4) },
+        p: pieces.map((p) => ({ id: p.id, x: +p.x.toFixed(4), y: +p.y.toFixed(4), o: p.out })),
+      });
+    },
+  });
+  return { frames, goal, pickups, impacts, takenItems: [...taken], offIds: pieces.filter((p) => p.out).map((p) => p.id), finalPieces: pieces, finalBall: ball };
 }
 
 // ---------------------------------------------------------------------------
@@ -175,11 +130,11 @@ function simulate(pieces: Body[], ball: Body, statics: Static[], items: Item[], 
 
 function resolveRound(s: IFState, now: number) {
   const live = seated(s);
-  const statics: Static[] = [];
+  const statics: StaticCircle[] = [];
   const freezeTargets = new Set<number>();
   const reveal: Resolution['reveal'] = [];
 
-  const bodies: Body[] = live.map((seat) => {
+  const bodies: SimBody[] = live.map((seat) => {
     const p = s.pieces[seat]!;
     const c = s.commitments[seat] || { angle: 0, power: 0 };
     let v0 = clamp(c.power, 0, 1) * VMAX;
@@ -197,11 +152,11 @@ function resolveRound(s: IFState, now: number) {
     }
     const a = (c.angle * Math.PI) / 180;
     reveal.push({ id: seat, angle: c.angle, power: c.power, powerUp: usedPU });
-    return { id: seat, x: p.x, y: p.y, vx: Math.cos(a) * v0, vy: Math.sin(a) * v0, mass, drag, radius, off: false };
+    return { id: seat, x: p.x, y: p.y, vx: Math.cos(a) * v0, vy: Math.sin(a) * v0, mass, drag, radius, out: false };
   });
   for (const b of bodies) if (freezeTargets.has(b.id)) { b.vx = 0; b.vy = 0; } // frozen pieces can't move this round
 
-  const ballBody: Body = { id: -1, x: s.ball.x, y: s.ball.y, vx: s.ball.vx, vy: s.ball.vy, mass: B_MASS, drag: B_DRAG, radius: RB, off: false };
+  const ballBody: SimBody = { id: -1, x: s.ball.x, y: s.ball.y, vx: s.ball.vx, vy: s.ball.vy, mass: B_MASS, drag: B_DRAG, radius: RB, out: false };
   const sim = simulate(bodies, ballBody, statics, s.powerUpsOnPitch, { hx: s.hx, hy: s.hy, goalHy: s.goalHy });
 
   // bank pickups; remove taken items
@@ -209,7 +164,7 @@ function resolveRound(s: IFState, now: number) {
   if (sim.takenItems.length) s.powerUpsOnPitch = s.powerUpsOnPitch.filter((it) => !sim.takenItems.includes(it.id));
 
   // write back final piece positions (off pieces handled below)
-  for (const b of bodies) { const p = s.pieces[b.id]!; if (!b.off) { p.x = +b.x.toFixed(4); p.y = +b.y.toFixed(4); } }
+  for (const b of bodies) { const p = s.pieces[b.id]!; if (!b.out) { p.x = +b.x.toFixed(4); p.y = +b.y.toFixed(4); } }
   s.ball = { x: +ballBody.x.toFixed(4), y: +ballBody.y.toFixed(4), vx: 0, vy: 0 };
 
   s.lastResolution = {
