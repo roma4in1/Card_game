@@ -107,6 +107,24 @@ function pickDecoyIdx(bank: PlayerCard[], targetIdx: number, rng: Rng): number {
   return (targetIdx + 1) % bank.length; // defensive: well-formed banks always have a peer
 }
 
+// Fame proxy for the target draw: market value directly, so household names come up more
+// often than obscure 20–30M squad players. Retired legends carry no market value but are
+// famous, so they get a solid fixed weight (~a top-tier current player).
+const RETIRED_FAME = 50_000_000;
+const fameWeight = (p: PlayerCard): number => (p.marketValue ?? RETIRED_FAME);
+
+/** Weighted pick of the shared target, biased toward better-known players (see fameWeight). */
+function pickTargetIdx(bank: PlayerCard[], rng: Rng): number {
+  let total = 0;
+  for (const p of bank) total += fameWeight(p);
+  let r = rng() * total;
+  for (let i = 0; i < bank.length; i++) {
+    r -= fameWeight(bank[i]);
+    if (r < 0) return i;
+  }
+  return bank.length - 1; // float guard
+}
+
 function buildShortlist(bank: PlayerCard[], targetIdx: number, decoyIdx: number, rng: Rng): number[] {
   const target = bank[targetIdx];
   const set = new Set<number>([targetIdx, decoyIdx]);
@@ -458,7 +476,7 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
       // Two spies once the table is 6+; both share the same decoy for cover.
       const numSpies = order.length >= 6 ? 2 : 1;
       const spyIds = shuffle([...order], rng).slice(0, numSpies);
-      const targetIdx = randInt(rng, bank.length);
+      const targetIdx = pickTargetIdx(bank, rng);
       const decoyIdx = pickDecoyIdx(bank, targetIdx, rng);
 
       const players: (SpyPlayer | null)[] = new Array(MAX_SEATS).fill(null);
