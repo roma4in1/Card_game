@@ -367,7 +367,7 @@ test('the caught spy guesses by typing a name (case-insensitive); an unknown nam
   act(g.def, g.s, g.c, g.s.spyIds[0], { type: 'spyGuess', guess: 'Nobody McNotreal' });
   assert.equal(g.s.guessCorrect, false);
   assert.equal(g.s.guessName, 'Nobody McNotreal');
-  assert.deepEqual(g.def.result(g.s).winners.sort(), g.s.order.filter((x) => x !== g.s.spyIds[0]));
+  assert.deepEqual(g.def.result(g.s).winners.sort(), g.s.order.filter((x) => x !== g.s.spyIds[0]).sort());
 });
 
 test('you cannot vote for yourself, vote twice, or vote outside the voting phase', () => {

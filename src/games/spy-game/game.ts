@@ -453,7 +453,8 @@ export function createSpyGame(wordBank: PlayerCard[]): GameDef<SpyState> {
 
     create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): SpyState {
       const rng = ctx.rng;
-      const order = [...setup.seats];
+      // Randomize clue order every match (incl. "play again"), independent of seat order.
+      const order = shuffle([...setup.seats], rng);
       // Two spies once the table is 6+; both share the same decoy for cover.
       const numSpies = order.length >= 6 ? 2 : 1;
       const spyIds = shuffle([...order], rng).slice(0, numSpies);
