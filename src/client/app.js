@@ -2910,7 +2910,7 @@ function a3dArrow(scene, me, aim, S, base, span) {
   scene.arrow.style.display = '';
   scene.arrow.style.width = len.toFixed(0) + 'px';
   scene.arrow.style.transform =
-    `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,0px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-aim.angle).toFixed(1)}deg)`;
+    `translate(0,-50%) translate3d(${(me.x * S).toFixed(1)}px,-2px,${(-me.y * S).toFixed(1)}px) rotateX(90deg) rotateZ(${(-aim.angle).toFixed(1)}deg)`;
 }
 
 // Lock-in button, Aim/Look toggle and hint, overlaid on the arena.
@@ -3419,10 +3419,10 @@ function ifScene(board, s) {
   return a3dEnsureScene(board, s.pitch.hx.toFixed(3), _ifView, {
     stageClass: 'if3d-stage',
     build(scene) {
-      scene.world.appendChild(scene.arrow);
       scene.ball = null; scene.ballShadow = null;
       scene.items = new Map(); scene.blockers = new Map();
       if3dBuildPitch(scene, s);
+      scene.world.appendChild(scene.arrow); // after the pitch so the aim arrow paints on top of the slab
     },
     canAim: () => !!(state && state.gameId === 'ice-football' && ifCanAim(state)),
     hasMe: () => !!(state && state.pieces && state.pieces.find((p) => p.seat === state.seat)),

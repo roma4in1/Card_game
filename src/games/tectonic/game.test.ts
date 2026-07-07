@@ -145,18 +145,27 @@ test('winner is highest score, tiebroken by alive pawns, else shared', () => {
 // Default board: value map + central hole
 // ---------------------------------------------------------------------------
 
-test('the default board rises in value toward a central void', () => {
+test('the default board has a central void and a randomized point layout', () => {
   const s = def.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as TState;
   assert.equal(s.hexes['0,0'], undefined, 'the centre is a void');
   const fives = Object.values(s.hexes).filter((h) => h.value === 5).length;
-  assert.equal(fives, 3, 'exactly three 5-tiles on the board');
-  assert.equal(s.hexes['3,0'].value, 4, 'the next ring in is worth 4');
-  assert.equal(s.hexes['6,0'].value, 1, 'edge hexes are worth 1');
+  assert.equal(fives, 3, 'the value multiset is preserved: exactly three 5-tiles');
   // every player's pawns start in a contiguous arc on the outer ring, on 0-value hexes
-  for (const p of s.pawns) assert.equal(s.hexes[`${p.q},${p.r}`].value, 0, 'start hexes are 0');
+  for (const p of s.pawns) assert.equal(s.hexes[`${p.q},${p.r}`].value, 0, 'start hexes stay 0');
   const counts = [0, 0];
   for (const p of s.pawns) counts[p.owner]++;
   assert.deepEqual(counts, [5, 5], '5 pawns each (2-player default)');
+
+  // Randomized each game: two matches with different rng scatter values differently,
+  // while the multiset of values (its sorted list) is identical between them.
+  const rng = (seq: number[]) => { let i = 0; return () => seq[i++ % seq.length]; };
+  const layout = (st: TState) => Object.keys(st.hexes).sort().map((k) => st.hexes[k].value);
+  const bag = (st: TState) => [...layout(st)].sort((a, b) => a - b);
+  const setup = { seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] };
+  const a = def.create(setup, { rng: rng([0.1, 0.9, 0.3, 0.7]), now: 0 }) as TState;
+  const b = def.create(setup, { rng: rng([0.8, 0.2, 0.6, 0.4]), now: 0 }) as TState;
+  assert.deepEqual(bag(a), bag(b), 'same pool of point values every game');
+  assert.notDeepEqual(layout(a), layout(b), 'the layout differs between games');
 });
 
 // ---------------------------------------------------------------------------

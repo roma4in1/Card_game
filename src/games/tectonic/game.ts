@@ -10,9 +10,17 @@
 // You slide a pawn ≥1 hex in one direction, blocked by the first gap/pawn/edge; only the
 // hex you LEAVE is removed (becomes a gap) and its value banked to you.
 
-import type { GameContext, GameDef, GameOutcome, PlayerInfo } from '../../platform/types.ts';
+import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
 
 export const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
+function shuffle<T>(arr: T[], rng: Rng): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 const DEFAULT_PAWNS: Record<number, number> = { 2: 5, 3: 4, 4: 4 };
 
 export interface TectonicConfig {
@@ -382,7 +390,7 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
       return seats.length >= 2 && seats.length <= 4 ? null : 'Tectonic Shift is for 2 to 4 players.';
     },
 
-    create(setup: { seats: number[]; players: PlayerInfo[] }): TState {
+    create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): TState {
       const np = setup.seats.length;
       const players: (TPlayer | null)[] = new Array(8).fill(null);
       const nameBySeat = new Map(setup.players.map((p) => [p.seat, p.name]));
@@ -415,6 +423,13 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
           pawnId++;
         }
       }
+
+      // Randomize the point layout each game: keep the exact multiset of tile values
+      // (same total, same three 5s) but scatter them randomly across the non-starting
+      // hexes. Starting hexes stay at 0 and are left untouched.
+      const scoringKeys = Object.keys(hexes).filter((k) => hexes[k].pawn === null);
+      const pool = shuffle(scoringKeys.map((k) => hexes[k].value), ctx.rng);
+      scoringKeys.forEach((k, i) => { hexes[k].value = pool[i]; });
 
       const s: TState = {
         players,
