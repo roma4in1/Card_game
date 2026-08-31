@@ -16,6 +16,10 @@ import { createWhoAmI } from '../games/who-am-i/game.ts';
 import { createGuessPlayer } from '../games/guess-player/game.ts';
 import { penguinKnockout } from '../games/penguin-knockout/game.ts';
 import { iceFootball } from '../games/ice-football/game.ts';
+import { sealedBids } from '../games/sealed-bids/game.ts';
+import { salvo } from '../games/salvo/game.ts';
+import { threeFronts } from '../games/three-fronts/game.ts';
+import { manhunt } from '../games/manhunt/game.ts';
 
 const spyGame = createSpyGame(SPY_WORDS);
 const codenames = createCodenames(CODENAMES_WORDS);
@@ -23,7 +27,7 @@ const memoryMatch = createMemoryMatch(CONCEPTS);
 const whoAmI = createWhoAmI(SPY_WORDS); // reuses the football player bank (players.json)
 const guessPlayer = createGuessPlayer(SPY_WORDS); // also reuses players.json
 
-const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch, whoAmI, guessPlayer, penguinKnockout, iceFootball];
+const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch, whoAmI, guessPlayer, penguinKnockout, iceFootball, sealedBids, salvo, threeFronts, manhunt];
 
 export const GAMES: Record<string, GameDef> = Object.fromEntries(ALL.map((g) => [g.id, g]));
 export const GAME_SUMMARIES: GameSummary[] = ALL.map(gameSummary);

@@ -25,6 +25,12 @@ stripping.
 | **Memory Match** | 2–4 | Concentration with a word↔picture twist, each player in their own language (en/fr/ko). |
 | **Who Am I?** | 2–6 | Football 20-questions — the server answers yes/no from real data; race to name the player. |
 | **Guess the Player** | 1–6 | Wordle for footballers: guess real players, get attribute hints (value ↑/↓, position, nationality…). |
+| **Penguin Knockout** | 2–8 | Secretly aim & power up, then all penguins launch at once. Shove rivals off the shrinking ice. |
+| **Ice Football** | 2–8 | Team physics football on ice — commit your move in secret, everyone launches together. |
+| **Three Fronts** | 2 | Card duel over air, land and sea: face-up for power, face-down to bluff, or withdraw and pay less. |
+| **Salvo** | 2 | Hide a fleet, hunt theirs square by square. Every hit earns another shot. |
+| **Sealed Bids** | 2 | Both bid a card in secret for each prize — highest takes it, and both cards are spent either way. |
+| **Manhunt** | 2 | One runs hidden, one hunts with two agents; swap at half time and outlast their run. |
 
 Five of these are powered by a shared **football player bank** (Spy Game, Who Am I?,
 Guess the Player, and the decoy engine) — see [The player bank](#the-player-bank).
@@ -131,6 +137,8 @@ src/
   games/
     win-or-die/  lock-in/  yahtzee/  spy-game/  codenames/
     quoridor/  tectonic/  memory-match/  who-am-i/  guess-player/
+    penguin-knockout/  ice-football/
+    three-fronts/  salvo/  sealed-bids/  manhunt/     Two-player duels.
         game.ts        Pure plugin (rules + per-seat view). game.test.ts alongside.
         wordbank.ts / conceptbank.ts   Loads injected data for data-driven games.
   server.ts         Thin transport: static files, WebSocket plumbing, broadcast, tick.

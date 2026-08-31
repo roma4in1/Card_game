@@ -562,6 +562,168 @@
       </div>
     </div>
 
+    <!-- Sealed Bids (two-player blind auction) -->
+    <section id="sealedbids" class="screen sealedbids hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="sbRoom">····</b></div>
+        <div class="phase-pill" id="sbPhase">—</div>
+        <button id="sbRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="sbLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="sbCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="sb-main">
+        <div class="sb-players" id="sbPlayers"></div>
+        <div class="sb-table" id="sbTable"></div>
+        <div class="sb-hand" id="sbHand"></div>
+        <div class="action-area" id="sbActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="sbLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Sealed Bids rules reference -->
+    <div id="sbRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Sealed Bids — how to play</h3>
+          <button id="sbRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Thirteen prizes. One secret bid each. Every card you bid is gone.</p>
+        <div class="rules-body">
+          <p>You both hold the <b>same hand: 1 to 13</b>. A prize card turns over, and you each <b>secretly pick one card</b> to bid.</p>
+          <p>Both bids flip at once — the <b>higher bid takes the prize</b> and adds it to their score. <b>Both cards are spent either way</b>, so a losing bid is a card thrown away for nothing.</p>
+          <p><b>Tie?</b> Nobody takes it. The prize stays on the table and <b>rides on top of the next one</b> — so a tie now makes the next fight worth double.</p>
+          <p>Nothing else is hidden: you can always see which cards your opponent has already spent, and so what they still hold. Highest total after 13 prizes wins.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Salvo (two-player hidden fleets) -->
+    <section id="salvo" class="screen salvo hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="svRoom">····</b></div>
+        <div class="phase-pill" id="svPhase">—</div>
+        <button id="svRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="svLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="svCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="sv-main">
+        <div class="sv-players" id="svPlayers"></div>
+        <div class="sv-boards" id="svBoards"></div>
+        <div class="action-area" id="svActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="svLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Salvo rules reference -->
+    <div id="svRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Salvo — how to play</h3>
+          <button id="svRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Hide five ships. Find theirs first.</p>
+        <div class="rules-body">
+          <p><b>Set up:</b> you're dealt a legal fleet — <b>Shuffle</b> until you like where it sits, then <b>give the order</b>. Neither of you ever sees the other's waters.</p>
+          <p><b>Fire</b> by tapping a square on their grid. You're told <b>hit</b> or <b>miss</b>, and when a ship goes down it's named and drawn in.</p>
+          <p>A <b>hit lets you fire again</b> — keep the initiative as long as you keep landing shots. A miss hands the guns over.</p>
+          <p>Ships run straight, may sit side by side, and are 5, 4, 3, 3 and 2 squares long. Sink all five to win.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Three Fronts (two-player card duel) -->
+    <section id="threefronts" class="screen threefronts hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="tfRoom">····</b></div>
+        <div class="phase-pill" id="tfPhase">—</div>
+        <button id="tfRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="tfLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="tfCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="tf-main">
+        <div class="tf-players" id="tfPlayers"></div>
+        <div class="tf-board" id="tfBoard"></div>
+        <div class="tf-hand" id="tfHand"></div>
+        <div class="action-area" id="tfActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="tfLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Three Fronts rules reference -->
+    <div id="tfRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Three Fronts — how to play</h3>
+          <button id="tfRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Win two of three fronts — or know when to walk away.</p>
+        <div class="rules-body">
+          <p>Each battle deals you <b>six cards</b> from a deck of 18 (Air ✈, Land ⛰, Sea ⚓, ranks 1–6). Six cards stay out, so neither of you sees the whole picture.</p>
+          <p>On your turn, commit one card <b>face-up</b> — only to its <b>own</b> theatre, where it fights at its printed rank and triggers that front's bonus:</p>
+          <p class="rules-tight">✈ <b>Recon</b> — your face-down cards here count 3, not 2.<br>⛰ <b>Entrench</b> — +1 for every card you hold here.<br>⚓ <b>Blockade</b> — they can play no more face-down cards here.</p>
+          <p>Or commit it <b>face-down</b> to <b>any</b> front: it fights at a flat 2 and stays secret until the battle ends. A buried 6 and a buried 1 look exactly the same.</p>
+          <p><b>Hold the higher strength</b> to control a front. Take <b>two of three</b> and the battle is yours — worth <b>6</b> when it's fought to the end.</p>
+          <p><b>Withdraw</b> to concede a battle you've lost. It costs you only <b>2</b> while you still hold 4+ cards, <b>3</b> with 2–3 left, and <b>4</b> once you're nearly out. First to <b>12</b> wins the war.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manhunt (two-player hidden movement) -->
+    <section id="manhunt" class="screen manhunt hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="mhRoom">····</b></div>
+        <div class="phase-pill" id="mhPhase">—</div>
+        <button id="mhRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="mhLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="mhCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="mh-main">
+        <div class="mh-players" id="mhPlayers"></div>
+        <div class="mh-map" id="mhMap"></div>
+        <div class="mh-trail" id="mhTrail"></div>
+        <div class="action-area" id="mhActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="mhLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Manhunt rules reference -->
+    <div id="mhRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Manhunt — how to play</h3>
+          <button id="mhRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">One runs hidden. One hunts with two agents. Then you swap.</p>
+        <div class="rules-body">
+          <p>The <b>runner</b> moves first each turn along a route — 🚕 taxi to a neighbour, 🚌 bus two stops, 🚇 underground right across the map. Then <b>both agents</b> move, one after the other.</p>
+          <p>The runner's <b>position is hidden</b> — but the <b>transport they used is announced every turn</b>, so the hunter can work out how far they might have gone.</p>
+          <p>Every <b>third turn the runner must surface</b>: their node is shown to everyone until they move again.</p>
+          <p>An agent landing on the runner <b>catches</b> them, and so does boxing in every route out. The runner survives by lasting all <b>12 turns</b>.</p>
+          <p>Then you <b>swap roles</b> and run the same map from the same start. Whoever survives longer wins; equal runs are honours even.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>

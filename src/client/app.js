@@ -537,6 +537,26 @@ function render() {
     renderTectonic(s);
     return;
   }
+  if (s.gameId === 'manhunt') {
+    ensureScreen('manhunt');
+    renderManhunt(s);
+    return;
+  }
+  if (s.gameId === 'three-fronts') {
+    ensureScreen('threefronts');
+    renderThreeFronts(s);
+    return;
+  }
+  if (s.gameId === 'salvo') {
+    ensureScreen('salvo');
+    renderSalvo(s);
+    return;
+  }
+  if (s.gameId === 'sealed-bids') {
+    ensureScreen('sealedbids');
+    renderSealedBids(s);
+    return;
+  }
   if (s.gameId === 'memory-match') {
     ensureScreen('memorymatch');
     renderMemoryMatch(s);
@@ -2097,6 +2117,743 @@ function renderTecOver(s) {
 
 function renderTecLog(s) {
   const ul = $('tecLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manhunt — two-player hidden movement
+// ---------------------------------------------------------------------------
+
+let mhTransport = 0; // which route the runner intends to take
+
+function renderManhunt(s) {
+  $('mhRoom').textContent = s.room;
+  const you = s.you || {};
+  const pill = $('mhPhase');
+  pill.textContent = s.over
+    ? 'Match over'
+    : s.phase === 'break'
+      ? 'Half time — swapping roles'
+      : `Half ${s.half + 1} · turn ${s.turn}/${s.turns}${s.surfacesThisTurn ? ' · surfacing' : ''}`;
+  pill.className = 'phase-pill';
+  $('mhCopy').onclick = copyInvite;
+  // Keep the chosen transport on something the runner can actually use.
+  if (you.role === 'runner' && you.isTurn && !(you.moves || []).some((m) => m.transport === mhTransport)) {
+    const first = (you.moves || [])[0];
+    mhTransport = first ? first.transport : 0;
+  }
+  renderMhPlayers(s);
+  renderMhMap(s);
+  renderMhTrail(s);
+  renderMhActions(s);
+  renderMhLog(s);
+}
+
+function renderMhPlayers(s) {
+  const box = $('mhPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'mh-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="mh-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="mh-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="mh-prole">${p.role === 'runner' ? '🏃 running' : '🕵 hunting'}</span>` +
+      `<span class="mh-psurv">${p.survived == null ? '—' : p.survived + ' turns'}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+const MH_TCLASS = ['taxi', 'bus', 'tube'];
+
+function renderMhMap(s) {
+  const box = $('mhMap');
+  const nodes = s.nodes || [];
+  if (!nodes.length) { box.innerHTML = ''; return; }
+  const you = s.you || {};
+  const step = 100 / 3;
+  const px = (n) => ({ x: 10 + n.x * step, y: 10 + n.y * step });
+  const dests = new Map();
+  if (you.isTurn) {
+    for (const m of you.moves || []) {
+      if (you.role === 'runner' && m.transport !== mhTransport) continue;
+      dests.set(m.to, m);
+    }
+  }
+
+  let svg = `<svg viewBox="0 0 ${20 + step * 3} ${20 + step * 3}" class="mh-svg" preserveAspectRatio="xMidYMid meet">`;
+  // edges, tube first so the long links sit underneath
+  for (let t = (s.transport || []).length - 1; t >= 0; t--) {
+    for (const n of nodes) {
+      for (const m of (s.edges || [])[t][n.id]) {
+        if (m < n.id) continue; // draw each edge once
+        const a = px(n);
+        const b = px(nodes[m]);
+        svg += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="mh-edge ${MH_TCLASS[t]}"/>`;
+      }
+    }
+  }
+  // the last confirmed sighting, as a fading ring
+  if (s.lastSeenAt != null && s.runnerAt == null) {
+    const p = px(nodes[s.lastSeenAt]);
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="7" class="mh-seen"/>`;
+  }
+  for (const n of nodes) {
+    const p = px(n);
+    const isDest = dests.has(n.id);
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="4.6" class="mh-node${isDest ? ' dest' : ''}" data-node="${n.id}"/>`;
+    svg += `<text x="${p.x}" y="${p.y}" class="mh-nlabel">${n.id + 1}</text>`;
+  }
+  // agents, then the runner on top
+  (s.hunterAt || []).forEach((node, i) => {
+    const p = px(nodes[node]);
+    const next = s.phase === 'run' && s.stage === 'hunter' && s.hunterPiece === i;
+    svg += `<circle cx="${p.x - 2.4 + i * 4.8}" cy="${p.y - 6.5}" r="3.1" class="mh-agent${next ? ' next' : ''}"/>`;
+  });
+  if (s.runnerAt != null) {
+    const p = px(nodes[s.runnerAt]);
+    svg += `<circle cx="${p.x}" cy="${p.y + 7}" r="3.4" class="mh-runner"/>`;
+  }
+  svg += '</svg>';
+  box.innerHTML = svg;
+
+  const svgEl = box.querySelector('svg');
+  svgEl.onclick = (e) => {
+    const raw = e.target.getAttribute && e.target.getAttribute('data-node');
+    if (raw == null) return;
+    const m = dests.get(Number(raw));
+    if (!m) return;
+    tapAck(e.target);
+    if (you.role === 'runner') send({ type: 'run', to: m.to, transport: m.transport });
+    else send({ type: 'hunt', to: m.to });
+  };
+}
+
+function renderMhTrail(s) {
+  const box = $('mhTrail');
+  box.innerHTML = '';
+  const trail = s.trail || [];
+  if (!trail.length) {
+    box.innerHTML = '<span class="mh-trail-empty">No moves yet</span>';
+    return;
+  }
+  for (const step of trail) {
+    const t = (s.transport || [])[step.transport] || {};
+    const pill = document.createElement('span');
+    pill.className = 'mh-tstep' + (step.node != null ? ' seen' : '');
+    pill.title = `Turn ${step.turn} · ${t.name || ''}`;
+    pill.textContent = `${t.icon || ''}${step.node != null ? ' ' + (step.node + 1) : ''}`;
+    box.appendChild(pill);
+  }
+}
+
+function renderMhActions(s) {
+  const area = $('mhActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderMhOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating — the runner is hidden from you too', true));
+    return;
+  }
+  if (s.phase === 'break') {
+    area.appendChild(callout(`Half time — you swap roles and run the same map`, true));
+    return;
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'}`, true));
+    return;
+  }
+  if (you.role === 'hunter') {
+    area.appendChild(prompt(`Move <b>agent ${s.hunterPiece + 1}</b> — tap a highlighted stop.`));
+    return;
+  }
+  area.appendChild(prompt(s.surfacesThisTurn
+    ? 'You <b>surface this turn</b> — wherever you go, they will see it. Pick a route.'
+    : 'Pick a route, then tap a highlighted stop. Only the <b>transport</b> is announced.'));
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  (s.transport || []).forEach((t, i) => {
+    const n = (you.moves || []).filter((m) => m.transport === i).length;
+    const b = actBtn(`${t.icon} ${n}`, 'btn ' + (mhTransport === i ? 'btn-primary' : 'btn-ghost'), () => {
+      mhTransport = i;
+      render();
+    });
+    b.disabled = n === 0;
+    b.title = t.name;
+    row.appendChild(b);
+  });
+  area.appendChild(row);
+}
+
+function renderMhOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? (shared ? '🤝 Honours even' : '🏆 You outlasted them!') : `${escapeHtml(names)} outlasted you`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  [...(s.players || [])].sort((a, b) => (b.survived || 0) - (a.survived || 0)).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="mh-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="li-fbreak">as the runner</span>` +
+      `<span class="li-ftotal">${p.survived == null ? '—' : p.survived}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  appendEndButtons(box, s);
+  return box;
+}
+
+function renderMhLog(s) {
+  const ul = $('mhLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Three Fronts — two-player card duel
+// ---------------------------------------------------------------------------
+
+let tfSel = null; // cardId the player has picked up
+let tfDown = false; // commit it face-down?
+
+function renderThreeFronts(s) {
+  $('tfRoom').textContent = s.room;
+  const active = (s.players || []).find((p) => p.isTurn);
+  const pill = $('tfPhase');
+  pill.textContent = s.over
+    ? 'War over'
+    : s.phase === 'result'
+      ? `Battle ${s.battleNo} decided`
+      : active
+        ? `Battle ${s.battleNo} · ${active.seat === s.seat ? 'your' : escapeHtml(active.name) + '’s'} move`
+        : `Battle ${s.battleNo}`;
+  pill.className = 'phase-pill';
+  $('tfCopy').onclick = copyInvite;
+  const you = s.you || {};
+  if (!you.canAct) { tfSel = null; tfDown = false; }
+  if (tfSel != null && !(you.hand || []).some((c) => c.cardId === tfSel)) tfSel = null; // card left our hand
+  renderTfPlayers(s);
+  renderTfBoard(s);
+  renderTfHand(s);
+  renderTfActions(s);
+  renderTfLog(s);
+}
+
+function renderTfPlayers(s) {
+  const box = $('tfPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'tf-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="tf-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="tf-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="tf-pcards">${'🂠'.repeat(p.cardsLeft) || '—'}</span>` +
+      `<span class="tf-pfronts">${p.fronts}/3</span>` +
+      `<span class="tf-pscore">${p.score}<i>/${s.target}</i></span>`;
+    box.appendChild(chip);
+  });
+}
+
+function renderTfBoard(s) {
+  const box = $('tfBoard');
+  box.innerHTML = '';
+  const you = s.you || {};
+  const mySeat = s.seat;
+  (s.board || []).forEach((f, i) => {
+    const col = document.createElement('div');
+    const held = f.control === null ? '' : f.control === mySeat ? ' mine' : ' theirs';
+    col.className = 'tf-front' + held + (tfSel != null && tfCanPlay(s, i) ? ' droppable' : '');
+
+    const bonuses = [];
+    if (f.recon.length) bonuses.push(`✈ Recon ${f.recon.includes(mySeat) ? 'you' : 'them'}`);
+    if (f.entrench.length) bonuses.push(`⛰ Entrench ${f.entrench.includes(mySeat) ? 'you' : 'them'}`);
+    if (f.blocked.length) bonuses.push(`⚓ Blockade on ${f.blocked.includes(mySeat) ? 'you' : 'them'}`);
+
+    // strength[] is by player-index; players[] carries the seat for each
+    const meIdx = (s.players || []).findIndex((p) => p.seat === mySeat);
+    const myStr = meIdx >= 0 ? f.strength[meIdx] : f.strength[0];
+    const theirStr = meIdx >= 0 ? f.strength[1 - meIdx] : f.strength[1];
+
+    const theirs = (f.plays || []).filter((p) => p.seat !== mySeat);
+    const mine = (f.plays || []).filter((p) => p.seat === mySeat);
+    col.innerHTML =
+      `<div class="tf-fhead"><span class="tf-ficon">${f.icon}</span><span class="tf-fname">${f.name}</span></div>` +
+      `<div class="tf-fstack theirs">${theirs.map((p) => tfCardHtml(p, s)).join('') || '<div class="tf-empty"></div>'}</div>` +
+      `<div class="tf-fscore"><b class="${theirStr > myStr ? 'lead' : ''}">${theirStr}</b><span>v</span><b class="${myStr > theirStr ? 'lead' : ''}">${myStr}</b></div>` +
+      `<div class="tf-fstack mine">${mine.map((p) => tfCardHtml(p, s)).join('') || '<div class="tf-empty"></div>'}</div>` +
+      (bonuses.length ? `<div class="tf-fbonus">${bonuses.map(escapeHtml).join(' · ')}</div>` : '');
+
+    if (tfSel != null && tfCanPlay(s, i)) {
+      col.onclick = () => {
+        send({ type: 'deploy', cardId: tfSel, front: i, faceDown: tfDown });
+        tfSel = null;
+        tfDown = false;
+      };
+    }
+    box.appendChild(col);
+  });
+}
+
+/** Can the picked card go to front `i` the way it's currently oriented? */
+function tfCanPlay(s, i) {
+  const you = s.you || {};
+  if (!you.canAct || tfSel == null) return false;
+  const c = (you.hand || []).find((x) => x.cardId === tfSel);
+  if (!c) return false;
+  return tfDown ? !(you.blocked || [])[i] : c.theatre === i;
+}
+
+function tfCardHtml(p, s) {
+  const icon = p.theatre != null ? (s.board[p.theatre] || {}).icon || '' : '';
+  if (p.cardId == null) return `<div class="tf-card down" title="Face-down — worth 2">🂠</div>`;
+  return `<div class="tf-card${p.faceDown ? ' was-down' : ''}" title="${escapeHtml(p.label)}">` +
+    `<span class="tf-crank">${p.rank}</span><span class="tf-cicon">${icon}</span></div>`;
+}
+
+function renderTfHand(s) {
+  const box = $('tfHand');
+  box.innerHTML = '';
+  const you = s.you || {};
+  if (you.spectator) return;
+  for (const c of you.hand || []) {
+    const b = document.createElement('button');
+    b.className = 'tf-handcard' + (tfSel === c.cardId ? ' picked' : '');
+    b.innerHTML = `<span class="tf-crank">${c.rank}</span><span class="tf-cicon">${(s.board[c.theatre] || {}).icon || ''}</span>`;
+    b.disabled = !you.canAct;
+    b.onclick = () => {
+      tapAck(b);
+      tfSel = tfSel === c.cardId ? null : c.cardId;
+      render();
+    };
+    box.appendChild(b);
+  }
+}
+
+function renderTfActions(s) {
+  const area = $('tfActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderTfOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this duel', true));
+    return;
+  }
+  if (s.phase === 'result') {
+    const r = s.result || {};
+    const who = r.winnerSeat === null ? null : r.winnerSeat === s.seat ? 'You' : (s.players.find((p) => p.seat === r.winnerSeat) || {}).name;
+    area.appendChild(callout(who === null ? 'Stalemate — no points' : `${escapeHtml(who)} take${who === 'You' ? '' : 's'} the battle, +${r.points}`, true));
+    return;
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'}`, true));
+    return;
+  }
+  if (tfSel == null) {
+    area.appendChild(prompt('Pick a card from your hand — or <b>withdraw</b> to cut your losses.'));
+  } else {
+    const c = (you.hand || []).find((x) => x.cardId === tfSel);
+    area.appendChild(prompt(tfDown
+      ? 'Committing <b>face-down</b> (worth 2, stays secret) — tap a front.'
+      : `Committing <b>face-up</b> — tap <b>${escapeHtml((s.board[c.theatre] || {}).name || '')}</b>, its own theatre.`));
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.appendChild(actBtn(tfDown ? '🂠 Face-down' : '🂡 Face-up', 'btn btn-ghost btn-lg', () => {
+      tfDown = !tfDown;
+      render();
+    }));
+    row.appendChild(actBtn('Cancel', 'btn btn-quiet btn-lg', () => {
+      tfSel = null;
+      tfDown = false;
+      render();
+    }));
+    area.appendChild(row);
+  }
+  const cardsLeft = ((s.players || []).find((p) => p.seat === s.seat) || {}).cardsLeft || 0;
+  const cost = cardsLeft >= 4 ? 2 : cardsLeft >= 2 ? 3 : 4;
+  area.appendChild(actBtn(`🏳 Withdraw — gives them ${cost}`, 'btn btn-quiet', () => send({ type: 'withdraw' })));
+}
+
+function renderTfOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? '🏆 You win the war!' : `${escapeHtml(names)} wins the war`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="tf-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="li-ftotal">${p.score}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  appendEndButtons(box, s);
+  return box;
+}
+
+function renderTfLog(s) {
+  const ul = $('tfLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Salvo — two-player hidden fleets
+// ---------------------------------------------------------------------------
+
+const SV_COLS = 'ABCDEFGH';
+
+function renderSalvo(s) {
+  $('svRoom').textContent = s.room;
+  const you = s.you || {};
+  const active = (s.players || []).find((p) => p.isTurn);
+  const pill = $('svPhase');
+  pill.textContent = s.over
+    ? 'Game over'
+    : s.phase === 'place'
+      ? 'Position your fleet'
+      : active
+        ? `${active.seat === s.seat ? 'Your' : escapeHtml(active.name) + '’s'} shot`
+        : '—';
+  pill.className = 'phase-pill';
+  $('svCopy').onclick = copyInvite;
+  renderSvPlayers(s);
+  renderSvBoards(s);
+  renderSvActions(s);
+  renderSvLog(s);
+}
+
+function renderSvPlayers(s) {
+  const box = $('svPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'sv-pchip' + (p.isTurn ? ' acting' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    const pips = Array.from({ length: p.afloat + p.sunkShips.length }, (_, i) => `<i class="sv-pip${i < p.afloat ? '' : ' down'}"></i>`).join('');
+    chip.innerHTML =
+      `<span class="sv-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="sv-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="sv-pfleet">${pips}</span>` +
+      `<span class="sv-pstate">${s.phase === 'place' ? (p.ready ? 'ready' : 'placing…') : `${p.afloat} afloat`}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+/** One grid. `mode` is 'enemy' (you fire into it) or 'own' (your waters). */
+function svGrid(s, cells, mode) {
+  const wrap = document.createElement('div');
+  wrap.className = 'sv-grid-wrap';
+  const head = document.createElement('div');
+  head.className = 'sv-grid-title';
+  head.textContent = mode === 'enemy' ? 'Their waters' : 'Your waters';
+  wrap.appendChild(head);
+
+  const grid = document.createElement('div');
+  grid.className = 'sv-grid';
+  grid.style.gridTemplateColumns = `repeat(${s.size}, 1fr)`;
+  const you = s.you || {};
+  const last = s.last;
+  for (const c of cells) {
+    const cell = document.createElement('button');
+    const isLast = last && last.x === c.x && last.y === c.y && (mode === 'enemy') === (last.pid === you.pid);
+    let cls = 'sv-cell';
+    if (mode === 'own' && c.ship) cls += c.sunk ? ' ship sunk' : ' ship';
+    if (c.shot === 'hit') cls += ' hit';
+    else if (c.shot === 'miss') cls += ' miss';
+    if (mode === 'enemy' && c.sunk) cls += ' wreck';
+    if (isLast) cls += ' last';
+    cell.className = cls;
+    cell.title = `${SV_COLS[c.x]}${c.y + 1}${c.sunk ? ' · ' + c.sunk : ''}`;
+    const fireable = mode === 'enemy' && you.canFire && c.shot === null;
+    cell.disabled = !fireable;
+    if (fireable) {
+      cell.onclick = () => {
+        tapAck(cell);
+        send({ type: 'fire', x: c.x, y: c.y });
+      };
+    }
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function renderSvBoards(s) {
+  const box = $('svBoards');
+  box.innerHTML = '';
+  const you = s.you || {};
+  if (you.spectator) {
+    box.appendChild(callout('Both fleets are hidden from the sideline', false));
+    return;
+  }
+  // During placement only your own waters matter; once at sea, theirs leads.
+  if (s.phase !== 'place') box.appendChild(svGrid(s, you.enemy || [], 'enemy'));
+  box.appendChild(svGrid(s, you.own || [], 'own'));
+}
+
+function renderSvActions(s) {
+  const area = $('svActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderSvOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this duel', true));
+    return;
+  }
+  if (s.phase === 'place') {
+    if (you.ready) {
+      area.appendChild(callout('Fleet at sea — waiting for your opponent', true));
+      return;
+    }
+    area.appendChild(prompt('Happy with where your ships sit? <b>Shuffle</b> until you are.'));
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    row.appendChild(actBtn('🔀 Shuffle fleet', 'btn btn-ghost btn-lg', () => send({ type: 'shuffleFleet' })));
+    row.appendChild(actBtn('⚓ Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
+    area.appendChild(row);
+    return;
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to fire`, true));
+    return;
+  }
+  const last = s.last;
+  const streak = last && last.pid === you.pid && last.result === 'hit';
+  area.appendChild(prompt(streak ? `<b>${last.sunk ? last.sunk + ' sunk!' : 'Hit!'}</b> Fire again — tap a square in their waters.` : 'Tap a square in <b>their waters</b> to fire.'));
+}
+
+function renderSvOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? '🏆 Fleet destroyed — you win!' : `${escapeHtml(names)} sinks your fleet`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  (s.players || []).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="sv-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="li-fbreak">${p.sunkShips.length} of ${p.sunkShips.length + p.afloat} sunk</span>` +
+      `<span class="li-ftotal">${p.afloat}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  appendEndButtons(box, s);
+  return box;
+}
+
+function renderSvLog(s) {
+  const ul = $('svLog');
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sealed Bids — two-player blind auction
+// ---------------------------------------------------------------------------
+
+let sbPick = null; // card the player has tapped but not yet confirmed
+
+function renderSealedBids(s) {
+  $('sbRoom').textContent = s.room;
+  const pill = $('sbPhase');
+  pill.textContent = s.over ? 'Game over' : `Prize ${s.round} of ${s.rounds}`;
+  pill.className = 'phase-pill';
+  $('sbCopy').onclick = copyInvite;
+  const you = s.you || {};
+  if (!you.canBid) sbPick = null; // a sealed bid can't be taken back
+  renderSbPlayers(s);
+  renderSbTable(s);
+  renderSbHand(s);
+  renderSbActions(s);
+  renderSbLog(s);
+}
+
+function renderSbPlayers(s) {
+  const box = $('sbPlayers');
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const chip = document.createElement('div');
+    chip.className = 'sb-pchip' + (p.committed && !s.over ? ' sealed' : '');
+    chip.style.borderColor = seatColor(p.seat);
+    chip.innerHTML =
+      `<span class="sb-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="sb-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
+      `<span class="sb-pspent">${(p.spent || []).length ? (p.spent || []).join(' ') : '—'}</span>` +
+      `<span class="sb-pscore">${p.score}</span>`;
+    box.appendChild(chip);
+  });
+}
+
+// The prize on the table, and — during the reveal — both bids turned face-up.
+function renderSbTable(s) {
+  const box = $('sbTable');
+  box.innerHTML = '';
+  const pot = s.pot || [];
+
+  const prize = document.createElement('div');
+  prize.className = 'sb-prize' + (pot.length > 1 ? ' carried' : '');
+  prize.innerHTML =
+    `<span class="sb-prize-label">${pot.length > 1 ? `${pot.length} prizes riding` : 'Prize'}</span>` +
+    `<span class="sb-prize-val">${s.potTotal}</span>` +
+    (pot.length > 1 ? `<span class="sb-prize-parts">${pot.join(' + ')}</span>` : '<span class="sb-prize-parts">points</span>');
+  box.appendChild(prize);
+
+  const last = s.last;
+  if (!last) return;
+  const duel = document.createElement('div');
+  duel.className = 'sb-duel';
+  (s.players || []).forEach((p, i) => {
+    const won = last.winnerSeat === p.seat;
+    const card = document.createElement('div');
+    card.className = 'sb-bidcard' + (won ? ' won' : last.winnerSeat === null ? ' tied' : ' lost');
+    card.style.borderColor = seatColor(p.seat);
+    card.innerHTML = `<span class="sb-bidname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="sb-bidval">${last.bids[i]}</span>` +
+      `<span class="sb-bidtag">${won ? 'takes it' : last.winnerSeat === null ? 'tied' : 'spent'}</span>`;
+    duel.appendChild(card);
+  });
+  box.appendChild(duel);
+  const verdict = document.createElement('div');
+  verdict.className = 'sb-verdict';
+  verdict.textContent = last.winnerSeat === null
+    ? `Tied — ${last.prize.reduce((a, b) => a + b, 0)} rides on the next prize`
+    : `${last.winnerSeat === s.seat ? 'You take' : (s.players.find((p) => p.seat === last.winnerSeat) || {}).name + ' takes'} ${last.prize.reduce((a, b) => a + b, 0)}`;
+  box.appendChild(verdict);
+}
+
+function renderSbHand(s) {
+  const box = $('sbHand');
+  box.innerHTML = '';
+  const you = s.you || {};
+  const hand = you.hand || [];
+  if (you.spectator) return;
+  for (const c of hand) {
+    const b = document.createElement('button');
+    const isPick = sbPick === c;
+    const isBid = you.bid === c;
+    b.className = 'sb-card' + (isPick ? ' picked' : '') + (isBid ? ' sealed' : '');
+    b.textContent = c;
+    b.disabled = !you.canBid;
+    b.onclick = () => {
+      tapAck(b);
+      sbPick = sbPick === c ? null : c;
+      render();
+    };
+    box.appendChild(b);
+  }
+}
+
+function renderSbActions(s) {
+  const area = $('sbActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(renderSbOver(s));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) {
+    area.appendChild(callout('Spectating this duel', true));
+    return;
+  }
+  if (you.bid != null) {
+    area.appendChild(callout(`Your bid of <b>${you.bid}</b> is sealed — waiting for your opponent`, true));
+    return;
+  }
+  if (!you.canBid) {
+    area.appendChild(callout('Next prize coming up', true));
+    return;
+  }
+  if (sbPick == null) {
+    area.appendChild(prompt(`Tap a card to bid for <b>${s.potTotal}</b> points. Whatever you bid is spent.`));
+    return;
+  }
+  const box = document.createElement('div');
+  box.className = 'sb-confirm';
+  box.appendChild(prompt(`Bid <b>${sbPick}</b> for <b>${s.potTotal}</b> points?`));
+  box.appendChild(actBtn(`Seal bid of ${sbPick}`, 'btn btn-primary btn-lg', () => {
+    send({ type: 'bid', card: sbPick });
+    sbPick = null;
+  }));
+  area.appendChild(box);
+}
+
+function renderSbOver(s) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(youWin ? (shared ? '🤝 Dead heat!' : '🏆 You win!') : `${escapeHtml(names)} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="sb-pdot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+      `<span class="li-ftotal">${p.score}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  appendEndButtons(box, s);
+  return box;
+}
+
+function renderSbLog(s) {
+  const ul = $('sbLog');
   ul.innerHTML = '';
   (s.log || []).forEach((line) => {
     const li = document.createElement('li');
@@ -4091,6 +4848,10 @@ $('waLeaveBtn').onclick = backToLobby;
 $('gpLeaveBtn').onclick = backToLobby;
 $('pkLeaveBtn').onclick = backToLobby;
 $('ifLeaveBtn').onclick = backToLobby;
+$('sbLeaveBtn').onclick = backToLobby;
+$('svLeaveBtn').onclick = backToLobby;
+$('tfLeaveBtn').onclick = backToLobby;
+$('mhLeaveBtn').onclick = backToLobby;
 
 // Penguin Knockout rules sheet
 $('pkRulesClose').onclick = () => $('pkRulesSheet').classList.add('hidden');
@@ -4155,6 +4916,34 @@ $('tecRulesBtn').onclick = () => $('tecRulesSheet').classList.remove('hidden');
 $('tecRulesClose').onclick = () => $('tecRulesSheet').classList.add('hidden');
 $('tecRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'tecRulesSheet') $('tecRulesSheet').classList.add('hidden');
+});
+
+// Manhunt rules sheet
+$('mhRulesBtn').onclick = () => $('mhRulesSheet').classList.remove('hidden');
+$('mhRulesClose').onclick = () => $('mhRulesSheet').classList.add('hidden');
+$('mhRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'mhRulesSheet') $('mhRulesSheet').classList.add('hidden');
+});
+
+// Three Fronts rules sheet
+$('tfRulesBtn').onclick = () => $('tfRulesSheet').classList.remove('hidden');
+$('tfRulesClose').onclick = () => $('tfRulesSheet').classList.add('hidden');
+$('tfRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'tfRulesSheet') $('tfRulesSheet').classList.add('hidden');
+});
+
+// Salvo rules sheet
+$('svRulesBtn').onclick = () => $('svRulesSheet').classList.remove('hidden');
+$('svRulesClose').onclick = () => $('svRulesSheet').classList.add('hidden');
+$('svRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'svRulesSheet') $('svRulesSheet').classList.add('hidden');
+});
+
+// Sealed Bids rules sheet
+$('sbRulesBtn').onclick = () => $('sbRulesSheet').classList.remove('hidden');
+$('sbRulesClose').onclick = () => $('sbRulesSheet').classList.add('hidden');
+$('sbRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'sbRulesSheet') $('sbRulesSheet').classList.add('hidden');
 });
 
 // Memory Match rules sheet
