@@ -30,8 +30,16 @@ function mk(opts: {
   recomputeAlive(s);
   return s;
 }
-const line = (n: number, values: number[]) =>
-  Array.from({ length: n }, (_, q) => ({ q, r: 0, value: values[q] ?? 1 }));
+const line = (n: number, values: number[], r = 0) =>
+  Array.from({ length: n }, (_, q) => ({ q, r, value: values[q] ?? 1 }));
+// Let the bots play the position to its natural end.
+function playOut(s: TState, guard = 500) {
+  while (!s.over && guard-- > 0) {
+    const seat = s.order.find((st) => def.bot!(s, st, ctx));
+    if (seat === undefined) return;
+    act(s, seat, def.bot!(s, seat, ctx)!);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Slide legality
@@ -131,6 +139,40 @@ test('early-end credits islands a player dominates, ending a decided game', () =
   assert.deepEqual(def.result(s).winners, [0]);
 });
 
+test('early-end never crowns a player it has just proved cannot win', () => {
+  // P0 trails on the board (10 v 15) but alone owns a fat island, so their guaranteed
+  // total is out of P1's reach. The ranking is read off the banked scores, so stopping
+  // here would hand the win to P1 — the very player the check ruled out. Play on.
+  const s = mk({
+    hexes: [...line(6, [0, 5, 5, 5, 5, 5]), { q: 0, r: 5, value: 1 }, { q: 1, r: 5, value: 1 }],
+    pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 0, r: 5 }],
+  });
+  s.scores = [10, 15];
+  s.turn = 0;
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 0 });
+  assert.equal(s.over, false, 'no early end while the guaranteed leader still trails on points');
+  playOut(s);
+  assert.ok(s.scores[0] > s.scores[1], `P0 harvests their island: ${s.scores}`);
+  assert.deepEqual(def.result(s).winners, [0], 'the guaranteed leader wins the played-out game');
+});
+
+test('an island a player dominates only guarantees the hex their pawn stands on', () => {
+  // P0's lone pawn starts in the MIDDLE of its private 4-hex strip. A slide goes all the
+  // way, so whichever way it leaves it strands itself with points still on the board: it
+  // banks 2 of the 4, never "the island minus its dearest hex" (3). Crediting that as
+  // guaranteed used to end the game on a promise P0 could not keep.
+  const s = mk({
+    hexes: [...line(4, [1, 1, 1, 1]), ...line(4, [1, 1, 1, 1], 5)],
+    pawns: [{ id: 0, owner: 0, q: 1, r: 0 }, { id: 1, owner: 1, q: 1, r: 5 }],
+  });
+  s.turn = 0;
+  act(s, 0, { type: 'slide', pawnId: 0, direction: 0 }); // banks 1, strands itself at the far end
+  assert.equal(s.over, false, 'a stranding island is not a guaranteed haul — the game goes on');
+  playOut(s);
+  assert.deepEqual(s.scores, [2, 2], 'both lone pawns really collect 2 of their 4 points');
+  assert.deepEqual(def.result(s).winners.sort(), [0, 1], 'the honest result is a shared win');
+});
+
 // ---------------------------------------------------------------------------
 // Winner & tiebreak (pure)
 // ---------------------------------------------------------------------------
@@ -171,6 +213,22 @@ test('the default board has a central void and a randomized point layout', () =>
 // ---------------------------------------------------------------------------
 // View parity (no redaction) + full autoplay
 // ---------------------------------------------------------------------------
+
+test('pawn arcs never overlap, even when the ring is barely wider than the pawn count', () => {
+  // A small board leaves each of 4 players a 3-hex arc while the default hands out 4
+  // pawns: unclamped, neighbouring arcs stack pawns on a shared hex and the hex→pawn
+  // link points at only one of them.
+  const small = createTectonic({ radius: 2 });
+  const seats = [0, 1, 2, 3];
+  const s = small.create({ seats, players: seats.map((i) => ({ seat: i, name: 'P' + i })) }, ctx) as TState;
+  const occupied = new Set<string>();
+  for (const p of s.pawns) {
+    const key = `${p.q},${p.r}`;
+    assert.equal(occupied.has(key), false, `two pawns stacked on ${key}`);
+    occupied.add(key);
+    assert.equal(s.hexes[key].pawn, p.id, `hex ${key} does not link back to pawn ${p.id}`);
+  }
+});
 
 test('view returns identical public state to all players', () => {
   const s = mk({ hexes: line(4, [0, 2, 3, 4]), pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 3, r: 0 }] });

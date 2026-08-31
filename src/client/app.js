@@ -1941,6 +1941,9 @@ function renderTecBoard(s) {
   const board = $('tecBoard');
   const sz = 10;
   const present = (s.hexes || []).filter((h) => h.state === 'present');
+  // Untouched board = a fresh match: drop last match's positions so pawns don't
+  // animate in from wherever their id sat when the previous game ended.
+  if (present.length === (s.hexes || []).length) _tecPrev = {};
   if (!present.length) {
     board.innerHTML = '';
     return;

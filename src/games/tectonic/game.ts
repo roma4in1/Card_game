@@ -173,9 +173,10 @@ const playerHasMove = (s: TState, pid: number) => s.pawns.some((p) => p.owner ==
  *  (connected component of present hexes), accounting for the lost-final-hex rule:
  *   - ub[pid]: the MOST a player could still collect — sum of every island their alive
  *     pawns can reach, minus the cheapest hex per pawn (each pawn must abandon one).
- *   - lb[pid]: the LEAST they will collect from islands they DOMINATE alone — that
- *     island's sum minus the dearest hex per pawn. (Contested islands credit no lower
- *     bound, since the outcome there is uncertain.)
+ *   - lb[pid]: the least they are GUARANTEED to collect from islands they DOMINATE
+ *     alone — the dearest hex one of their alive pawns is standing on, per such island.
+ *     Nothing there can change until they move (no rival pawn can reach it), so that
+ *     one bank is certain; anything past it is not. Contested islands credit nothing.
  *  So a player who dominates islands gets those points counted toward their guaranteed
  *  total, and the game can end as soon as a leader is mathematically out of reach. */
 function islandBounds(s: TState): { ub: number[]; lb: number[] } {
@@ -208,14 +209,21 @@ function islandBounds(s: TState): { ub: number[]; lb: number[] } {
     const values = compKeys[c].map((k) => s.hexes[k].value).sort((a, b) => a - b);
     const sum = values.reduce((a, b) => a + b, 0);
     const counts: Record<number, number> = {};
-    for (const p of s.pawns) if (p.alive && comp[id(p.q, p.r)] === c) counts[p.owner] = (counts[p.owner] || 0) + 1;
+    const standing: Record<number, number> = {}; // dearest hex an owner's alive pawn stands on here
+    for (const p of s.pawns) {
+      if (!p.alive || comp[id(p.q, p.r)] !== c) continue;
+      counts[p.owner] = (counts[p.owner] || 0) + 1;
+      standing[p.owner] = Math.max(standing[p.owner] ?? 0, s.hexes[id(p.q, p.r)].value);
+    }
     const owners = Object.keys(counts).map(Number);
     const cheapest = (k: number) => values.slice(0, k).reduce((a, b) => a + b, 0);
-    const dearest = (k: number) => values.slice(values.length - k).reduce((a, b) => a + b, 0);
     for (const pid of owners) {
-      const k = counts[pid];
-      ub[pid] += Math.max(0, sum - cheapest(k));
-      if (owners.length === 1) lb[pid] += Math.max(0, sum - dearest(k)); // an island this player dominates
+      ub[pid] += Math.max(0, sum - cheapest(counts[pid]));
+      // An island this player dominates: nobody else can move here, so their pawn keeps
+      // its slide until they play it and that one hex is banked for sure. Do NOT credit
+      // the whole island minus its dearest hexes — a pawn slides all the way, so it can
+      // strand itself with most of the island still on the board.
+      if (owners.length === 1) lb[pid] += standing[pid];
     }
   }
   return { ub, lb };
@@ -237,10 +245,17 @@ function endGame(s: TState) {
  *  dominate) already beats every rival's best case, the ranking is fixed — stop. */
 function tryEarlyEnd(s: TState): boolean {
   const { ub, lb } = islandBounds(s);
+  const aliveCount = new Array(s.np).fill(0);
+  for (const p of s.pawns) if (p.alive) aliveCount[p.owner]++;
+  const leaders = decideWinners(s.scores, aliveCount);
   for (let L = 0; L < s.np; L++) {
     let unbeatable = true;
     for (let o = 0; o < s.np; o++) if (o !== L && s.scores[L] + lb[L] <= s.scores[o] + ub[o]) unbeatable = false;
-    if (unbeatable) {
+    // Stop only once L is also in front on the board: the final ranking is read off the
+    // scores as they stand, so ending while L still trails would hand the win to the very
+    // player we just proved cannot win. If L leads on guaranteed points but not yet on
+    // banked ones, play on — they will pull ahead, or the game ends naturally.
+    if (unbeatable && leaders.length === 1 && leaders[0] === L) {
       endGame(s);
       return true;
     }
@@ -374,7 +389,8 @@ function botMove(s: TState, seat: number): Record<string, unknown> | null {
 export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
   const radius = config.radius ?? 6;
   const holeRadius = config.holeRadius ?? 1;
-  // Values rise toward the centre: edge hexes = 1, hexes ringing the central void = 5.
+  // Shapes the POOL of tile values — edge hexes = 1 up to 5 beside the central void.
+  // `create` then scatters that pool at random, so position does not imply value.
   const usingDefaultValue = !config.value;
   const valueOf = config.value ?? ((d: number) => Math.max(1, Math.min(5, radius + 1 - d)));
   const pawnsPer = config.pawnsPer ?? DEFAULT_PAWNS;
@@ -408,8 +424,10 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
 
       // Place each player's pawns in a contiguous arc on the outer ring (own side).
       const ring = ringCells(radius);
-      const per = pawnsPer[np] ?? 4;
       const arc = Math.floor(ring.length / np);
+      // Never hand out more pawns than the player's own arc of the ring can hold: two
+      // arcs overlapping would stack pawns on one hex and orphan the hex→pawn link.
+      const per = Math.min(pawnsPer[np] ?? 4, arc);
       const pawns: Pawn[] = [];
       let pawnId = 0;
       for (let pid = 0; pid < np; pid++) {
