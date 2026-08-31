@@ -573,10 +573,11 @@
         <button id="sbCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
-      <main class="sb-main">
-        <div class="sb-players" id="sbPlayers"></div>
-        <div class="sb-table" id="sbTable"></div>
+      <main class="duel-main">
+        <div class="duel-roster" id="sbPlayers"></div>
+        <div class="duel-board"><div class="sb-table" id="sbTable"></div></div>
         <div class="sb-hand" id="sbHand"></div>
+        <div id="sbStatus"></div>
         <div class="action-area" id="sbActions"></div>
       </main>
 
@@ -613,9 +614,10 @@
         <button id="svCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
-      <main class="sv-main">
-        <div class="sv-players" id="svPlayers"></div>
-        <div class="sv-boards" id="svBoards"></div>
+      <main class="duel-main">
+        <div class="duel-roster" id="svPlayers"></div>
+        <div class="duel-board"><div class="sv-boards" id="svBoards"></div></div>
+        <div id="svStatus"></div>
         <div class="action-area" id="svActions"></div>
       </main>
 
@@ -652,10 +654,11 @@
         <button id="tfCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
-      <main class="tf-main">
-        <div class="tf-players" id="tfPlayers"></div>
-        <div class="tf-board" id="tfBoard"></div>
+      <main class="duel-main">
+        <div class="duel-roster" id="tfPlayers"></div>
+        <div class="duel-board"><div class="tf-fronts" id="tfBoard"></div></div>
         <div class="tf-hand" id="tfHand"></div>
+        <div id="tfStatus"></div>
         <div class="action-area" id="tfActions"></div>
       </main>
 
@@ -694,10 +697,13 @@
         <button id="mhCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
       </header>
 
-      <main class="mh-main">
-        <div class="mh-players" id="mhPlayers"></div>
-        <div class="mh-map" id="mhMap"></div>
-        <div class="mh-trail" id="mhTrail"></div>
+      <main class="duel-main">
+        <div class="duel-roster" id="mhPlayers"></div>
+        <div class="duel-board">
+          <div class="mh-map" id="mhMap"></div>
+          <div class="mh-trail" id="mhTrail"></div>
+        </div>
+        <div id="mhStatus"></div>
         <div class="action-area" id="mhActions"></div>
       </main>
 

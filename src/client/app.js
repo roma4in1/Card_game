@@ -2126,60 +2126,122 @@ function renderTecLog(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared chrome for the two-player duels (Manhunt, Three Fronts, Salvo, Sealed Bids)
+// ---------------------------------------------------------------------------
+
+// Inline monochrome icons. Emoji were rendering at different weights and colours on
+// every platform, which is the fastest way to make a board look unfinished.
+const DUEL_ICON = {
+  air: '<path d="M12 2.5 4.2 21l7.8-4.4 7.8 4.4z"/>',
+  land: '<path d="M2 19.2h20L14.4 5.6l-3.7 6.4-2.3-2.6z"/>',
+  // Waves stay an outline — filling an open path would collapse it to a hairline.
+  sea: '<path d="M2 11.5c2.6-2.8 4.4 2.8 7 0s4.4 2.8 7 0 4.4 2.8 6 0"/><path d="M2 17.5c2.6-2.8 4.4 2.8 7 0s4.4 2.8 7 0 4.4 2.8 6 0"/>',
+};
+const ICON_OUTLINE = { sea: true };
+const FRONT_ICON = ['air', 'land', 'sea'];
+const duelIcon = (name) => `<svg class="ico${ICON_OUTLINE[name] ? ' stroked' : ' solid'}" viewBox="0 0 24 24" aria-hidden="true">${DUEL_ICON[name] || ''}</svg>`;
+
+/** One roster row per player; `meta(p)` fills the right-hand cell. */
+function duelRoster(elId, s, meta) {
+  const box = $(elId);
+  const bots = botSeatSet(s);
+  box.innerHTML = '';
+  (s.players || []).forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'duel-p' + (p.isTurn ? ' acting' : '');
+    row.innerHTML =
+      `<span class="duel-p-dot" style="background:${seatColor(p.seat)}"></span>` +
+      `<span class="duel-p-name">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}` +
+      `${p.seat === s.seat ? ' <span class="you">(you)</span>' : ''}</span>` +
+      `<span class="duel-p-meta">${meta(p)}</span>`;
+    box.appendChild(row);
+  });
+}
+
+/** The one-line "whose move and why" that sits above the action buttons. */
+function duelStatus(elId, html, live) {
+  const box = $(elId);
+  box.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'duel-status' + (live ? ' live' : '');
+  d.innerHTML = (live ? '<span class="dot"></span>' : '') + html;
+  box.appendChild(d);
+}
+
+const duelLog = (elId, s) => {
+  const ul = $(elId);
+  ul.innerHTML = '';
+  (s.log || []).forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+};
+
+/** Shared end-of-match panel: a banner plus one row per player. */
+function duelOver(s, title, rows) {
+  const box = document.createElement('div');
+  box.className = 'result';
+  const youWin = (s.winners || []).includes(s.seat);
+  const shared = (s.winners || []).length > 1;
+  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
+  box.appendChild(banner(title(youWin, shared, escapeHtml(names)), youWin ? 'win' : 'lose'));
+  const tbl = document.createElement('div');
+  tbl.className = 'li-finals';
+  rows.forEach((r) => {
+    const row = document.createElement('div');
+    row.className = 'li-frow' + ((s.winners || []).includes(r.seat) ? ' win' : '');
+    row.innerHTML =
+      `<span class="duel-p-dot" style="background:${seatColor(r.seat)}"></span>` +
+      `<span class="li-fname">${r.seat === s.seat ? 'You' : escapeHtml(r.name)}</span>` +
+      (r.note ? `<span class="li-fbreak">${r.note}</span>` : '') +
+      `<span class="li-ftotal">${r.total}</span>`;
+    tbl.appendChild(row);
+  });
+  box.appendChild(tbl);
+  appendEndButtons(box, s);
+  return box;
+}
+
+// ---------------------------------------------------------------------------
 // Manhunt — two-player hidden movement
 // ---------------------------------------------------------------------------
 
-let mhTransport = 0; // which route the runner intends to take
+let mhTransport = 0; // route the runner intends to take
+const MH_ROUTE = ['taxi', 'bus', 'tube'];
 
 function renderManhunt(s) {
   $('mhRoom').textContent = s.room;
   const you = s.you || {};
   const pill = $('mhPhase');
-  pill.textContent = s.over
-    ? 'Match over'
-    : s.phase === 'break'
-      ? 'Half time — swapping roles'
-      : `Half ${s.half + 1} · turn ${s.turn}/${s.turns}${s.surfacesThisTurn ? ' · surfacing' : ''}`;
+  pill.textContent = s.over ? 'Over' : s.phase === 'break' ? 'Half time' : `${s.turn}/${s.turns}`;
   pill.className = 'phase-pill';
   $('mhCopy').onclick = copyInvite;
-  // Keep the chosen transport on something the runner can actually use.
   if (you.role === 'runner' && you.isTurn && !(you.moves || []).some((m) => m.transport === mhTransport)) {
     const first = (you.moves || [])[0];
     mhTransport = first ? first.transport : 0;
   }
-  renderMhPlayers(s);
+
+  duelRoster('mhPlayers', s, (p) =>
+    `<span class="duel-tag${p.role === 'runner' ? ' on' : ''}">${p.role === 'runner' ? 'running' : 'hunting'}</span>` +
+    `<span class="duel-p-num">${p.survived == null ? '–' : p.survived}<span class="of">/${s.turns}</span></span>`);
   renderMhMap(s);
   renderMhTrail(s);
+  renderMhStatus(s);
   renderMhActions(s);
-  renderMhLog(s);
+  duelLog('mhLog', s);
 }
-
-function renderMhPlayers(s) {
-  const box = $('mhPlayers');
-  const bots = botSeatSet(s);
-  box.innerHTML = '';
-  (s.players || []).forEach((p) => {
-    const chip = document.createElement('div');
-    chip.className = 'mh-pchip' + (p.isTurn ? ' acting' : '');
-    chip.style.borderColor = seatColor(p.seat);
-    chip.innerHTML =
-      `<span class="mh-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="mh-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
-      `<span class="mh-prole">${p.role === 'runner' ? '🏃 running' : '🕵 hunting'}</span>` +
-      `<span class="mh-psurv">${p.survived == null ? '—' : p.survived + ' turns'}</span>`;
-    box.appendChild(chip);
-  });
-}
-
-const MH_TCLASS = ['taxi', 'bus', 'tube'];
 
 function renderMhMap(s) {
   const box = $('mhMap');
   const nodes = s.nodes || [];
   if (!nodes.length) { box.innerHTML = ''; return; }
   const you = s.you || {};
-  const step = 100 / 3;
-  const px = (n) => ({ x: 10 + n.x * step, y: 10 + n.y * step });
+  const STEP = 30;
+  const PAD = 13;
+  const px = (n) => ({ x: PAD + n.x * STEP, y: PAD + n.y * STEP });
+  const span = PAD * 2 + STEP * 3;
+
   const dests = new Map();
   if (you.isTurn) {
     for (const m of you.moves || []) {
@@ -2188,44 +2250,59 @@ function renderMhMap(s) {
     }
   }
 
-  let svg = `<svg viewBox="0 0 ${20 + step * 3} ${20 + step * 3}" class="mh-svg" preserveAspectRatio="xMidYMid meet">`;
-  // edges, tube first so the long links sit underneath
+  let svg = `<svg viewBox="0 0 ${span} ${span}" class="mh-svg" preserveAspectRatio="xMidYMid meet">`;
+  // On a grid, a bus hop (skip one) and a tube run (corner to corner) are COLLINEAR with
+  // the taxi hops beneath them — drawn straight they stack into one unreadable line. So
+  // bow the longer routes off the axis, the way a transit map separates parallel lines.
+  const BOW = [0, 0.13, -0.2]; // taxi runs straight; bus and tube bend opposite ways
   for (let t = (s.transport || []).length - 1; t >= 0; t--) {
     for (const n of nodes) {
       for (const m of (s.edges || [])[t][n.id]) {
-        if (m < n.id) continue; // draw each edge once
+        if (m < n.id) continue; // one line per edge
         const a = px(n);
         const b = px(nodes[m]);
-        svg += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="mh-edge ${MH_TCLASS[t]}"/>`;
+        const k = BOW[t];
+        if (!k) {
+          svg += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="mh-edge taxi"/>`;
+        } else {
+          const cx = (a.x + b.x) / 2 - (b.y - a.y) * k;
+          const cy = (a.y + b.y) / 2 + (b.x - a.x) * k;
+          svg += `<path d="M${a.x} ${a.y}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x} ${b.y}" class="mh-edge ${MH_ROUTE[t]}"/>`;
+        }
       }
     }
   }
-  // the last confirmed sighting, as a fading ring
+  // where the runner was last forced into the open
   if (s.lastSeenAt != null && s.runnerAt == null) {
     const p = px(nodes[s.lastSeenAt]);
-    svg += `<circle cx="${p.x}" cy="${p.y}" r="7" class="mh-seen"/>`;
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="5.6" class="mh-seen"/>`;
   }
   for (const n of nodes) {
     const p = px(n);
     const isDest = dests.has(n.id);
-    svg += `<circle cx="${p.x}" cy="${p.y}" r="4.6" class="mh-node${isDest ? ' dest' : ''}" data-node="${n.id}"/>`;
-    svg += `<text x="${p.x}" y="${p.y}" class="mh-nlabel">${n.id + 1}</text>`;
+    if (isDest) svg += `<circle cx="${p.x}" cy="${p.y}" r="3.4" class="mh-halo"/>`;
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="3.4" class="mh-stop${isDest ? ' dest' : ''}" data-node="${n.id}"/>`;
+    svg += `<text x="${p.x}" y="${p.y}" class="mh-slabel${isDest ? ' on' : ''}" data-node="${n.id}">${n.id + 1}</text>`;
   }
-  // agents, then the runner on top
+  // Tokens sit ON their stop — two agents share one by leaning apart slightly.
+  const here = (node) => (s.hunterAt || []).filter((h) => h === node).length;
   (s.hunterAt || []).forEach((node, i) => {
     const p = px(nodes[node]);
+    const shift = here(node) > 1 ? (i === 0 ? -2.2 : 2.2) : 0;
     const next = s.phase === 'run' && s.stage === 'hunter' && s.hunterPiece === i;
-    svg += `<circle cx="${p.x - 2.4 + i * 4.8}" cy="${p.y - 6.5}" r="3.1" class="mh-agent${next ? ' next' : ''}"/>`;
+    svg += `<g class="mh-token mh-agent${next ? ' next' : ''}">` +
+      `<circle cx="${p.x + shift}" cy="${p.y - 5.4}" r="2.7" class="body"/>` +
+      `<text x="${p.x + shift}" y="${p.y - 5.4}" class="mark">${i + 1}</text></g>`;
   });
   if (s.runnerAt != null) {
     const p = px(nodes[s.runnerAt]);
-    svg += `<circle cx="${p.x}" cy="${p.y + 7}" r="3.4" class="mh-runner"/>`;
+    svg += `<g class="mh-token mh-runner"><circle cx="${p.x}" cy="${p.y + 5.4}" r="2.9" class="body"/>` +
+      `<text x="${p.x}" y="${p.y + 5.4}" class="mark">R</text></g>`;
   }
   svg += '</svg>';
   box.innerHTML = svg;
 
-  const svgEl = box.querySelector('svg');
-  svgEl.onclick = (e) => {
+  box.querySelector('svg').onclick = (e) => {
     const raw = e.target.getAttribute && e.target.getAttribute('data-node');
     if (raw == null) return;
     const m = dests.get(Number(raw));
@@ -2238,97 +2315,58 @@ function renderMhMap(s) {
 
 function renderMhTrail(s) {
   const box = $('mhTrail');
-  box.innerHTML = '';
   const trail = s.trail || [];
   if (!trail.length) {
-    box.innerHTML = '<span class="mh-trail-empty">No moves yet</span>';
+    box.innerHTML = '<span class="empty">No moves yet</span>';
     return;
   }
-  for (const step of trail) {
+  box.innerHTML = trail.map((step) => {
     const t = (s.transport || [])[step.transport] || {};
-    const pill = document.createElement('span');
-    pill.className = 'mh-tstep' + (step.node != null ? ' seen' : '');
-    pill.title = `Turn ${step.turn} · ${t.name || ''}`;
-    pill.textContent = `${t.icon || ''}${step.node != null ? ' ' + (step.node + 1) : ''}`;
-    box.appendChild(pill);
+    return `<span class="mh-step ${MH_ROUTE[step.transport]}${step.node != null ? ' seen' : ''}" ` +
+      `title="Turn ${step.turn} · ${escapeHtml(t.name || '')}${step.node != null ? ' · surfaced at ' + (step.node + 1) : ''}">` +
+      `<i class="line"></i>${step.node != null ? step.node + 1 : `<i class="t">${step.turn}</i>`}</span>`;
+  }).join('');
+}
+
+function renderMhStatus(s) {
+  const you = s.you || {};
+  if (s.over) return duelStatus('mhStatus', 'Both runs are in', false);
+  if (you.spectator) return duelStatus('mhStatus', 'Spectating — the runner is hidden from you too', false);
+  if (s.phase === 'break') return duelStatus('mhStatus', 'Half time — <b>you swap roles</b> on the same map', true);
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    return duelStatus('mhStatus', `Waiting for <b>${active ? escapeHtml(active.name) : '…'}</b>`, true);
   }
+  if (you.role === 'hunter') return duelStatus('mhStatus', `Move <b>agent ${s.hunterPiece + 1}</b> — tap a lit stop`, true);
+  return duelStatus('mhStatus', s.surfacesThisTurn
+    ? 'You <b>surface this turn</b> — they will see where you land'
+    : 'Only your <b>route</b> is announced, not where you go', true);
 }
 
 function renderMhActions(s) {
   const area = $('mhActions');
   area.innerHTML = '';
   if (s.over) {
-    area.appendChild(renderMhOver(s));
+    area.appendChild(duelOver(s, (win, shared, names) => (win ? (shared ? '🤝 Honours even' : '🏆 You outlasted them!') : `${names} outlasted you`),
+      [...(s.players || [])].sort((a, b) => (b.survived || 0) - (a.survived || 0))
+        .map((p) => ({ seat: p.seat, name: p.name, note: 'as the runner', total: p.survived == null ? '–' : p.survived }))));
     return;
   }
   const you = s.you || {};
-  if (you.spectator) {
-    area.appendChild(callout('Spectating — the runner is hidden from you too', true));
-    return;
-  }
-  if (s.phase === 'break') {
-    area.appendChild(callout(`Half time — you swap roles and run the same map`, true));
-    return;
-  }
-  if (!you.isTurn) {
-    const active = (s.players || []).find((p) => p.isTurn);
-    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'}`, true));
-    return;
-  }
-  if (you.role === 'hunter') {
-    area.appendChild(prompt(`Move <b>agent ${s.hunterPiece + 1}</b> — tap a highlighted stop.`));
-    return;
-  }
-  area.appendChild(prompt(s.surfacesThisTurn
-    ? 'You <b>surface this turn</b> — wherever you go, they will see it. Pick a route.'
-    : 'Pick a route, then tap a highlighted stop. Only the <b>transport</b> is announced.'));
+  if (you.spectator || !you.isTurn || you.role !== 'runner') return;
+  // The route picker doubles as the map legend: each swatch is the line on the map.
   const row = document.createElement('div');
-  row.className = 'btn-row';
+  row.className = 'mh-routes';
   (s.transport || []).forEach((t, i) => {
     const n = (you.moves || []).filter((m) => m.transport === i).length;
-    const b = actBtn(`${t.icon} ${n}`, 'btn ' + (mhTransport === i ? 'btn-primary' : 'btn-ghost'), () => {
-      mhTransport = i;
-      render();
-    });
+    const b = document.createElement('button');
+    b.className = `mh-route ${MH_ROUTE[i]}` + (mhTransport === i ? ' on' : '');
+    b.innerHTML = `<i class="line"></i>${escapeHtml(t.name)}<span class="n">${n}</span>`;
     b.disabled = n === 0;
-    b.title = t.name;
+    b.onclick = () => { mhTransport = i; render(); };
     row.appendChild(b);
   });
   area.appendChild(row);
-}
-
-function renderMhOver(s) {
-  const box = document.createElement('div');
-  box.className = 'result';
-  const youWin = (s.winners || []).includes(s.seat);
-  const shared = (s.winners || []).length > 1;
-  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
-  box.appendChild(banner(youWin ? (shared ? '🤝 Honours even' : '🏆 You outlasted them!') : `${escapeHtml(names)} outlasted you`, youWin ? 'win' : 'lose'));
-  const tbl = document.createElement('div');
-  tbl.className = 'li-finals';
-  [...(s.players || [])].sort((a, b) => (b.survived || 0) - (a.survived || 0)).forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
-    row.innerHTML =
-      `<span class="mh-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
-      `<span class="li-fbreak">as the runner</span>` +
-      `<span class="li-ftotal">${p.survived == null ? '—' : p.survived}</span>`;
-    tbl.appendChild(row);
-  });
-  box.appendChild(tbl);
-  appendEndButtons(box, s);
-  return box;
-}
-
-function renderMhLog(s) {
-  const ul = $('mhLog');
-  ul.innerHTML = '';
-  (s.log || []).forEach((line) => {
-    const li = document.createElement('li');
-    li.textContent = line;
-    ul.appendChild(li);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2340,83 +2378,23 @@ let tfDown = false; // commit it face-down?
 
 function renderThreeFronts(s) {
   $('tfRoom').textContent = s.room;
-  const active = (s.players || []).find((p) => p.isTurn);
+  const you = s.you || {};
   const pill = $('tfPhase');
-  pill.textContent = s.over
-    ? 'War over'
-    : s.phase === 'result'
-      ? `Battle ${s.battleNo} decided`
-      : active
-        ? `Battle ${s.battleNo} · ${active.seat === s.seat ? 'your' : escapeHtml(active.name) + '’s'} move`
-        : `Battle ${s.battleNo}`;
+  pill.textContent = s.over ? 'Over' : s.phase === 'result' ? 'Result' : `Battle ${s.battleNo}`;
   pill.className = 'phase-pill';
   $('tfCopy').onclick = copyInvite;
-  const you = s.you || {};
   if (!you.canAct) { tfSel = null; tfDown = false; }
-  if (tfSel != null && !(you.hand || []).some((c) => c.cardId === tfSel)) tfSel = null; // card left our hand
-  renderTfPlayers(s);
-  renderTfBoard(s);
+  if (tfSel != null && !(you.hand || []).some((c) => c.cardId === tfSel)) tfSel = null;
+
+  duelRoster('tfPlayers', s, (p) =>
+    `<span class="duel-tag${p.fronts >= 2 ? ' on' : ''}">${p.fronts}/3 fronts</span>` +
+    `<span>${p.cardsLeft} card${p.cardsLeft === 1 ? '' : 's'}</span>` +
+    `<span class="duel-p-num">${p.score}<span class="of">/${s.target}</span></span>`);
+  renderTfFronts(s);
   renderTfHand(s);
+  renderTfStatus(s);
   renderTfActions(s);
-  renderTfLog(s);
-}
-
-function renderTfPlayers(s) {
-  const box = $('tfPlayers');
-  const bots = botSeatSet(s);
-  box.innerHTML = '';
-  (s.players || []).forEach((p) => {
-    const chip = document.createElement('div');
-    chip.className = 'tf-pchip' + (p.isTurn ? ' acting' : '');
-    chip.style.borderColor = seatColor(p.seat);
-    chip.innerHTML =
-      `<span class="tf-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="tf-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
-      `<span class="tf-pcards">${'🂠'.repeat(p.cardsLeft) || '—'}</span>` +
-      `<span class="tf-pfronts">${p.fronts}/3</span>` +
-      `<span class="tf-pscore">${p.score}<i>/${s.target}</i></span>`;
-    box.appendChild(chip);
-  });
-}
-
-function renderTfBoard(s) {
-  const box = $('tfBoard');
-  box.innerHTML = '';
-  const you = s.you || {};
-  const mySeat = s.seat;
-  (s.board || []).forEach((f, i) => {
-    const col = document.createElement('div');
-    const held = f.control === null ? '' : f.control === mySeat ? ' mine' : ' theirs';
-    col.className = 'tf-front' + held + (tfSel != null && tfCanPlay(s, i) ? ' droppable' : '');
-
-    const bonuses = [];
-    if (f.recon.length) bonuses.push(`✈ Recon ${f.recon.includes(mySeat) ? 'you' : 'them'}`);
-    if (f.entrench.length) bonuses.push(`⛰ Entrench ${f.entrench.includes(mySeat) ? 'you' : 'them'}`);
-    if (f.blocked.length) bonuses.push(`⚓ Blockade on ${f.blocked.includes(mySeat) ? 'you' : 'them'}`);
-
-    // strength[] is by player-index; players[] carries the seat for each
-    const meIdx = (s.players || []).findIndex((p) => p.seat === mySeat);
-    const myStr = meIdx >= 0 ? f.strength[meIdx] : f.strength[0];
-    const theirStr = meIdx >= 0 ? f.strength[1 - meIdx] : f.strength[1];
-
-    const theirs = (f.plays || []).filter((p) => p.seat !== mySeat);
-    const mine = (f.plays || []).filter((p) => p.seat === mySeat);
-    col.innerHTML =
-      `<div class="tf-fhead"><span class="tf-ficon">${f.icon}</span><span class="tf-fname">${f.name}</span></div>` +
-      `<div class="tf-fstack theirs">${theirs.map((p) => tfCardHtml(p, s)).join('') || '<div class="tf-empty"></div>'}</div>` +
-      `<div class="tf-fscore"><b class="${theirStr > myStr ? 'lead' : ''}">${theirStr}</b><span>v</span><b class="${myStr > theirStr ? 'lead' : ''}">${myStr}</b></div>` +
-      `<div class="tf-fstack mine">${mine.map((p) => tfCardHtml(p, s)).join('') || '<div class="tf-empty"></div>'}</div>` +
-      (bonuses.length ? `<div class="tf-fbonus">${bonuses.map(escapeHtml).join(' · ')}</div>` : '');
-
-    if (tfSel != null && tfCanPlay(s, i)) {
-      col.onclick = () => {
-        send({ type: 'deploy', cardId: tfSel, front: i, faceDown: tfDown });
-        tfSel = null;
-        tfDown = false;
-      };
-    }
-    box.appendChild(col);
-  });
+  duelLog('tfLog', s);
 }
 
 /** Can the picked card go to front `i` the way it's currently oriented? */
@@ -2428,11 +2406,54 @@ function tfCanPlay(s, i) {
   return tfDown ? !(you.blocked || [])[i] : c.theatre === i;
 }
 
-function tfCardHtml(p, s) {
-  const icon = p.theatre != null ? (s.board[p.theatre] || {}).icon || '' : '';
-  if (p.cardId == null) return `<div class="tf-card down" title="Face-down — worth 2">🂠</div>`;
-  return `<div class="tf-card${p.faceDown ? ' was-down' : ''}" title="${escapeHtml(p.label)}">` +
-    `<span class="tf-crank">${p.rank}</span><span class="tf-cicon">${icon}</span></div>`;
+function tfCardHtml(p, mySeat) {
+  if (p.cardId == null) return '<div class="tf-card down" title="Face-down — counts 2"></div>';
+  const cls = 'tf-card' + (p.faceDown ? ' revealed' : '') + (p.seat === mySeat ? ' mine' : '');
+  return `<div class="${cls}" title="${escapeHtml(p.label)}${p.faceDown ? ' (was face-down)' : ''}">` +
+    `<span class="r">${p.rank}</span>${duelIcon(FRONT_ICON[p.theatre])}</div>`;
+}
+
+function renderTfFronts(s) {
+  const box = $('tfBoard');
+  box.innerHTML = '';
+  const mySeat = s.seat;
+  const meIdx = (s.players || []).findIndex((p) => p.seat === mySeat);
+  (s.board || []).forEach((f, i) => {
+    const held = f.control === null ? '' : f.control === mySeat ? ' mine' : ' theirs';
+    const col = document.createElement('div');
+    col.className = 'tf-front' + held + (tfCanPlay(s, i) ? ' droppable' : '');
+
+    const myStr = meIdx >= 0 ? f.strength[meIdx] : f.strength[0];
+    const theirStr = meIdx >= 0 ? f.strength[1 - meIdx] : f.strength[1];
+    const theirs = (f.plays || []).filter((p) => p.seat !== mySeat);
+    const mine = (f.plays || []).filter((p) => p.seat === mySeat);
+
+    // Every front has exactly one bonus, so name it here whether or not anyone holds it
+    // yet — an empty column then teaches what the front does instead of sitting blank.
+    // (`blocked` lists whoever is SHUT OUT, so the holder is the other player.)
+    const holders = i === 2 ? f.blocked.map((seat) => (seat === mySeat ? 'theirs' : 'mine')) : (i === 0 ? f.recon : f.entrench).map((seat) => (seat === mySeat ? 'mine' : 'theirs'));
+    const chips = holders.length
+      ? holders.map((who) => `<span class="tf-bchip ${who}">${escapeHtml(f.bonus)}</span>`)
+      : [`<span class="tf-bchip idle" title="${escapeHtml(f.blurb)}">${escapeHtml(f.bonus)}</span>`];
+
+    col.innerHTML =
+      `<div class="tf-fhead">${duelIcon(FRONT_ICON[i])}${escapeHtml(f.name)}</div>` +
+      `<div class="tf-stack theirs">${theirs.map((p) => tfCardHtml(p, mySeat)).join('')}</div>` +
+      `<div class="tf-tally"><b class="${theirStr > myStr ? 'lead' : ''}">${theirStr}</b>` +
+      `<span class="v">v</span><b class="${myStr > theirStr ? 'lead' : ''}">${myStr}</b></div>` +
+      `<div class="tf-stack mine">${mine.map((p) => tfCardHtml(p, mySeat)).join('')}</div>` +
+      `<div class="tf-bonus">${chips.join('')}</div>`;
+
+    if (tfCanPlay(s, i)) {
+      col.onclick = () => {
+        tapAck(col);
+        send({ type: 'deploy', cardId: tfSel, front: i, faceDown: tfDown });
+        tfSel = null;
+        tfDown = false;
+      };
+    }
+    box.appendChild(col);
+  });
 }
 
 function renderTfHand(s) {
@@ -2443,7 +2464,8 @@ function renderTfHand(s) {
   for (const c of you.hand || []) {
     const b = document.createElement('button');
     b.className = 'tf-handcard' + (tfSel === c.cardId ? ' picked' : '');
-    b.innerHTML = `<span class="tf-crank">${c.rank}</span><span class="tf-cicon">${(s.board[c.theatre] || {}).icon || ''}</span>`;
+    b.innerHTML = `<span class="r">${c.rank}</span>${duelIcon(FRONT_ICON[c.theatre])}`;
+    b.title = c.label;
     b.disabled = !you.canAct;
     b.onclick = () => {
       tapAck(b);
@@ -2454,164 +2476,142 @@ function renderTfHand(s) {
   }
 }
 
+function renderTfStatus(s) {
+  const you = s.you || {};
+  if (s.over) return duelStatus('tfStatus', 'The war is over', false);
+  if (you.spectator) return duelStatus('tfStatus', 'Spectating', false);
+  if (s.phase === 'result') {
+    const r = s.result || {};
+    const who = r.winnerSeat === null ? null : r.winnerSeat === s.seat ? 'You' : (s.players.find((p) => p.seat === r.winnerSeat) || {}).name;
+    return duelStatus('tfStatus', who === null
+      ? 'Stalemate — <b>no points</b>'
+      : `${escapeHtml(who)} take${who === 'You' ? '' : 's'} the battle <b>+${r.points}</b>`, true);
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    return duelStatus('tfStatus', `Waiting for <b>${active ? escapeHtml(active.name) : '…'}</b>`, true);
+  }
+  if (tfSel == null) return duelStatus('tfStatus', 'Your move — <b>pick a card</b>', true);
+  const c = (you.hand || []).find((x) => x.cardId === tfSel);
+  return duelStatus('tfStatus', tfDown
+    ? 'Tap any front to bury it — it <b>counts 2</b> and stays secret'
+    : `Tap <b>${escapeHtml((s.board[c.theatre] || {}).name || '')}</b> — face-up cards go to their own theatre`, true);
+}
+
 function renderTfActions(s) {
   const area = $('tfActions');
   area.innerHTML = '';
   if (s.over) {
-    area.appendChild(renderTfOver(s));
+    area.appendChild(duelOver(s, (win, shared, names) => (win ? '🏆 You win the war!' : `${names} wins the war`),
+      [...(s.players || [])].sort((a, b) => b.score - a.score).map((p) => ({ seat: p.seat, name: p.name, total: p.score }))));
     return;
   }
   const you = s.you || {};
-  if (you.spectator) {
-    area.appendChild(callout('Spectating this duel', true));
-    return;
-  }
-  if (s.phase === 'result') {
-    const r = s.result || {};
-    const who = r.winnerSeat === null ? null : r.winnerSeat === s.seat ? 'You' : (s.players.find((p) => p.seat === r.winnerSeat) || {}).name;
-    area.appendChild(callout(who === null ? 'Stalemate — no points' : `${escapeHtml(who)} take${who === 'You' ? '' : 's'} the battle, +${r.points}`, true));
-    return;
-  }
-  if (!you.isTurn) {
-    const active = (s.players || []).find((p) => p.isTurn);
-    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'}`, true));
-    return;
-  }
-  if (tfSel == null) {
-    area.appendChild(prompt('Pick a card from your hand — or <b>withdraw</b> to cut your losses.'));
-  } else {
-    const c = (you.hand || []).find((x) => x.cardId === tfSel);
-    area.appendChild(prompt(tfDown
-      ? 'Committing <b>face-down</b> (worth 2, stays secret) — tap a front.'
-      : `Committing <b>face-up</b> — tap <b>${escapeHtml((s.board[c.theatre] || {}).name || '')}</b>, its own theatre.`));
-    const row = document.createElement('div');
-    row.className = 'btn-row';
-    row.appendChild(actBtn(tfDown ? '🂠 Face-down' : '🂡 Face-up', 'btn btn-ghost btn-lg', () => {
-      tfDown = !tfDown;
-      render();
-    }));
-    row.appendChild(actBtn('Cancel', 'btn btn-quiet btn-lg', () => {
-      tfSel = null;
-      tfDown = false;
-      render();
-    }));
-    area.appendChild(row);
-  }
+  if (you.spectator || !you.isTurn || s.phase === 'result') return;
+
+  // face-up / face-down is the whole decision, so it gets a real control
+  const mode = document.createElement('div');
+  mode.className = 'tf-mode';
+  const upBtn = document.createElement('button');
+  upBtn.className = tfDown ? '' : 'on';
+  upBtn.textContent = 'Face-up · rank + bonus';
+  upBtn.onclick = () => { tfDown = false; render(); };
+  const downBtn = document.createElement('button');
+  downBtn.className = tfDown ? 'on' : '';
+  downBtn.textContent = 'Face-down · 2, secret';
+  downBtn.onclick = () => { tfDown = true; render(); };
+  mode.append(upBtn, downBtn);
+  area.appendChild(mode);
+
   const cardsLeft = ((s.players || []).find((p) => p.seat === s.seat) || {}).cardsLeft || 0;
   const cost = cardsLeft >= 4 ? 2 : cardsLeft >= 2 ? 3 : 4;
-  area.appendChild(actBtn(`🏳 Withdraw — gives them ${cost}`, 'btn btn-quiet', () => send({ type: 'withdraw' })));
-}
-
-function renderTfOver(s) {
-  const box = document.createElement('div');
-  box.className = 'result';
-  const youWin = (s.winners || []).includes(s.seat);
-  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
-  box.appendChild(banner(youWin ? '🏆 You win the war!' : `${escapeHtml(names)} wins the war`, youWin ? 'win' : 'lose'));
-  const tbl = document.createElement('div');
-  tbl.className = 'li-finals';
-  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
-    row.innerHTML =
-      `<span class="tf-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
-      `<span class="li-ftotal">${p.score}</span>`;
-    tbl.appendChild(row);
-  });
-  box.appendChild(tbl);
-  appendEndButtons(box, s);
-  return box;
-}
-
-function renderTfLog(s) {
-  const ul = $('tfLog');
-  ul.innerHTML = '';
-  (s.log || []).forEach((line) => {
-    const li = document.createElement('li');
-    li.textContent = line;
-    ul.appendChild(li);
-  });
+  const wd = document.createElement('button');
+  wd.className = 'tf-withdraw';
+  wd.innerHTML = `Withdraw — concede this battle for <b>${cost}</b>`;
+  wd.onclick = () => send({ type: 'withdraw' });
+  area.appendChild(wd);
 }
 
 // ---------------------------------------------------------------------------
 // Salvo — two-player hidden fleets
 // ---------------------------------------------------------------------------
 
-const SV_COLS = 'ABCDEFGH';
+const SV_FILES = 'ABCDEFGH';
 
 function renderSalvo(s) {
   $('svRoom').textContent = s.room;
-  const you = s.you || {};
-  const active = (s.players || []).find((p) => p.isTurn);
   const pill = $('svPhase');
-  pill.textContent = s.over
-    ? 'Game over'
-    : s.phase === 'place'
-      ? 'Position your fleet'
-      : active
-        ? `${active.seat === s.seat ? 'Your' : escapeHtml(active.name) + '’s'} shot`
-        : '—';
+  pill.textContent = s.over ? 'Over' : s.phase === 'place' ? 'Placing' : 'At sea';
   pill.className = 'phase-pill';
   $('svCopy').onclick = copyInvite;
-  renderSvPlayers(s);
-  renderSvBoards(s);
-  renderSvActions(s);
-  renderSvLog(s);
-}
 
-function renderSvPlayers(s) {
-  const box = $('svPlayers');
-  const bots = botSeatSet(s);
-  box.innerHTML = '';
-  (s.players || []).forEach((p) => {
-    const chip = document.createElement('div');
-    chip.className = 'sv-pchip' + (p.isTurn ? ' acting' : '');
-    chip.style.borderColor = seatColor(p.seat);
-    const pips = Array.from({ length: p.afloat + p.sunkShips.length }, (_, i) => `<i class="sv-pip${i < p.afloat ? '' : ' down'}"></i>`).join('');
-    chip.innerHTML =
-      `<span class="sv-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="sv-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
-      `<span class="sv-pfleet">${pips}</span>` +
-      `<span class="sv-pstate">${s.phase === 'place' ? (p.ready ? 'ready' : 'placing…') : `${p.afloat} afloat`}</span>`;
-    box.appendChild(chip);
+  duelRoster('svPlayers', s, (p) => {
+    const total = p.afloat + p.sunkShips.length;
+    const pips = (s.fleet || []).map((f, i) => `<i class="sv-pip${i < p.afloat ? '' : ' down'}" style="height:${5 + f.size * 1.6}px"></i>`).join('');
+    return `<span class="sv-fleet" title="${p.afloat} of ${total} afloat">${pips}</span>` +
+      (s.phase === 'place'
+        ? `<span class="duel-tag${p.ready ? ' on' : ''}">${p.ready ? 'ready' : 'placing'}</span>`
+        : `<span class="duel-p-num">${p.afloat}<span class="of">/${total}</span></span>`);
   });
+  renderSvBoards(s);
+  renderSvStatus(s);
+  renderSvActions(s);
+  duelLog('svLog', s);
 }
 
 /** One grid. `mode` is 'enemy' (you fire into it) or 'own' (your waters). */
 function svGrid(s, cells, mode) {
+  const you = s.you || {};
   const wrap = document.createElement('div');
-  wrap.className = 'sv-grid-wrap';
-  const head = document.createElement('div');
-  head.className = 'sv-grid-title';
-  head.textContent = mode === 'enemy' ? 'Their waters' : 'Your waters';
-  wrap.appendChild(head);
+  wrap.className = 'sv-grid-wrap' + (mode === 'own' ? ' own' : '');
+  wrap.innerHTML = `<div class="duel-label">${mode === 'enemy' ? 'Their waters' : 'Your waters'}</div>`;
 
   const grid = document.createElement('div');
   grid.className = 'sv-grid';
-  grid.style.gridTemplateColumns = `repeat(${s.size}, 1fr)`;
-  const you = s.you || {};
+  grid.appendChild(document.createElement('span')); // empty corner
+  for (let x = 0; x < s.size; x++) {
+    const h = document.createElement('span');
+    h.className = 'sv-coord';
+    h.textContent = SV_FILES[x];
+    grid.appendChild(h);
+  }
+  const at = new Map(cells.map((c) => [c.x + ',' + c.y, c]));
   const last = s.last;
-  for (const c of cells) {
-    const cell = document.createElement('button');
-    const isLast = last && last.x === c.x && last.y === c.y && (mode === 'enemy') === (last.pid === you.pid);
-    let cls = 'sv-cell';
-    if (mode === 'own' && c.ship) cls += c.sunk ? ' ship sunk' : ' ship';
-    if (c.shot === 'hit') cls += ' hit';
-    else if (c.shot === 'miss') cls += ' miss';
-    if (mode === 'enemy' && c.sunk) cls += ' wreck';
-    if (isLast) cls += ' last';
-    cell.className = cls;
-    cell.title = `${SV_COLS[c.x]}${c.y + 1}${c.sunk ? ' · ' + c.sunk : ''}`;
-    const fireable = mode === 'enemy' && you.canFire && c.shot === null;
-    cell.disabled = !fireable;
-    if (fireable) {
-      cell.onclick = () => {
-        tapAck(cell);
-        send({ type: 'fire', x: c.x, y: c.y });
-      };
+  for (let y = 0; y < s.size; y++) {
+    const r = document.createElement('span');
+    r.className = 'sv-coord';
+    r.textContent = y + 1;
+    grid.appendChild(r);
+    for (let x = 0; x < s.size; x++) {
+      const c = at.get(x + ',' + y) || { x, y, shot: null };
+      const cell = document.createElement('button');
+      let cls = 'sv-cell';
+      if (mode === 'own' && c.ship) {
+        cls += c.sunk ? ' ship sunk' : ' ship';
+        // square off the sides that continue into the same hull, so a carrier
+        // reads as one five-cell object instead of five separate tiles
+        const same = (dx, dy) => (at.get((x + dx) + ',' + (y + dy)) || {}).ship === c.ship;
+        if (same(0, -1)) cls += ' jn';
+        if (same(0, 1)) cls += ' js';
+        if (same(-1, 0)) cls += ' jw';
+        if (same(1, 0)) cls += ' je';
+      }
+      if (c.shot === 'hit') cls += ' hit';
+      else if (c.shot === 'miss') cls += ' miss';
+      if (mode === 'enemy' && c.sunk) cls += ' wreck';
+      if (last && last.x === x && last.y === y && (mode === 'enemy') === (last.pid === you.pid)) cls += ' last';
+      cell.className = cls;
+      cell.title = `${SV_FILES[x]}${y + 1}${c.sunk ? ' · ' + c.sunk : ''}`;
+      const fireable = mode === 'enemy' && you.canFire && c.shot === null;
+      cell.disabled = !fireable;
+      if (fireable) {
+        cell.onclick = () => {
+          tapAck(cell);
+          send({ type: 'fire', x, y });
+        };
+      }
+      grid.appendChild(cell);
     }
-    grid.appendChild(cell);
   }
   wrap.appendChild(grid);
   return wrap;
@@ -2622,244 +2622,180 @@ function renderSvBoards(s) {
   box.innerHTML = '';
   const you = s.you || {};
   if (you.spectator) {
-    box.appendChild(callout('Both fleets are hidden from the sideline', false));
+    box.innerHTML = '<div class="duel-label">Both fleets are hidden from the sideline</div>';
     return;
   }
-  // During placement only your own waters matter; once at sea, theirs leads.
   if (s.phase !== 'place') box.appendChild(svGrid(s, you.enemy || [], 'enemy'));
   box.appendChild(svGrid(s, you.own || [], 'own'));
+}
+
+function renderSvStatus(s) {
+  const you = s.you || {};
+  if (s.over) return duelStatus('svStatus', 'All ships accounted for', false);
+  if (you.spectator) return duelStatus('svStatus', 'Spectating', false);
+  if (s.phase === 'place') {
+    return duelStatus('svStatus', you.ready ? 'Fleet at sea — <b>waiting for them</b>' : 'Position your fleet, then <b>give the order</b>', true);
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    return duelStatus('svStatus', `<b>${active ? escapeHtml(active.name) : '…'}</b> is taking a shot`, true);
+  }
+  const last = s.last;
+  const streak = last && last.pid === you.pid && last.result === 'hit';
+  return duelStatus('svStatus', streak
+    ? `<b>${last.sunk ? last.sunk + ' sunk!' : 'Hit!'}</b> Fire again`
+    : 'Your shot — <b>tap a square in their waters</b>', true);
 }
 
 function renderSvActions(s) {
   const area = $('svActions');
   area.innerHTML = '';
   if (s.over) {
-    area.appendChild(renderSvOver(s));
+    area.appendChild(duelOver(s, (win, shared, names) => (win ? '🏆 Fleet destroyed — you win!' : `${names} sank your fleet`),
+      (s.players || []).map((p) => ({ seat: p.seat, name: p.name, note: `${p.sunkShips.length} of ${p.sunkShips.length + p.afloat} sunk`, total: p.afloat }))));
     return;
   }
   const you = s.you || {};
-  if (you.spectator) {
-    area.appendChild(callout('Spectating this duel', true));
-    return;
-  }
-  if (s.phase === 'place') {
-    if (you.ready) {
-      area.appendChild(callout('Fleet at sea — waiting for your opponent', true));
-      return;
-    }
-    area.appendChild(prompt('Happy with where your ships sit? <b>Shuffle</b> until you are.'));
-    const row = document.createElement('div');
-    row.className = 'btn-row';
-    row.appendChild(actBtn('🔀 Shuffle fleet', 'btn btn-ghost btn-lg', () => send({ type: 'shuffleFleet' })));
-    row.appendChild(actBtn('⚓ Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
-    area.appendChild(row);
-    return;
-  }
-  if (!you.isTurn) {
-    const active = (s.players || []).find((p) => p.isTurn);
-    area.appendChild(callout(`Waiting for ${active ? escapeHtml(active.name) : '…'} to fire`, true));
-    return;
-  }
-  const last = s.last;
-  const streak = last && last.pid === you.pid && last.result === 'hit';
-  area.appendChild(prompt(streak ? `<b>${last.sunk ? last.sunk + ' sunk!' : 'Hit!'}</b> Fire again — tap a square in their waters.` : 'Tap a square in <b>their waters</b> to fire.'));
-}
-
-function renderSvOver(s) {
-  const box = document.createElement('div');
-  box.className = 'result';
-  const youWin = (s.winners || []).includes(s.seat);
-  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
-  box.appendChild(banner(youWin ? '🏆 Fleet destroyed — you win!' : `${escapeHtml(names)} sinks your fleet`, youWin ? 'win' : 'lose'));
-  const tbl = document.createElement('div');
-  tbl.className = 'li-finals';
-  (s.players || []).forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
-    row.innerHTML =
-      `<span class="sv-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
-      `<span class="li-fbreak">${p.sunkShips.length} of ${p.sunkShips.length + p.afloat} sunk</span>` +
-      `<span class="li-ftotal">${p.afloat}</span>`;
-    tbl.appendChild(row);
-  });
-  box.appendChild(tbl);
-  appendEndButtons(box, s);
-  return box;
-}
-
-function renderSvLog(s) {
-  const ul = $('svLog');
-  ul.innerHTML = '';
-  (s.log || []).forEach((line) => {
-    const li = document.createElement('li');
-    li.textContent = line;
-    ul.appendChild(li);
-  });
+  if (you.spectator || s.phase !== 'place' || you.ready) return;
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.appendChild(actBtn('Shuffle fleet', 'btn btn-ghost btn-lg', () => send({ type: 'shuffleFleet' })));
+  row.appendChild(actBtn('Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
+  area.appendChild(row);
 }
 
 // ---------------------------------------------------------------------------
 // Sealed Bids — two-player blind auction
 // ---------------------------------------------------------------------------
 
-let sbPick = null; // card the player has tapped but not yet confirmed
+let sbPick = null; // card tapped but not yet sealed
 
 function renderSealedBids(s) {
   $('sbRoom').textContent = s.room;
   const pill = $('sbPhase');
-  pill.textContent = s.over ? 'Game over' : `Prize ${s.round} of ${s.rounds}`;
+  pill.textContent = s.over ? 'Over' : `${s.round}/${s.rounds}`;
   pill.className = 'phase-pill';
   $('sbCopy').onclick = copyInvite;
   const you = s.you || {};
   if (!you.canBid) sbPick = null; // a sealed bid can't be taken back
-  renderSbPlayers(s);
+
+  duelRoster('sbPlayers', s, (p) =>
+    (s.over || s.last ? '' : `<span class="duel-tag${p.committed ? ' on' : ''}">${p.committed ? 'sealed' : 'thinking'}</span>`) +
+    `<span>${p.cardsLeft} left</span>` +
+    `<span class="duel-p-num">${p.score}</span>`);
   renderSbTable(s);
   renderSbHand(s);
+  renderSbStatus(s);
   renderSbActions(s);
-  renderSbLog(s);
+  duelLog('sbLog', s);
 }
 
-function renderSbPlayers(s) {
-  const box = $('sbPlayers');
-  const bots = botSeatSet(s);
-  box.innerHTML = '';
-  (s.players || []).forEach((p) => {
-    const chip = document.createElement('div');
-    chip.className = 'sb-pchip' + (p.committed && !s.over ? ' sealed' : '');
-    chip.style.borderColor = seatColor(p.seat);
-    chip.innerHTML =
-      `<span class="sb-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="sb-pname">${escapeHtml(p.name)}${bots.has(p.seat) ? ' 🤖' : ''}${p.seat === s.seat ? ' (you)' : ''}</span>` +
-      `<span class="sb-pspent">${(p.spent || []).length ? (p.spent || []).join(' ') : '—'}</span>` +
-      `<span class="sb-pscore">${p.score}</span>`;
-    box.appendChild(chip);
-  });
-}
-
-// The prize on the table, and — during the reveal — both bids turned face-up.
 function renderSbTable(s) {
   const box = $('sbTable');
   box.innerHTML = '';
-  const pot = s.pot || [];
-
+  // Mid-reveal the pot has already been paid out, so show what was just fought over
+  // rather than the emptied table.
+  const settled = s.last ? s.last.prize : null;
+  const pot = settled || s.pot || [];
+  const total = pot.reduce((x, y) => x + y, 0);
+  if (s.over) {
+    // Nothing left to contest — the spent rows below are the interesting artefact.
+    const done = document.createElement('div');
+    done.className = 'duel-label';
+    done.textContent = `All ${s.rounds} prizes settled`;
+    box.appendChild(done);
+  } else {
   const prize = document.createElement('div');
   prize.className = 'sb-prize' + (pot.length > 1 ? ' carried' : '');
   prize.innerHTML =
-    `<span class="sb-prize-label">${pot.length > 1 ? `${pot.length} prizes riding` : 'Prize'}</span>` +
-    `<span class="sb-prize-val">${s.potTotal}</span>` +
-    (pot.length > 1 ? `<span class="sb-prize-parts">${pot.join(' + ')}</span>` : '<span class="sb-prize-parts">points</span>');
+    `<span class="cap">${pot.length > 1 ? `${pot.length} prizes` : 'Prize'}</span>` +
+    `<span class="val">${total}</span>` +
+    `<span class="sub">${settled ? (s.last.winnerSeat === null ? 'carried over' : 'taken') : pot.length > 1 ? pot.join(' + ') : 'points'}</span>`;
   box.appendChild(prize);
+  }
 
   const last = s.last;
-  if (!last) return;
-  const duel = document.createElement('div');
-  duel.className = 'sb-duel';
-  (s.players || []).forEach((p, i) => {
-    const won = last.winnerSeat === p.seat;
-    const card = document.createElement('div');
-    card.className = 'sb-bidcard' + (won ? ' won' : last.winnerSeat === null ? ' tied' : ' lost');
-    card.style.borderColor = seatColor(p.seat);
-    card.innerHTML = `<span class="sb-bidname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
-      `<span class="sb-bidval">${last.bids[i]}</span>` +
-      `<span class="sb-bidtag">${won ? 'takes it' : last.winnerSeat === null ? 'tied' : 'spent'}</span>`;
-    duel.appendChild(card);
-  });
-  box.appendChild(duel);
-  const verdict = document.createElement('div');
-  verdict.className = 'sb-verdict';
-  verdict.textContent = last.winnerSeat === null
-    ? `Tied — ${last.prize.reduce((a, b) => a + b, 0)} rides on the next prize`
-    : `${last.winnerSeat === s.seat ? 'You take' : (s.players.find((p) => p.seat === last.winnerSeat) || {}).name + ' takes'} ${last.prize.reduce((a, b) => a + b, 0)}`;
-  box.appendChild(verdict);
+  if (last) {
+    const duel = document.createElement('div');
+    duel.className = 'sb-duel';
+    (s.players || []).forEach((p, i) => {
+      const won = last.winnerSeat === p.seat;
+      const card = document.createElement('div');
+      card.className = 'sb-bid' + (won ? ' won' : last.winnerSeat === null ? ' tied' : ' lost');
+      card.innerHTML =
+        `<span class="who">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
+        `<span class="val">${last.bids[i]}</span>` +
+        `<span class="tag">${won ? 'takes it' : last.winnerSeat === null ? 'tied' : 'spent'}</span>`;
+      duel.appendChild(card);
+    });
+    box.appendChild(duel);
+  }
+
+  // what they've already spent is public, and reading it is the game
+  const shown = s.over ? (s.players || []) : (s.players || []).filter((p) => p.seat !== s.seat);
+  for (const p of shown) {
+    if (!(p.spent || []).length) continue;
+    const strip = document.createElement('div');
+    strip.innerHTML = `<div class="duel-label">${p.seat === s.seat ? 'You' : escapeHtml(p.name)} spent</div>` +
+      `<div class="sb-spent">${p.spent.map((c) => `<i>${c}</i>`).join('')}</div>`;
+    box.appendChild(strip);
+  }
 }
 
+/** All thirteen slots, with the ones you've spent left as dashed ghosts. */
 function renderSbHand(s) {
   const box = $('sbHand');
   box.innerHTML = '';
   const you = s.you || {};
-  const hand = you.hand || [];
   if (you.spectator) return;
-  for (const c of hand) {
+  const held = new Set(you.hand || []);
+  for (let c = 1; c <= (s.rounds || 13); c++) {
     const b = document.createElement('button');
-    const isPick = sbPick === c;
-    const isBid = you.bid === c;
-    b.className = 'sb-card' + (isPick ? ' picked' : '') + (isBid ? ' sealed' : '');
+    const spent = !held.has(c);
+    b.className = 'sb-card' + (spent ? ' spent' : '') + (sbPick === c ? ' picked' : '') + (you.bid === c ? ' sealed' : '');
     b.textContent = c;
-    b.disabled = !you.canBid;
-    b.onclick = () => {
-      tapAck(b);
-      sbPick = sbPick === c ? null : c;
-      render();
-    };
+    b.disabled = spent || !you.canBid;
+    if (!spent) {
+      b.onclick = () => {
+        tapAck(b);
+        sbPick = sbPick === c ? null : c;
+        render();
+      };
+    }
     box.appendChild(b);
   }
+}
+
+function renderSbStatus(s) {
+  const you = s.you || {};
+  if (s.over) return duelStatus('sbStatus', 'Every prize is spoken for', false);
+  if (you.spectator) return duelStatus('sbStatus', 'Spectating', false);
+  if (s.last) {
+    return duelStatus('sbStatus', s.last.winnerSeat === null
+      ? `Tied — <b>${s.potTotal}</b> rides on the next prize`
+      : `${s.last.winnerSeat === s.seat ? 'You take' : escapeHtml((s.players.find((p) => p.seat === s.last.winnerSeat) || {}).name) + ' takes'} <b>${s.last.prize.reduce((a, b) => a + b, 0)}</b>`, true);
+  }
+  if (you.bid != null) return duelStatus('sbStatus', `Sealed <b>${you.bid}</b> — waiting for them`, true);
+  if (!you.canBid) return duelStatus('sbStatus', 'Next prize coming up', true);
+  return duelStatus('sbStatus', sbPick == null
+    ? `Bidding for <b>${s.potTotal}</b> — pick a card`
+    : `Bid <b>${sbPick}</b> for <b>${s.potTotal}</b>?`, true);
 }
 
 function renderSbActions(s) {
   const area = $('sbActions');
   area.innerHTML = '';
   if (s.over) {
-    area.appendChild(renderSbOver(s));
+    area.appendChild(duelOver(s, (win, shared, names) => (win ? (shared ? '🤝 Dead heat!' : '🏆 You win!') : `${names} wins`),
+      [...(s.players || [])].sort((a, b) => b.score - a.score).map((p) => ({ seat: p.seat, name: p.name, total: p.score }))));
     return;
   }
   const you = s.you || {};
-  if (you.spectator) {
-    area.appendChild(callout('Spectating this duel', true));
-    return;
-  }
-  if (you.bid != null) {
-    area.appendChild(callout(`Your bid of <b>${you.bid}</b> is sealed — waiting for your opponent`, true));
-    return;
-  }
-  if (!you.canBid) {
-    area.appendChild(callout('Next prize coming up', true));
-    return;
-  }
-  if (sbPick == null) {
-    area.appendChild(prompt(`Tap a card to bid for <b>${s.potTotal}</b> points. Whatever you bid is spent.`));
-    return;
-  }
-  const box = document.createElement('div');
-  box.className = 'sb-confirm';
-  box.appendChild(prompt(`Bid <b>${sbPick}</b> for <b>${s.potTotal}</b> points?`));
-  box.appendChild(actBtn(`Seal bid of ${sbPick}`, 'btn btn-primary btn-lg', () => {
+  if (you.spectator || !you.canBid || sbPick == null) return;
+  area.appendChild(actBtn(`Seal your bid of ${sbPick}`, 'btn btn-primary btn-lg', () => {
     send({ type: 'bid', card: sbPick });
     sbPick = null;
   }));
-  area.appendChild(box);
-}
-
-function renderSbOver(s) {
-  const box = document.createElement('div');
-  box.className = 'result';
-  const youWin = (s.winners || []).includes(s.seat);
-  const shared = (s.winners || []).length > 1;
-  const names = (s.winners || []).map((seat) => (seat === s.seat ? 'You' : (s.players.find((p) => p.seat === seat) || {}).name)).join(', ');
-  box.appendChild(banner(youWin ? (shared ? '🤝 Dead heat!' : '🏆 You win!') : `${escapeHtml(names)} win${shared ? '' : 's'}`, youWin ? 'win' : 'lose'));
-  const tbl = document.createElement('div');
-  tbl.className = 'li-finals';
-  [...(s.players || [])].sort((a, b) => b.score - a.score).forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'li-frow' + ((s.winners || []).includes(p.seat) ? ' win' : '');
-    row.innerHTML =
-      `<span class="sb-pdot" style="background:${seatColor(p.seat)}"></span>` +
-      `<span class="li-fname">${p.seat === s.seat ? 'You' : escapeHtml(p.name)}</span>` +
-      `<span class="li-ftotal">${p.score}</span>`;
-    tbl.appendChild(row);
-  });
-  box.appendChild(tbl);
-  appendEndButtons(box, s);
-  return box;
-}
-
-function renderSbLog(s) {
-  const ul = $('sbLog');
-  ul.innerHTML = '';
-  (s.log || []).forEach((line) => {
-    const li = document.createElement('li');
-    li.textContent = line;
-    ul.appendChild(li);
-  });
 }
 
 // ---------------------------------------------------------------------------

@@ -1417,199 +1417,290 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
   .confetti { display: none; }
 }
 
-/* ── Sealed Bids — two-player blind auction ─────────────────────────────────── */
-.sb-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+/* ===========================================================================
+   Two-player duels — Three Fronts · Salvo · Sealed Bids · Manhunt
+   ---------------------------------------------------------------------------
+   These four share one layout skeleton: a compact roster strip, a raised board
+   panel that carries the game, and a status line above the actions. Only the
+   board interior differs, so the shared parts live here once.
+   =========================================================================== */
+.screen.threefronts { --accent: #d2694a; }
+.screen.salvo { --accent: #35b0c8; }
+.screen.sealedbids { --accent: #e3b23c; }
+.screen.manhunt { --accent: #a06cd5; }
 
-.sb-players { display: flex; flex-direction: column; gap: 6px; }
-.sb-pchip {
-  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
-  padding: 6px 10px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem;
-}
-.sb-pchip.sealed { box-shadow: 0 0 0 1.5px var(--gold) inset; }
-.sb-pdot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
-.sb-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* the cards this player has already spent — public, and the whole basis for reading them */
-.sb-pspent { font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; text-align: right; }
-.sb-pscore { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.15rem; min-width: 2ch; text-align: right; }
+.duel-main { flex: 1; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 0; min-height: 0; }
 
-.sb-table { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.sb-prize {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  width: 108px; padding: 12px 0; border-radius: var(--radius-sm);
-  background: linear-gradient(160deg, #1d2331, var(--surface)); border: 2px solid var(--gold-deep);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+/* --- roster: one compact row per player, the active one lit by the accent --- */
+.duel-roster { display: flex; flex-direction: column; gap: var(--s1); }
+.duel-p {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--s2);
+  padding: 7px 11px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface);
+  font-size: 0.82rem; transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
-.sb-prize.carried { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset, 0 10px 26px rgba(245, 196, 81, 0.22); }
-.sb-prize-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
-.sb-prize-val { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 2.4rem; line-height: 1; color: var(--gold); }
-.sb-prize-parts { font-size: 0.66rem; color: var(--muted); }
+.duel-p.acting { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.duel-p-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2.5px rgba(255, 255, 255, 0.07); }
+.duel-p-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duel-p-name .you { color: var(--faint); font-weight: 500; }
+.duel-p-meta { display: flex; align-items: center; gap: var(--s3); color: var(--muted); font-size: 0.74rem; }
+.duel-p-num { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.duel-p-num .of { font-size: 0.66rem; font-weight: 600; color: var(--faint); }
+.duel-tag {
+  font-size: 0.62rem; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700;
+  padding: 2px 7px; border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--muted);
+}
+.duel-tag.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
-.sb-duel { display: flex; gap: 12px; justify-content: center; }
-.sb-bidcard {
-  display: flex; flex-direction: column; align-items: center; gap: 1px; width: 84px; padding: 8px 0;
-  border-radius: var(--radius-sm); border: 2px solid var(--line); background: var(--surface); animation: sbFlip 0.35s var(--ease);
-}
-.sb-bidcard.won { background: rgba(245, 196, 81, 0.14); }
-.sb-bidcard.lost { opacity: 0.55; }
-.sb-bidname { font-size: 0.66rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 76px; }
-.sb-bidval { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.7rem; line-height: 1.1; }
-.sb-bidtag { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-.sb-verdict { font-size: 0.82rem; font-weight: 600; color: var(--ink); text-align: center; }
-@keyframes sbFlip { from { transform: rotateY(90deg); opacity: 0; } to { transform: rotateY(0); opacity: 1; } }
-
-.sb-hand { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-.sb-card {
-  width: 40px; height: 56px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: var(--surface-2);
-  color: var(--ink); font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.1rem; cursor: pointer;
-  transition: transform 0.12s var(--ease), border-color 0.12s var(--ease);
-}
-.sb-card:disabled { opacity: 0.4; cursor: default; }
-.sb-card.picked { transform: translateY(-7px); border-color: var(--gold); box-shadow: 0 0 0 1.5px var(--gold) inset; }
-.sb-card.sealed { border-color: var(--gold); background: rgba(245, 196, 81, 0.16); }
-.sb-confirm { display: flex; flex-direction: column; gap: 8px; }
-
-/* ── Salvo — two-player hidden fleets ──────────────────────────────────────── */
-.sv-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 10px 0; overflow-y: auto; min-height: 0; }
-
-.sv-players { display: flex; flex-direction: column; gap: 6px; }
-.sv-pchip {
-  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
-  padding: 6px 10px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem;
-}
-.sv-pchip.acting { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
-.sv-pdot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
-.sv-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sv-pfleet { display: flex; gap: 3px; }
-.sv-pip { width: 7px; height: 12px; border-radius: 2px; background: var(--ink); opacity: 0.75; }
-.sv-pip.down { background: var(--bad, #e5483f); opacity: 0.5; }
-.sv-pstate { font-size: 0.68rem; color: var(--muted); min-width: 6ch; text-align: right; }
-
-.sv-boards { display: flex; flex-direction: column; gap: 12px; align-items: center; }
-.sv-grid-wrap { width: 100%; max-width: 340px; }
-.sv-grid-title { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 5px; text-align: center; }
-.sv-grid { display: grid; gap: 2px; }
-.sv-cell {
-  aspect-ratio: 1; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(80, 140, 200, 0.13); padding: 0; cursor: default; position: relative;
-}
-.sv-cell:not(:disabled) { cursor: pointer; }
-.sv-cell:not(:disabled):hover { background: rgba(120, 190, 255, 0.3); }
-/* your own ships, drawn as hull plating */
-.sv-cell.ship { background: #55627a; border-color: rgba(255, 255, 255, 0.18); }
-.sv-cell.ship.sunk { background: #3a2020; }
-/* shot results read the same on both grids */
-.sv-cell.miss::after {
-  content: ''; position: absolute; inset: 38%; border-radius: 50%; background: var(--muted); opacity: 0.75;
-}
-.sv-cell.hit { background: #b8402f; border-color: #ff8a72; }
-.sv-cell.hit::after {
-  content: '✕'; position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: 0.7rem; font-weight: 800; color: #ffe2dc;
-}
-.sv-cell.wreck { background: #5c2a24; }
-.sv-cell.last { box-shadow: 0 0 0 2px var(--gold); z-index: 1; }
-
-@media (min-width: 560px) {
-  .sv-boards { flex-direction: row; align-items: flex-start; justify-content: center; }
-  .sv-grid-wrap { max-width: 300px; }
+/* --- the board panel every duel sits in --- */
+.duel-board {
+  border-radius: var(--r-lg); padding: var(--s3);
+  background: radial-gradient(125% 100% at 50% 0%, #1a2130 0%, #0e1320 74%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 2px 18px rgba(0, 0, 0, 0.5), var(--e2);
 }
 
-/* ── Three Fronts — two-player card duel ───────────────────────────────────── */
-.tf-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
-
-.tf-players { display: flex; flex-direction: column; gap: 6px; }
-.tf-pchip {
-  display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 8px;
-  padding: 6px 10px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem;
+/* --- status line: the sentence that says whose move it is and why --- */
+.duel-status {
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: 34px; padding: 6px var(--s3); border-radius: var(--r-pill);
+  background: var(--surface); border: 1px solid var(--line);
+  font-size: 0.84rem; font-weight: 600; color: var(--muted); text-align: center;
 }
-.tf-pchip.acting { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
-.tf-pdot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
-.tf-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tf-pcards { font-size: 0.7rem; color: var(--muted); letter-spacing: -2px; }
-.tf-pfronts { font-size: 0.7rem; color: var(--muted); }
-.tf-pscore { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.05rem; }
-.tf-pscore i { font-style: normal; font-size: 0.66rem; font-weight: 600; color: var(--muted); }
+.duel-status b { color: var(--ink); font-weight: 750; }
+.duel-status.live { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--ink); }
+.duel-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; animation: duelPulse 1.6s ease-in-out infinite; }
+@keyframes duelPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
-/* three columns, one per front */
-.tf-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+/* monochrome inline icons — emoji render differently on every platform */
+.ico { width: 1em; height: 1em; display: inline-block; vertical-align: -0.13em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ico.solid { fill: currentColor; stroke: none; }
+.ico.stroked { stroke-width: 2.6; }
+
+/* --- section label used above sub-boards --- */
+.duel-label {
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 700;
+  color: var(--faint); text-align: center; margin-bottom: var(--s2);
+}
+
+/* ── Three Fronts ─────────────────────────────────────────────────────────── */
+.tf-fronts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .tf-front {
-  display: flex; flex-direction: column; gap: 5px; padding: 7px 5px; border-radius: var(--radius-sm);
-  border: 1.5px solid var(--line); background: var(--surface); min-height: 168px;
+  display: flex; flex-direction: column; border-radius: var(--r); overflow: hidden;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.022);
+  transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
-.tf-front.mine { border-color: rgba(120, 220, 150, 0.5); background: rgba(90, 200, 130, 0.07); }
-.tf-front.theirs { border-color: rgba(229, 72, 63, 0.45); background: rgba(229, 72, 63, 0.06); }
-.tf-front.droppable { border-color: var(--gold); box-shadow: 0 0 0 1.5px var(--gold) inset; cursor: pointer; }
-.tf-fhead { display: flex; align-items: center; justify-content: center; gap: 4px; }
-.tf-ficon { font-size: 0.9rem; }
-.tf-fname { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
-.tf-fstack { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; min-height: 34px; align-content: flex-start; }
-.tf-fstack.theirs { flex-direction: row-reverse; }
-.tf-empty { height: 32px; }
-.tf-fscore {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  font-family: 'Outfit', sans-serif; font-size: 0.85rem; color: var(--muted);
-  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 3px 0;
+.tf-front.mine { border-color: rgba(52, 211, 153, 0.42); }
+.tf-front.theirs { border-color: rgba(251, 113, 133, 0.38); }
+.tf-front.droppable { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 18px -6px var(--accent); cursor: pointer; }
+.tf-fhead {
+  display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 4px;
+  background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid var(--line);
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 800; color: var(--muted);
 }
-.tf-fscore b { font-weight: 800; font-size: 1rem; color: var(--ink); opacity: 0.6; }
-.tf-fscore b.lead { opacity: 1; color: var(--gold); }
-.tf-fscore span { font-size: 0.6rem; }
-.tf-fbonus { font-size: 0.58rem; color: var(--muted); text-align: center; line-height: 1.3; }
+.tf-fhead .ico { width: 12px; height: 12px; }
+/* each side's committed cards; the runner-up rows keep a fixed height so the
+   three columns stay level however lopsided the battle gets */
+.tf-stack { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; align-content: flex-start; padding: 6px 4px; min-height: 38px; }
+.tf-stack.theirs { align-content: flex-end; }
+.tf-tally {
+  display: flex; align-items: center; justify-content: center; gap: 7px; padding: 4px 0;
+  background: rgba(0, 0, 0, 0.22); border-block: 1px solid var(--line);
+  font-family: 'Outfit', sans-serif; font-variant-numeric: tabular-nums;
+}
+.tf-tally b { font-size: 1rem; font-weight: 800; color: var(--faint); }
+.tf-tally b.lead { color: var(--accent); }
+.tf-tally .v { font-size: 0.56rem; color: var(--faint); }
+.tf-bonus { padding: 4px 5px 6px; display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; min-height: 22px; }
+.tf-bchip {
+  font-size: 0.54rem; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700;
+  padding: 1.5px 5px; border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--faint);
+}
+.tf-bchip.idle { color: var(--faint); border-style: dashed; opacity: 0.65; }
+.tf-bchip.mine { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
+.tf-bchip.theirs { color: var(--bad); border-color: rgba(251, 113, 133, 0.3); }
 
-/* a committed card, in a stack */
+/* a card committed to a front */
 .tf-card {
-  width: 24px; height: 32px; border-radius: 4px; border: 1px solid var(--line-strong); background: var(--surface-2);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;
+  width: 22px; height: 29px; border-radius: 4px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; line-height: 1; flex: none;
+  border: 1px solid var(--line-strong); background: linear-gradient(160deg, #2b3346, #1d2434);
 }
-.tf-card.down { color: var(--muted); font-size: 0.9rem; background: repeating-linear-gradient(45deg, #232a38, #232a38 3px, #1b2130 3px, #1b2130 6px); }
-.tf-card.was-down { border-style: dashed; }
-.tf-crank { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.85rem; }
-.tf-cicon { font-size: 0.55rem; opacity: 0.8; }
+.tf-card .r { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.8rem; }
+.tf-card .ico { width: 8px; height: 8px; opacity: 0.7; margin-top: 1px; }
+.tf-card.down {
+  background: repeating-linear-gradient(-45deg, #263049, #263049 3px, #1e2740 3px, #1e2740 6px);
+  border-color: rgba(255, 255, 255, 0.2); color: var(--faint);
+}
+.tf-card.down::after { content: ''; width: 8px; height: 8px; border-radius: 2px; border: 1.5px solid currentColor; opacity: 0.55; }
+.tf-card.revealed { border-style: dashed; border-color: var(--accent); }
+.tf-card.mine { box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28); }
 
-.tf-hand { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+/* your hand */
+.tf-hand { display: flex; gap: var(--s1); justify-content: center; flex-wrap: wrap; }
 .tf-handcard {
-  width: 42px; height: 58px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: var(--surface-2);
-  color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  cursor: pointer; transition: transform 0.12s var(--ease), border-color 0.12s var(--ease);
+  width: 46px; height: 62px; border-radius: 9px; padding: 0; cursor: pointer;
+  border: 1px solid var(--line-strong); background: linear-gradient(165deg, #2f394e, #1e2635);
+  color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  box-shadow: var(--e1); transition: transform 0.14s var(--ease), box-shadow 0.14s var(--ease), border-color 0.14s var(--ease);
 }
-.tf-handcard:disabled { opacity: 0.4; cursor: default; }
-.tf-handcard .tf-crank { font-size: 1.2rem; }
-.tf-handcard .tf-cicon { font-size: 0.8rem; }
-.tf-handcard.picked { transform: translateY(-7px); border-color: var(--gold); box-shadow: 0 0 0 1.5px var(--gold) inset; }
+.tf-handcard:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+.tf-handcard .r { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.3rem; line-height: 1; }
+.tf-handcard .ico { width: 13px; height: 13px; opacity: 0.75; }
+.tf-handcard.picked { transform: translateY(-8px); border-color: var(--accent); box-shadow: 0 10px 22px -8px var(--accent), 0 0 0 1px var(--accent) inset; }
+.tf-handcard.picked .ico { opacity: 1; }
 
-/* ── Manhunt — two-player hidden movement ──────────────────────────────────── */
-.mh-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; overflow-y: auto; min-height: 0; }
-
-.mh-players { display: flex; flex-direction: column; gap: 6px; }
-.mh-pchip {
-  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
-  padding: 6px 10px; border-radius: var(--radius-sm); border: 1.5px solid var(--line); background: var(--surface); font-size: 0.8rem;
+/* face-up / face-down toggle */
+.tf-mode { display: flex; gap: 0; padding: 3px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line); }
+.tf-mode button {
+  flex: 1; font: inherit; font-size: 0.78rem; font-weight: 700; padding: 8px 10px; border: none; cursor: pointer;
+  border-radius: var(--r-pill); background: transparent; color: var(--muted); transition: background 0.18s, color 0.18s;
 }
-.mh-pchip.acting { background: var(--surface-2); box-shadow: 0 0 0 1.5px var(--gold) inset; }
-.mh-pdot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
-.mh-pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mh-prole { font-size: 0.7rem; color: var(--muted); }
-.mh-psurv { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 0.8rem; min-width: 6ch; text-align: right; }
+.tf-mode button.on { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.tf-withdraw {
+  width: 100%; font: inherit; font-size: 0.76rem; font-weight: 600; cursor: pointer;
+  padding: 9px; border-radius: var(--r-sm); border: 1px dashed var(--line-strong);
+  background: transparent; color: var(--muted);
+}
+.tf-withdraw:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.tf-withdraw b { color: var(--ink); }
 
+/* ── Salvo ────────────────────────────────────────────────────────────────── */
+.sv-boards { display: flex; flex-direction: column; gap: var(--s4); }
+.sv-grid-wrap { margin: 0 auto; width: 100%; max-width: 330px; }
+/* Your own waters are reference, not a target — give the grid you actually shoot
+   into the billing, and keep the whole screen above the fold. */
+.sv-grid-wrap.own { max-width: 216px; }
+.sv-grid-wrap.own .sv-grid { grid-template-columns: 11px repeat(8, 1fr); gap: 1.5px; }
+.sv-grid-wrap.own .sv-coord { font-size: 0.48rem; }
+/* a corner cell, then the file letters; each row is led by its rank number */
+.sv-grid { display: grid; grid-template-columns: 14px repeat(8, 1fr); gap: 2px; }
+.sv-coord {
+  display: grid; place-items: center; font-size: 0.56rem; font-weight: 700;
+  color: var(--faint); font-family: 'Outfit', sans-serif; letter-spacing: 0.04em;
+}
+.sv-cell {
+  aspect-ratio: 1; border-radius: 2px; padding: 0; position: relative; cursor: default;
+  border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(90, 140, 190, 0.1);
+}
+.sv-cell:not(:disabled) { cursor: crosshair; }
+.sv-cell:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
+/* your own hull: square off the sides that continue into the same ship, so a
+   five-cell carrier reads as one object rather than five loose tiles */
+.sv-cell.ship { background: #5a6880; border-color: rgba(255, 255, 255, 0.22); border-radius: 5px; }
+.sv-cell.ship.jn { border-top-left-radius: 0; border-top-right-radius: 0; border-top-color: transparent; }
+.sv-cell.ship.js { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+.sv-cell.ship.jw { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: transparent; }
+.sv-cell.ship.je { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
+.sv-cell.ship.sunk { background: #4a2b2b; border-color: rgba(251, 113, 133, 0.3); }
+.sv-cell.miss::after {
+  content: ''; position: absolute; inset: 0; margin: auto; width: 22%; height: 22%;
+  border-radius: 50%; background: rgba(255, 255, 255, 0.42);
+}
+.sv-cell.hit { background: #c0392b; border-color: #ff9b8a; }
+.sv-cell.hit::after {
+  content: ''; position: absolute; inset: 24%;
+  background: linear-gradient(45deg, transparent 44%, #ffe4dd 44%, #ffe4dd 56%, transparent 56%),
+              linear-gradient(-45deg, transparent 44%, #ffe4dd 44%, #ffe4dd 56%, transparent 56%);
+}
+.sv-cell.wreck { background: #5e2b26; }
+.sv-cell.last { box-shadow: 0 0 0 2px var(--gold); z-index: 1; }
+/* fleet pips in the roster */
+.sv-fleet { display: flex; gap: 2px; }
+.sv-pip { width: 4px; border-radius: 1px; background: var(--ink); opacity: 0.8; }
+.sv-pip.down { background: var(--bad); opacity: 0.45; }
+@media (min-width: 620px) { .sv-boards { flex-direction: row; justify-content: center; align-items: flex-start; } }
+
+/* ── Sealed Bids ──────────────────────────────────────────────────────────── */
+.sb-table { display: flex; flex-direction: column; align-items: center; gap: var(--s3); padding: var(--s2) 0; }
+.sb-prize {
+  position: relative; width: 116px; padding: var(--s3) 0; border-radius: var(--r);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  background: linear-gradient(165deg, #2c2a20, #17181f); border: 1px solid var(--gold-deep);
+  box-shadow: 0 14px 30px -14px rgba(245, 196, 81, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.sb-prize.carried { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset, 0 16px 34px -12px rgba(245, 196, 81, 0.55); }
+.sb-prize .cap { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); }
+.sb-prize .val { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 2.6rem; line-height: 1; color: var(--gold); }
+.sb-prize .sub { font-size: 0.62rem; color: var(--muted); }
+.sb-duel { display: flex; gap: var(--s3); align-items: stretch; }
+.sb-bid {
+  width: 92px; padding: var(--s2) 0; border-radius: var(--r-sm); text-align: center;
+  border: 1px solid var(--line); background: var(--surface); animation: sbFlip 0.4s var(--ease);
+}
+.sb-bid.won { border-color: var(--good); background: rgba(52, 211, 153, 0.1); }
+.sb-bid.lost { opacity: 0.5; }
+.sb-bid.tied { border-color: var(--gold); background: rgba(245, 196, 81, 0.08); }
+.sb-bid .who { display: block; font-size: 0.62rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; }
+.sb-bid .val { display: block; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.6rem; line-height: 1.15; }
+.sb-bid .tag { display: block; font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+@keyframes sbFlip { from { transform: rotateX(85deg); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.sb-hand { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1); }
+.sb-card {
+  aspect-ratio: 5 / 7; border-radius: 7px; padding: 0; cursor: pointer;
+  border: 1px solid var(--line-strong); background: linear-gradient(165deg, #2b3346, #1c2331);
+  color: var(--ink); font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1rem;
+  transition: transform 0.14s var(--ease), border-color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+}
+.sb-card.spent { background: transparent; border-style: dashed; border-color: var(--line); color: var(--faint); opacity: 0.45; cursor: default; }
+.sb-card:disabled:not(.spent) { opacity: 0.6; cursor: default; }
+.sb-card.picked { transform: translateY(-6px); border-color: var(--accent); box-shadow: 0 9px 20px -9px var(--accent), 0 0 0 1px var(--accent) inset; }
+.sb-card.sealed { border-color: var(--gold); background: rgba(245, 196, 81, 0.16); color: var(--gold); }
+/* what the opponent has already spent — the whole basis for reading them */
+.sb-spent { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
+.sb-spent i {
+  font-style: normal; font-size: 0.6rem; font-family: 'Outfit', sans-serif; font-weight: 700;
+  min-width: 15px; text-align: center; padding: 1px 3px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05); color: var(--faint);
+}
+
+/* ── Manhunt ──────────────────────────────────────────────────────────────── */
 .mh-map { display: flex; justify-content: center; }
-.mh-svg { width: 100%; max-width: 380px; height: auto; touch-action: manipulation; }
-.mh-edge { stroke-linecap: round; fill: none; }
-.mh-edge.taxi { stroke: rgba(255, 255, 255, 0.16); stroke-width: 0.7; }
-.mh-edge.bus { stroke: rgba(90, 190, 255, 0.3); stroke-width: 1.1; }
-.mh-edge.tube { stroke: rgba(229, 120, 63, 0.34); stroke-width: 1.8; stroke-dasharray: 3 2; }
-.mh-node { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 0.5; }
-.mh-node.dest { fill: var(--gold-deep); stroke: var(--gold); stroke-width: 0.9; cursor: pointer; animation: mhPulse 1.1s ease-in-out infinite; }
-@keyframes mhPulse { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
-.mh-nlabel { font: 700 2.6px 'Outfit', sans-serif; fill: var(--muted); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-/* the runner's last confirmed sighting lingers as a ring */
-.mh-seen { fill: none; stroke: var(--gold); stroke-width: 0.6; stroke-dasharray: 2 1.6; opacity: 0.7; }
-.mh-agent { fill: #4aa3ff; stroke: #0b0f17; stroke-width: 0.5; pointer-events: none; }
-.mh-agent.next { stroke: var(--gold); stroke-width: 0.9; }
-.mh-runner { fill: #f5c451; stroke: #0b0f17; stroke-width: 0.5; pointer-events: none; }
-
-.mh-trail { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; min-height: 22px; }
-.mh-trail-empty { font-size: 0.7rem; color: var(--muted); }
-.mh-tstep {
-  font-size: 0.72rem; padding: 2px 6px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+.mh-svg { width: 100%; max-width: 340px; height: auto; touch-action: manipulation; display: block; }
+.mh-edge { fill: none; stroke-linecap: round; }
+.mh-edge.taxi { stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.55; }
+.mh-edge.bus { stroke: rgba(96, 165, 250, 0.34); stroke-width: 1.1; }
+.mh-edge.tube { stroke: rgba(244, 114, 92, 0.4); stroke-width: 1.9; }
+.mh-stop { fill: #1b2333; stroke: rgba(255, 255, 255, 0.2); stroke-width: 0.5; }
+.mh-stop.dest { fill: color-mix(in srgb, var(--accent) 34%, #1b2333); stroke: var(--accent); stroke-width: 1.1; cursor: pointer; }
+.mh-halo { fill: none; stroke: var(--accent); stroke-width: 0.7; opacity: 0.5; animation: mhHalo 1.7s ease-out infinite; }
+@keyframes mhHalo { 0% { r: 3.4; opacity: 0.55; } 100% { r: 6.4; opacity: 0; } }
+.mh-slabel { font: 700 2.4px 'Outfit', sans-serif; fill: rgba(255, 255, 255, 0.45); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.mh-slabel.on { fill: #fff; pointer-events: auto; cursor: pointer; }
+.mh-seen { fill: none; stroke: var(--gold); stroke-width: 0.5; stroke-dasharray: 1.6 1.4; opacity: 0.8; }
+.mh-token { pointer-events: none; }
+.mh-token .body { stroke: #0b0f17; stroke-width: 0.45; }
+.mh-agent .body { fill: #60a5fa; }
+.mh-agent.next .body { stroke: var(--gold); stroke-width: 0.7; }
+.mh-runner .body { fill: var(--gold); }
+.mh-token .mark { font: 800 2.1px 'Outfit', sans-serif; fill: #0b0f17; text-anchor: middle; dominant-baseline: central; }
+/* route legend / picker — the swatch matches the line on the map */
+.mh-routes { display: flex; gap: var(--s1); }
+.mh-route {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px;
+  border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: inherit; font-size: 0.68rem; font-weight: 700; cursor: pointer;
+  transition: border-color 0.16s var(--ease), background 0.16s var(--ease), color 0.16s var(--ease);
 }
-.mh-tstep.seen { border-color: var(--gold); background: rgba(245, 196, 81, 0.14); font-weight: 700; }
+.mh-route .line { width: 22px; height: 3px; border-radius: 2px; }
+.mh-route.taxi .line { background: rgba(255, 255, 255, 0.5); }
+.mh-route.bus .line { background: #60a5fa; }
+.mh-route.tube .line { background: #f4725c; }
+.mh-route .n { font-family: 'Outfit', sans-serif; font-size: 0.82rem; color: var(--ink); }
+.mh-route.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--ink); }
+.mh-route:disabled { opacity: 0.35; cursor: default; }
+/* the trail of transports the runner has used */
+.mh-trail { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; align-items: center; min-height: 24px; }
+.mh-trail .empty { font-size: 0.68rem; color: var(--faint); }
+.mh-step {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 0.62rem; font-weight: 700;
+  padding: 2px 6px; border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--muted);
+  font-family: 'Outfit', sans-serif;
+}
+.mh-step .line { width: 9px; height: 2.5px; border-radius: 2px; }
+.mh-step .t { font-style: normal; opacity: 0.45; }
+.mh-step.taxi .line { background: rgba(255, 255, 255, 0.5); }
+.mh-step.bus .line { background: #60a5fa; }
+.mh-step.tube .line { background: #f4725c; }
+.mh-step.seen { border-color: var(--gold); color: var(--gold); background: rgba(245, 196, 81, 0.1); }
+.duel-board .mh-trail { margin-top: var(--s3); }
