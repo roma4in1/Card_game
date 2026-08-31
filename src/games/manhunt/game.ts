@@ -1,9 +1,15 @@
 // games/manhunt/game.ts — "Manhunt", a two-player hidden-movement pursuit.
 //
-// One player runs, hidden. The other hunts with two agents that both move every turn. The
+// One player runs, hidden. The other hunts with three agents that all move every turn. The
 // runner leaks exactly two things: the TRANSPORT they took (announced every turn, so the
 // hunter can reason about how far they could have gone) and their actual position, but only
 // on every third turn, when they have to surface.
+//
+// Announcing the transport only works if the map is big enough to hide in. On the first
+// 4×4 board it was not: a taxi offered three exits, a bus two, the underground barely one,
+// so one announcement narrowed the runner to a single stop 40% of the time and the doubt
+// never grew back between surfacings. Hence 30 stops, diagonal taxi hops, and six
+// underground hubs — the same announcement now leaves the hunt a real question to answer.
 //
 // Asymmetric games are unfair over one run, so a match is TWO halves — you each run once,
 // from the identical starting position, and whoever survives longer wins. That makes the
@@ -18,6 +24,15 @@ import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../p
 
 const TURNS = 12; // a half lasts this many turns if the runner is never caught
 const SURFACE_EVERY = 3; // …and they must surface on every third one
+// The map has to be big and well connected enough that announcing the transport does not
+// hand over the position. On a 4×4 grid it did: from a known stop a taxi offered 3 exits,
+// a bus 2 and the underground 1.5, so one announcement pinned the runner outright most of
+// the time and the belief never recovered between surfacings.
+const COLS = 5;
+const ROWS = 6;
+// Three agents on thirty stops. Two could not close a net this size once the map was big
+// enough to hide in — half the matches ended with nobody caught either way.
+const AGENTS = 3;
 const HALF_BREAK_MS = 4500; // pause between the two halves
 
 /** Transports, slowest to fastest. A runner announces which they took, never where to. */
@@ -27,9 +42,9 @@ export const TRANSPORT = [
   { key: 'tube', name: 'Underground', icon: '🚇' },
 ];
 
-// The map: 16 nodes on a 4×4 grid. Taxis hop to a neighbour, buses skip a node, and the
-// underground links the four corners and the middle — few stations, but they cross the map.
-export const NODES = Array.from({ length: 16 }, (_, i) => ({ id: i, x: i % 4, y: Math.floor(i / 4) }));
+// The map: 30 stops on a 5×6 grid. Taxis hop to a neighbour or a diagonal, buses skip a
+// stop, and the underground links six hubs right across the board.
+export const NODES = Array.from({ length: COLS * ROWS }, (_, i) => ({ id: i, x: i % COLS, y: Math.floor(i / COLS) }));
 
 function buildEdges(): number[][][] {
   const edges: number[][][] = TRANSPORT.map(() => NODES.map(() => [] as number[]));
@@ -37,15 +52,20 @@ function buildEdges(): number[][][] {
     if (!edges[t][a].includes(b)) edges[t][a].push(b);
     if (!edges[t][b].includes(a)) edges[t][b].push(a);
   };
+  const at = (x: number, y: number) => y * COLS + x;
   for (const n of NODES) {
-    // taxi: orthogonal neighbours
-    if (n.x < 3) link(0, n.id, n.id + 1);
-    if (n.y < 3) link(0, n.id, n.id + 4);
-    // bus: skip one, along a row or a column
-    if (n.x < 2) link(1, n.id, n.id + 2);
-    if (n.y < 2) link(1, n.id, n.id + 8);
+    // taxi: orthogonal neighbours, plus diagonals — the fan-out is what buys the runner
+    // room, so a taxi from an interior stop opens eight ways rather than four
+    if (n.x < COLS - 1) link(0, n.id, at(n.x + 1, n.y));
+    if (n.y < ROWS - 1) link(0, n.id, at(n.x, n.y + 1));
+    if (n.x < COLS - 1 && n.y < ROWS - 1) link(0, n.id, at(n.x + 1, n.y + 1));
+    if (n.x > 0 && n.y < ROWS - 1) link(0, n.id, at(n.x - 1, n.y + 1));
+    // bus: skip a stop along a row or a column
+    if (n.x < COLS - 2) link(1, n.id, at(n.x + 2, n.y));
+    if (n.y < ROWS - 2) link(1, n.id, at(n.x, n.y + 2));
   }
-  for (const [a, b] of [[0, 3], [3, 15], [15, 12], [12, 0], [5, 10], [6, 9]]) link(2, a, b);
+  // underground: six hubs, each reaching clear across the map
+  for (const [a, b] of [[0, 4], [4, 29], [29, 25], [25, 0], [0, 12], [12, 29], [4, 22], [22, 25], [12, 22]]) link(2, a, b);
   return edges;
 }
 export const EDGES = buildEdges();
@@ -123,7 +143,7 @@ function beginHalf(s: MHState, half: number) {
   s.trail = [];
   s.caught = false;
   s.phase = 'run';
-  log(s, `Half ${half + 1}: ${nameOf(s, s.runner)} runs, ${nameOf(s, hunterOf(s))} hunts. ${TURNS} turns.`);
+  log(s, `Half ${half + 1}: ${nameOf(s, s.runner)} runs from stop ${s.startRunner + 1}, ${nameOf(s, hunterOf(s))} hunts. ${TURNS} turns.`);
 }
 
 function endHalf(s: MHState, survivedTurns: number, now: number) {
@@ -197,12 +217,12 @@ function huntMove(s: MHState, pid: number, toRaw: unknown, now: number): ActionR
     endHalf(s, s.turn - 1, now); // caught during this turn, so it doesn't count as survived
     return ok;
   }
-  if (s.hunterPiece === 0) {
-    s.hunterPiece = 1;
+  if (s.hunterPiece < s.hunterAt.length - 1) {
+    s.hunterPiece += 1;
     return ok;
   }
 
-  // Both agents have moved — the turn is complete.
+  // Every agent has moved — the turn is complete.
   if (s.turn >= TURNS) {
     endHalf(s, TURNS, now);
     return ok;
@@ -234,8 +254,11 @@ function viewState(s: MHState, seat: number | null): Record<string, unknown> {
   const done = s.phase !== 'run'; // between halves and at the end, everything is shown
   const seen = lastSeen(s);
   // A surfaced runner stays in plain sight until they move again — the last trail entry
-  // carrying a node means exactly that, since every move pushes a fresh one.
-  const inTheOpen = s.trail.length > 0 && s.trail[s.trail.length - 1].node !== null;
+  // carrying a node means exactly that, since every move pushes a fresh one. Before the
+  // first move of a half the start is on show too: the second-half hunter has already run
+  // from that very stop, so hiding it in the first half only made the two runs unequal —
+  // and the whole match is a comparison of those two runs.
+  const inTheOpen = s.trail.length === 0 || s.trail[s.trail.length - 1].node !== null;
 
   const players = Array.from({ length: s.np }, (_, pid) => ({
     seat: s.order[pid],
@@ -310,6 +333,25 @@ function distances(from: number): number[] {
   return dist;
 }
 
+/** Every stop the runner could be standing on, given ONLY what the hunt can see: the
+ *  start, the transports announced since, each surfacing, and the fact that the runner
+ *  never steps onto an agent. This is the deduction a human hunter does on the trail —
+ *  the bot must reason from it rather than from `runnerAt`, which it is not entitled to. */
+export function beliefSet(s: MHState): number[] {
+  let belief = new Set<number>([s.startRunner]);
+  for (const step of s.trail) {
+    if (step.node !== null) {
+      belief = new Set([step.node]);
+      continue;
+    }
+    const next = new Set<number>();
+    for (const from of belief) for (const to of exits(from, step.transport)) next.add(to);
+    belief = next;
+  }
+  for (const h of s.hunterAt) belief.delete(h); // they would have been caught
+  return [...belief];
+}
+
 function botMove(s: MHState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.phase !== 'run' || s.over) return null;
   const pid = s.order.indexOf(seat);
@@ -337,14 +379,26 @@ function botMove(s: MHState, seat: number, rng: Rng): Record<string, unknown> | 
   const from = s.hunterAt[s.hunterPiece];
   const opts = allMoves(from).filter((m) => !s.hunterAt.some((n, i) => i !== s.hunterPiece && n === m.to));
   if (!opts.length) return null;
-  const seen = lastSeen(s);
-  // Nothing sighted yet: fan out toward the middle of the map rather than sit still.
-  const focus = seen ? seen.node! : 5 + Math.floor(rng() * 2) * 5;
-  const toFocus = distances(focus);
+
+  // Close on the whole belief set, not just the last sighting: land on a candidate stop if
+  // one is in reach, otherwise take the move that sits nearest the most candidates. Agents
+  // spread across the set instead of all chasing the same stop — the other agents' own
+  // distances are subtracted, so this one goes where it is most needed.
+  const belief = beliefSet(s);
+  if (!belief.length) return { type: 'hunt', to: opts[Math.floor(rng() * opts.length)].to };
+  const others = s.hunterAt.filter((_, i) => i !== s.hunterPiece).map((h) => distances(h));
   let best = opts[0];
   let bestScore = Infinity;
   for (const m of opts) {
-    const score = toFocus[m.to] + rng() * 0.5;
+    if (belief.includes(m.to)) return { type: 'hunt', to: m.to }; // a chance of an outright catch
+    const d = distances(m.to);
+    let score = 0;
+    for (const b of belief) {
+      const mine = d[b];
+      const nearestOther = others.length ? Math.min(...others.map((o) => o[b])) : Infinity;
+      score += Math.min(mine, nearestOther); // only count what nobody else already covers
+    }
+    score = score / belief.length + rng() * 0.25;
     if (score < bestScore) {
       bestScore = score;
       best = m;
@@ -360,7 +414,7 @@ function botMove(s: MHState, seat: number, rng: Rng): Record<string, unknown> | 
 export const manhunt: GameDef<MHState> = {
   id: 'manhunt',
   name: 'Manhunt',
-  blurb: 'One runs hidden, one hunts with two agents. Swap roles at half time — outlast their run to win.',
+  blurb: 'One runs hidden, one hunts with three agents. Swap roles at half time — outlast their run to win.',
   minPlayers: 2,
   maxPlayers: 2,
 
@@ -374,12 +428,21 @@ export const manhunt: GameDef<MHState> = {
 
     // One opening position, used for BOTH halves, so each player runs the same puzzle.
     const startRunner = Math.floor(ctx.rng() * NODES.length);
+    // Agents start spread out and clear of the runner: take the stops furthest away, but
+    // keep them apart from each other so they do not open the hunt bunched together.
     const far = distances(startRunner)
       .map((d, id) => ({ d, id }))
       .filter((n) => n.d >= 2)
-      .sort((a, b) => b.d - a.d);
-    const startHunters = [far[0].id, far[Math.min(far.length - 1, 1 + Math.floor(ctx.rng() * 3))].id];
-    if (startHunters[0] === startHunters[1]) startHunters[1] = far[far.length - 1].id;
+      .sort((a, b) => b.d - a.d || a.id - b.id);
+    const startHunters: number[] = [];
+    for (const cand of far) {
+      if (startHunters.length >= AGENTS) break;
+      if (startHunters.every((h) => distances(h)[cand.id] >= 2)) startHunters.push(cand.id);
+    }
+    for (const cand of far) { // top up if the spacing rule was too strict for this map
+      if (startHunters.length >= AGENTS) break;
+      if (!startHunters.includes(cand.id)) startHunters.push(cand.id);
+    }
 
     const s: MHState = {
       players,

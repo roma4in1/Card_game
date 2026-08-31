@@ -126,6 +126,114 @@ test('shuffling rerolls your fleet until you give the order, then it is locked',
   assert.equal(s.phase, 'play', 'both ready → guns out');
 });
 
+test('you can place a ship anywhere it legally fits, bow first', () => {
+  const ctx = mkCtx(seeded(5));
+  const s = def.create(setup, ctx) as SVState;
+  s.fleets[0] = [
+    { name: 'Carrier', size: 5, x: 0, y: 0, horiz: true, hits: 0 },
+    { name: 'Destroyer', size: 2, x: 0, y: 7, horiz: true, hits: 0 },
+  ];
+  assert.equal(act(s, 0, { type: 'placeShip', index: 1, x: 3, y: 3, horiz: false }, ctx).error, undefined);
+  assert.deepEqual({ ...s.fleets[0][1] }, { name: 'Destroyer', size: 2, x: 3, y: 3, horiz: false, hits: 0 });
+  assert.equal(s.fleets[0][0].x, 0, 'the other ships are untouched');
+  // omitting `horiz` keeps the orientation it already had
+  assert.equal(act(s, 0, { type: 'placeShip', index: 1, x: 6, y: 2 }, ctx).error, undefined);
+  assert.equal(s.fleets[0][1].horiz, false);
+});
+
+test('a ship cannot be placed off the board, onto another ship, or by the wrong player', () => {
+  const ctx = mkCtx(seeded(6));
+  const s = def.create(setup, ctx) as SVState;
+  s.fleets[0] = [
+    { name: 'Carrier', size: 5, x: 0, y: 0, horiz: true, hits: 0 },
+    { name: 'Destroyer', size: 2, x: 0, y: 7, horiz: true, hits: 0 },
+  ];
+  assert.match(act(s, 0, { type: 'placeShip', index: 0, x: 5, y: 0, horiz: true }, ctx).error!, /does not fit/, 'the bow would hang off the east edge');
+  assert.match(act(s, 0, { type: 'placeShip', index: 0, x: -1, y: 0, horiz: true }, ctx).error!, /does not fit/);
+  assert.match(act(s, 0, { type: 'placeShip', index: 1, x: 2, y: 0, horiz: true }, ctx).error!, /does not fit/, 'that square belongs to the Carrier');
+  assert.match(act(s, 0, { type: 'placeShip', index: 9, x: 0, y: 0 }, ctx).error!, /No such ship/);
+  assert.match(act(s, 0, { type: 'placeShip', index: 0, x: 1.5, y: 0 }, ctx).error!, /off the grid/);
+  assert.match(act(s, 5, { type: 'placeShip', index: 0, x: 0, y: 2 }, ctx).error!, /not in this match/);
+  // a ship may of course be dropped back on top of itself
+  assert.equal(act(s, 0, { type: 'placeShip', index: 0, x: 0, y: 0, horiz: true }, ctx).error, undefined);
+});
+
+test('rotating walks the ship back onto the board rather than refusing', () => {
+  const ctx = mkCtx(seeded(7));
+  const s = def.create(setup, ctx) as SVState;
+  // a carrier lying along the bottom row: turning it upright would run off the board
+  s.fleets[0] = [{ name: 'Carrier', size: 5, x: 0, y: 7, horiz: true, hits: 0 }];
+  assert.equal(act(s, 0, { type: 'rotateShip', index: 0 }, ctx).error, undefined);
+  const sh = s.fleets[0][0];
+  assert.equal(sh.horiz, false, 'it turned');
+  assert.equal(sh.x, 0);
+  assert.equal(sh.y, 3, 'and backed up so its stern still fits: 3..7');
+  // back again
+  act(s, 0, { type: 'rotateShip', index: 0 }, ctx);
+  assert.equal(s.fleets[0][0].horiz, true);
+});
+
+test('a ship with genuinely nowhere to turn says so', () => {
+  const ctx = mkCtx(seeded(8));
+  const s = def.create(setup, ctx) as SVState;
+  // box the carrier in: every vertical position it could back into is occupied
+  s.fleets[0] = [
+    { name: 'Carrier', size: 5, x: 0, y: 4, horiz: true, hits: 0 },
+    { name: 'Battleship', size: 4, x: 0, y: 0, horiz: false, hits: 0 },
+    { name: 'Cruiser', size: 3, x: 0, y: 5, horiz: false, hits: 0 },
+  ];
+  assert.match(act(s, 0, { type: 'rotateShip', index: 0 }, ctx).error!, /no room to turn/);
+  assert.match(act(s, 0, { type: 'rotateShip', index: 7 }, ctx).error!, /No such ship/);
+});
+
+test('placement is over once you have given the order', () => {
+  const ctx = mkCtx(seeded(9));
+  const s = def.create(setup, ctx) as SVState;
+  act(s, 0, { type: 'ready' }, ctx);
+  assert.match(act(s, 0, { type: 'placeShip', index: 0, x: 0, y: 0, horiz: true }, ctx).error!, /already given the order/);
+  assert.match(act(s, 0, { type: 'rotateShip', index: 0 }, ctx).error!, /already given the order/);
+  act(s, 1, { type: 'ready' }, ctx);
+  assert.match(act(s, 1, { type: 'placeShip', index: 0, x: 0, y: 0, horiz: true }, ctx).error!, /already at sea/);
+});
+
+test('however you arrange it, the fleet you take to sea is always legal', () => {
+  const ctx = mkCtx(seeded(11));
+  const s = def.create(setup, ctx) as SVState;
+  // shove ships around at random, keeping only the moves the server accepts
+  const rng = seeded(23);
+  for (let n = 0; n < 400; n++) {
+    const i = Math.floor(rng() * s.fleets[0].length);
+    if (rng() < 0.3) act(s, 0, { type: 'rotateShip', index: i }, ctx);
+    else act(s, 0, { type: 'placeShip', index: i, x: Math.floor(rng() * 8), y: Math.floor(rng() * 8), horiz: rng() < 0.5 }, ctx);
+    const taken = new Set<string>();
+    for (const sh of s.fleets[0]) {
+      for (let k = 0; k < sh.size; k++) {
+        const x = sh.horiz ? sh.x + k : sh.x;
+        const y = sh.horiz ? sh.y : sh.y + k;
+        assert.ok(x >= 0 && y >= 0 && x < s.size && y < s.size, `${sh.name} left the board`);
+        assert.equal(taken.has(`${x},${y}`), false, `${sh.name} overlaps another ship`);
+        taken.add(`${x},${y}`);
+      }
+    }
+  }
+  assert.deepEqual(s.fleets[0].map((sh) => sh.name).sort(), FLEET.map((f) => f.name).sort(), 'still the whole fleet');
+});
+
+test('your fleet geometry is yours; theirs arrives only as you sink it', () => {
+  const { s, ctx } = mk(oneShip(0, 0), oneShip(5, 5));
+  const mine = view(s, 0).you.fleet;
+  assert.equal(mine.length, 1);
+  assert.deepEqual({ x: mine[0].x, y: mine[0].y, horiz: mine[0].horiz, size: mine[0].size }, { x: 0, y: 0, horiz: true, size: 2 });
+  assert.deepEqual(view(s, 0).you.wrecks, [], 'nothing of theirs is described yet');
+
+  act(s, 0, { type: 'fire', x: 5, y: 5 }, ctx);
+  assert.deepEqual(view(s, 0).you.wrecks, [], 'a wounded ship still gives up no geometry');
+  act(s, 0, { type: 'fire', x: 6, y: 5 }, ctx); // sinks it
+  const wrecks = view(s, 0).you.wrecks;
+  assert.equal(wrecks.length, 1);
+  assert.deepEqual({ x: wrecks[0].x, y: wrecks[0].y, size: wrecks[0].size }, { x: 5, y: 5, size: 2 }, 'now you may draw the hull you sank');
+});
+
 // ---------------------------------------------------------------------------
 // Firing
 // ---------------------------------------------------------------------------

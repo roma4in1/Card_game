@@ -1567,8 +1567,8 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 /* ── Salvo ────────────────────────────────────────────────────────────────── */
 .sv-boards { display: flex; flex-direction: column; gap: var(--s4); }
 .sv-grid-wrap { margin: 0 auto; width: 100%; max-width: 330px; }
-/* Your own waters are reference, not a target — give the grid you actually shoot
-   into the billing, and keep the whole screen above the fold. */
+/* Once the shooting starts your own waters are reference, not a target — shrink
+   them so the grid you actually fire into leads and the status stays in view. */
 .sv-grid-wrap.own { max-width: 216px; }
 .sv-grid-wrap.own .sv-grid { grid-template-columns: 11px repeat(8, 1fr); gap: 1.5px; }
 .sv-grid-wrap.own .sv-coord { font-size: 0.48rem; }
@@ -1584,14 +1584,11 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .sv-cell:not(:disabled) { cursor: crosshair; }
 .sv-cell:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
-/* your own hull: square off the sides that continue into the same ship, so a
-   five-cell carrier reads as one object rather than five loose tiles */
-.sv-cell.ship { background: #5a6880; border-color: rgba(255, 255, 255, 0.22); border-radius: 5px; }
-.sv-cell.ship.jn { border-top-left-radius: 0; border-top-right-radius: 0; border-top-color: transparent; }
-.sv-cell.ship.js { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
-.sv-cell.ship.jw { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: transparent; }
-.sv-cell.ship.je { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
-.sv-cell.ship.sunk { background: #4a2b2b; border-color: rgba(251, 113, 133, 0.3); }
+/* a square you can drop the ship in hand onto */
+.sv-cell.drop { cursor: pointer; background: rgba(90, 140, 190, 0.16); }
+.sv-cell.drop:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+/* shot marks paint ABOVE the hulls, so a hit still shows through your own ship */
+.sv-cell.miss, .sv-cell.hit, .sv-cell.last { z-index: 2; }
 .sv-cell.miss::after {
   content: ''; position: absolute; inset: 0; margin: auto; width: 22%; height: 22%;
   border-radius: 50%; background: rgba(255, 255, 255, 0.42);
@@ -1603,11 +1600,48 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
               linear-gradient(-45deg, transparent 44%, #ffe4dd 44%, #ffe4dd 56%, transparent 56%);
 }
 .sv-cell.wreck { background: #5e2b26; }
-.sv-cell.last { box-shadow: 0 0 0 2px var(--gold); z-index: 1; }
+.sv-cell.last { box-shadow: 0 0 0 2px var(--gold); }
+
+/* --- the ships themselves: one hull spanning its squares --- */
+.sv-ship {
+  z-index: 1; padding: 0; border: none; background: none; position: relative;
+  display: block; width: 100%; height: 100%; cursor: default;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+.sv-ship .hull { width: 100%; height: 100%; display: block; overflow: visible; }
+.sv-ship .body { fill: #6b7a94; stroke: rgba(255, 255, 255, 0.3); stroke-width: 3; }
+.sv-ship .deck { fill: rgba(255, 255, 255, 0.14); }
+.sv-ship .bridge { fill: #98a6bd; }
+.sv-ship .turret { fill: #4e5a70; stroke: rgba(255, 255, 255, 0.22); stroke-width: 2.5; }
+button.sv-ship { cursor: grab; }
+button.sv-ship:hover .body { fill: #7b8ba7; }
+.sv-ship.picked { z-index: 3; filter: drop-shadow(0 0 6px var(--accent)); }
+.sv-ship.picked .body { fill: #8ba0c4; stroke: var(--accent); stroke-width: 5; }
+/* with a ship in hand, taps must reach the water underneath */
+.sv-ship.pass { pointer-events: none; }
+.sv-ship.sunk .body { fill: #6b3a36; stroke: rgba(251, 113, 133, 0.4); }
+.sv-ship.sunk .bridge { fill: #8a5450; }
+.sv-ship.sunk .turret { fill: #55302d; }
+.sv-ship.wreck { opacity: 0.92; }
+
 /* fleet pips in the roster */
-.sv-fleet { display: flex; gap: 2px; }
+.sv-fleet { display: flex; gap: 2px; align-items: center; }
 .sv-pip { width: 4px; border-radius: 1px; background: var(--ink); opacity: 0.8; }
 .sv-pip.down { background: var(--bad); opacity: 0.45; }
+
+/* --- the ship picker shown while positioning --- */
+.sv-fleetbar { display: flex; flex-wrap: wrap; gap: var(--s1); justify-content: center; }
+.sv-shipbtn {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; cursor: pointer;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: inherit; font-size: 0.72rem; font-weight: 650;
+}
+.sv-shipbtn .sz {
+  font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 0.66rem;
+  background: rgba(255, 255, 255, 0.08); border-radius: 4px; padding: 0 4px; color: var(--ink);
+}
+.sv-shipbtn.picked { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+
 @media (min-width: 620px) { .sv-boards { flex-direction: row; justify-content: center; align-items: flex-start; } }
 
 /* ── Sealed Bids ──────────────────────────────────────────────────────────── */
@@ -1658,15 +1692,17 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 .mh-map { display: flex; justify-content: center; }
 .mh-svg { width: 100%; max-width: 340px; height: auto; touch-action: manipulation; display: block; }
 .mh-edge { fill: none; stroke-linecap: round; }
-.mh-edge.taxi { stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.55; }
-.mh-edge.bus { stroke: rgba(96, 165, 250, 0.34); stroke-width: 1.1; }
-.mh-edge.tube { stroke: rgba(244, 114, 92, 0.4); stroke-width: 1.9; }
-.mh-stop { fill: #1b2333; stroke: rgba(255, 255, 255, 0.2); stroke-width: 0.5; }
-.mh-stop.dest { fill: color-mix(in srgb, var(--accent) 34%, #1b2333); stroke: var(--accent); stroke-width: 1.1; cursor: pointer; }
+.mh-edge.taxi { stroke: rgba(255, 255, 255, 0.13); stroke-width: 0.45; }
+.mh-edge.bus { stroke: rgba(96, 165, 250, 0.26); stroke-width: 0.8; }
+.mh-edge.tube { stroke: rgba(244, 114, 92, 0.3); stroke-width: 1.4; }
+.mh-stop { fill: #202a3c; stroke: rgba(255, 255, 255, 0.3); stroke-width: 0.5; }
+.mh-stop.dest { fill: color-mix(in srgb, var(--accent) 34%, #1b2333); stroke: var(--accent); stroke-width: 1.1; }
 .mh-halo { fill: none; stroke: var(--accent); stroke-width: 0.7; opacity: 0.5; animation: mhHalo 1.7s ease-out infinite; }
-@keyframes mhHalo { 0% { r: 3.4; opacity: 0.55; } 100% { r: 6.4; opacity: 0; } }
-.mh-slabel { font: 700 2.4px 'Outfit', sans-serif; fill: rgba(255, 255, 255, 0.45); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.mh-slabel.on { fill: #fff; pointer-events: auto; cursor: pointer; }
+@keyframes mhHalo { 0% { r: 3.8; opacity: 0.55; } 100% { r: 7.2; opacity: 0; } }
+.mh-slabel { font: 700 2.5px 'Outfit', sans-serif; fill: rgba(255, 255, 255, 0.62); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.mh-slabel.on { fill: #fff; }
+/* the tap target for a reachable stop, deliberately larger than the dot it covers */
+.mh-hit { fill: transparent; cursor: pointer; }
 .mh-seen { fill: none; stroke: var(--gold); stroke-width: 0.5; stroke-dasharray: 1.6 1.4; opacity: 0.8; }
 .mh-token { pointer-events: none; }
 .mh-token .body { stroke: #0b0f17; stroke-width: 0.45; }

@@ -30,7 +30,7 @@ stripping.
 | **Three Fronts** | 2 | Card duel over air, land and sea: face-up for power, face-down to bluff, or withdraw and pay less. |
 | **Salvo** | 2 | Hide a fleet, hunt theirs square by square. Every hit earns another shot. |
 | **Sealed Bids** | 2 | Both bid a card in secret for each prize — highest takes it, and both cards are spent either way. |
-| **Manhunt** | 2 | One runs hidden, one hunts with two agents; swap at half time and outlast their run. |
+| **Manhunt** | 2 | One runs hidden, one hunts with three agents; swap at half time and outlast their run. |
 
 Five of these are powered by a shared **football player bank** (Spy Game, Who Am I?,
 Guess the Player, and the decoy engine) — see [The player bank](#the-player-bank).

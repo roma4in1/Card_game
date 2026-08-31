@@ -5,9 +5,10 @@
 // what you have already shot at. A ship you have not found is not in your payload at all,
 // because a client that receives it has already lost the game for its owner.
 //
-// Placement is by reroll, not by dragging: the server deals you a legal fleet and you
-// shuffle until you like it. That keeps the whole placement phase to two buttons on a
-// phone while still leaving the layout yours.
+// You are dealt a legal fleet to start from, then move it: pick a ship, tap the square
+// you want its bow on, turn it with a rotate that walks the hull back onto the board
+// rather than refusing. Every placement is re-validated here — the client is only ever
+// proposing, so a hand-edited message can't beach a ship or stack two hulls.
 //
 // Hitting lets you fire again — a good salvo keeps the initiative, and it stops a game of
 // 64 blind squares from turning into a long alternation of single misses.
@@ -110,6 +111,56 @@ function randomFleet(size: number, rng: Rng): Ship[] {
   return FLEET.map((spec, i) => ({ name: spec.name, size: spec.size, x: 0, y: i, horiz: true, hits: 0 }));
 }
 
+/** Would `cand` sit legally in this fleet, ignoring the ship it is replacing? */
+function fitsFleet(fleet: Ship[], skip: number, cand: Ship, size: number): boolean {
+  const cells = shipCells(cand);
+  if (cells.some(([x, y]) => x < 0 || y < 0 || x >= size || y >= size)) return false;
+  const taken = new Set<number>();
+  fleet.forEach((sh, i) => {
+    if (i === skip) return;
+    for (const [x, y] of shipCells(sh)) taken.add(y * size + x);
+  });
+  return !cells.some(([x, y]) => taken.has(y * size + x));
+}
+
+/** Drop one ship at a new origin/orientation. The bow is the (x, y) you name. */
+function placeShip(s: SVState, pid: number, indexRaw: unknown, xRaw: unknown, yRaw: unknown, horizRaw: unknown): ActionResult {
+  if (s.phase !== 'place') return fail('The fleets are already at sea.');
+  if (s.ready[pid]) return fail('You have already given the order.');
+  const i = Number(indexRaw);
+  const fleet = s.fleets[pid];
+  if (!Number.isInteger(i) || i < 0 || i >= fleet.length) return fail('No such ship.');
+  const x = Number(xRaw);
+  const y = Number(yRaw);
+  if (!Number.isInteger(x) || !Number.isInteger(y)) return fail('That square is off the grid.');
+  const horiz = horizRaw === undefined ? fleet[i].horiz : horizRaw === true;
+  const cand: Ship = { ...fleet[i], x, y, horiz };
+  if (!fitsFleet(fleet, i, cand, s.size)) return fail(`The ${fleet[i].name} does not fit there.`);
+  fleet[i] = cand;
+  return ok;
+}
+
+/** Turn a ship on the spot. If the far end would hang off the board or foul another
+ *  ship, walk the origin back along the new axis rather than refusing outright —
+ *  rotating a ship parked on an edge is exactly when you most want it to work. */
+function rotateShip(s: SVState, pid: number, indexRaw: unknown): ActionResult {
+  if (s.phase !== 'place') return fail('The fleets are already at sea.');
+  if (s.ready[pid]) return fail('You have already given the order.');
+  const i = Number(indexRaw);
+  const fleet = s.fleets[pid];
+  if (!Number.isInteger(i) || i < 0 || i >= fleet.length) return fail('No such ship.');
+  const sh = fleet[i];
+  const horiz = !sh.horiz;
+  for (let back = 0; back < sh.size; back++) {
+    const cand: Ship = { ...sh, horiz, x: horiz ? sh.x - back : sh.x, y: horiz ? sh.y : sh.y - back };
+    if (fitsFleet(fleet, i, cand, s.size)) {
+      fleet[i] = cand;
+      return ok;
+    }
+  }
+  return fail(`There is no room to turn the ${sh.name}.`);
+}
+
 function shuffleFleet(s: SVState, pid: number, rng: Rng): ActionResult {
   if (s.phase !== 'place') return fail('The fleets are already at sea.');
   if (s.ready[pid]) return fail('You have already given the order.');
@@ -200,6 +251,17 @@ function viewState(s: SVState, seat: number | null): Record<string, unknown> {
     return cells;
   };
 
+  /** Ship geometry, so the client can draw a hull rather than a run of squares —
+   *  and so a ship can be picked up and moved during placement. */
+  const fleetOf = (pid: number) => s.fleets[pid].map((sh, index) => ({
+    index, name: sh.name, size: sh.size, x: sh.x, y: sh.y, horiz: sh.horiz, hits: sh.hits, sunk: isSunk(sh),
+  }));
+  /** The same for the fleet you are shooting at — but ONLY the ships you have sunk
+   *  (everything, once the match is over). An unsunk hull is never described. */
+  const wrecksOf = (pid: number) => s.fleets[1 - pid]
+    .map((sh, index) => ({ index, name: sh.name, size: sh.size, x: sh.x, y: sh.y, horiz: sh.horiz, sunk: isSunk(sh) }))
+    .filter((sh) => sh.sunk || reveal);
+
   /** Your own waters: where your ships are, and where you have been hit. */
   const ownGrid = (pid: number) => {
     const foe = 1 - pid;
@@ -238,12 +300,14 @@ function viewState(s: SVState, seat: number | null): Record<string, unknown> {
     last: s.last,
     timer: timerView(s.timer),
     you: spectator
-      ? { seat: seat ?? -1, spectator: true, own: [], enemy: [] }
+      ? { seat: seat ?? -1, spectator: true, own: [], enemy: [], fleet: [], wrecks: [] }
       : {
           seat,
           pid: myPid,
           own: ownGrid(myPid),
           enemy: enemyGrid(myPid),
+          fleet: fleetOf(myPid),
+          wrecks: wrecksOf(myPid),
           ready: s.ready[myPid],
           isTurn: s.phase === 'play' && myPid === s.turn,
           canFire: s.phase === 'play' && myPid === s.turn && !s.over,
@@ -338,7 +402,7 @@ export const salvo: GameDef<SVState> = {
       winners: [],
       log: [],
     };
-    log(s, `${SIZE}×${SIZE} waters, ${FLEET.length} ships each. Shuffle your fleet, then give the order.`);
+    log(s, `${SIZE}×${SIZE} waters, ${FLEET.length} ships each. Position your fleet, then give the order.`);
     return s;
   },
 
@@ -346,6 +410,10 @@ export const salvo: GameDef<SVState> = {
     const pid = s.order.indexOf(seat);
     if (pid < 0) return fail('You are not in this match.');
     switch (msg.type) {
+      case 'placeShip':
+        return placeShip(s, pid, msg.index, msg.x, msg.y, msg.horiz);
+      case 'rotateShip':
+        return rotateShip(s, pid, msg.index);
       case 'shuffleFleet':
         return shuffleFleet(s, pid, ctx.rng);
       case 'ready':

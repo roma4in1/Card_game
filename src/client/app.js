@@ -2240,7 +2240,11 @@ function renderMhMap(s) {
   const STEP = 30;
   const PAD = 13;
   const px = (n) => ({ x: PAD + n.x * STEP, y: PAD + n.y * STEP });
-  const span = PAD * 2 + STEP * 3;
+  // Derive the viewBox from the stops themselves — the map is no longer square.
+  const cols = Math.max(...nodes.map((n) => n.x)) + 1;
+  const rows = Math.max(...nodes.map((n) => n.y)) + 1;
+  const spanX = PAD * 2 + STEP * (cols - 1);
+  const spanY = PAD * 2 + STEP * (rows - 1);
 
   const dests = new Map();
   if (you.isTurn) {
@@ -2250,11 +2254,13 @@ function renderMhMap(s) {
     }
   }
 
-  let svg = `<svg viewBox="0 0 ${span} ${span}" class="mh-svg" preserveAspectRatio="xMidYMid meet">`;
+  let svg = `<svg viewBox="0 0 ${spanX} ${spanY}" class="mh-svg" preserveAspectRatio="xMidYMid meet">`;
   // On a grid, a bus hop (skip one) and a tube run (corner to corner) are COLLINEAR with
   // the taxi hops beneath them — drawn straight they stack into one unreadable line. So
   // bow the longer routes off the axis, the way a transit map separates parallel lines.
-  const BOW = [0, 0.13, -0.2]; // taxi runs straight; bus and tube bend opposite ways
+  // Gentler than it looks it should be: these arcs are only there to keep collinear
+  // routes apart, and on a 30-stop map an over-bowed line sweeps across half the board.
+  const BOW = [0, 0.085, -0.11]; // taxi runs straight; bus and tube bend opposite ways
   for (let t = (s.transport || []).length - 1; t >= 0; t--) {
     for (const n of nodes) {
       for (const m of (s.edges || [])[t][n.id]) {
@@ -2281,18 +2287,25 @@ function renderMhMap(s) {
     const p = px(n);
     const isDest = dests.has(n.id);
     if (isDest) svg += `<circle cx="${p.x}" cy="${p.y}" r="3.4" class="mh-halo"/>`;
-    svg += `<circle cx="${p.x}" cy="${p.y}" r="3.4" class="mh-stop${isDest ? ' dest' : ''}" data-node="${n.id}"/>`;
-    svg += `<text x="${p.x}" y="${p.y}" class="mh-slabel${isDest ? ' on' : ''}" data-node="${n.id}">${n.id + 1}</text>`;
+    svg += `<circle cx="${p.x}" cy="${p.y}" r="3.8" class="mh-stop${isDest ? ' dest' : ''}"/>`;
+    svg += `<text x="${p.x}" y="${p.y}" class="mh-slabel${isDest ? ' on' : ''}">${n.id + 1}</text>`;
+    // A transparent disc carries the tap: the stop is only ~16px across on a phone, and
+    // the number painted over it would otherwise swallow the press.
+    if (isDest) svg += `<circle cx="${p.x}" cy="${p.y}" r="8" class="mh-hit" data-node="${n.id}"/>`;
   }
-  // Tokens sit ON their stop — two agents share one by leaning apart slightly.
-  const here = (node) => (s.hunterAt || []).filter((h) => h === node).length;
+  // Tokens sit ON their stop. Agents sharing one fan out evenly rather than stacking.
+  const share = {};
+  (s.hunterAt || []).forEach((node) => { share[node] = (share[node] || 0) + 1; });
+  const placed = {};
   (s.hunterAt || []).forEach((node, i) => {
     const p = px(nodes[node]);
-    const shift = here(node) > 1 ? (i === 0 ? -2.2 : 2.2) : 0;
+    const n = share[node];
+    const seat = placed[node] = (placed[node] == null ? 0 : placed[node] + 1);
+    const shift = n > 1 ? (seat - (n - 1) / 2) * 4.6 : 0;
     const next = s.phase === 'run' && s.stage === 'hunter' && s.hunterPiece === i;
     svg += `<g class="mh-token mh-agent${next ? ' next' : ''}">` +
-      `<circle cx="${p.x + shift}" cy="${p.y - 5.4}" r="2.7" class="body"/>` +
-      `<text x="${p.x + shift}" y="${p.y - 5.4}" class="mark">${i + 1}</text></g>`;
+      `<circle cx="${(p.x + shift).toFixed(1)}" cy="${p.y - 5.4}" r="2.7" class="body"/>` +
+      `<text x="${(p.x + shift).toFixed(1)}" y="${p.y - 5.4}" class="mark">${i + 1}</text></g>`;
   });
   if (s.runnerAt != null) {
     const p = px(nodes[s.runnerAt]);
@@ -2537,6 +2550,27 @@ function renderTfActions(s) {
 // ---------------------------------------------------------------------------
 
 const SV_FILES = 'ABCDEFGH';
+let svSel = null; // index of the ship being positioned
+
+/** A hull drawn to span `size` cells. One generator serves both orientations:
+ *  points are given along/across the ship and mapped, so the bow stays a bow. */
+function svHullSvg(size, horiz) {
+  const L = size * 100;
+  const pt = (u, v) => (horiz ? [u, v] : [v, L - u]);
+  const P = (u, v) => pt(u, v).map((n) => Math.round(n * 10) / 10).join(' ');
+  const vb = horiz ? `0 0 ${L} 100` : `0 0 100 ${L}`;
+  const hull = `M${P(8, 20)}L${P(L - 46, 20)}Q${P(L - 4, 50)} ${P(L - 46, 80)}L${P(8, 80)}Q${P(0, 50)} ${P(8, 20)}Z`;
+  const deck = `M${P(22, 37)}L${P(L - 56, 37)}Q${P(L - 30, 50)} ${P(L - 56, 63)}L${P(22, 63)}Z`;
+  const bridge = `M${P(L * 0.34, 28)}L${P(L * 0.48, 28)}L${P(L * 0.48, 72)}L${P(L * 0.34, 72)}Z`;
+  const spots = size >= 4 ? [0.17, 0.66] : size >= 3 ? [0.2] : [];
+  const turrets = spots.map((f) => {
+    const [cx, cy] = pt(L * f, 50);
+    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="12" class="turret"/>`;
+  }).join('');
+  return `<svg class="hull" viewBox="${vb}" preserveAspectRatio="none" aria-hidden="true">` +
+    `<path class="body" d="${hull}"/><path class="deck" d="${deck}"/>` +
+    `<path class="bridge" d="${bridge}"/>${turrets}</svg>`;
+}
 
 function renderSalvo(s) {
   $('svRoom').textContent = s.room;
@@ -2544,6 +2578,8 @@ function renderSalvo(s) {
   pill.textContent = s.over ? 'Over' : s.phase === 'place' ? 'Placing' : 'At sea';
   pill.className = 'phase-pill';
   $('svCopy').onclick = copyInvite;
+  const you = s.you || {};
+  if (s.phase !== 'place' || you.ready) svSel = null;
 
   duelRoster('svPlayers', s, (p) => {
     const total = p.afloat + p.sunkShips.length;
@@ -2560,20 +2596,24 @@ function renderSalvo(s) {
 }
 
 /** One grid. `mode` is 'enemy' (you fire into it) or 'own' (your waters). */
-function svGrid(s, cells, mode) {
+function svGrid(s, cells, ships, mode) {
   const you = s.you || {};
+  const placing = mode === 'own' && s.phase === 'place' && !you.ready && !you.spectator;
   const wrap = document.createElement('div');
-  wrap.className = 'sv-grid-wrap' + (mode === 'own' ? ' own' : '');
+  wrap.className = 'sv-grid-wrap' + (mode === 'own' && s.phase !== 'place' ? ' own' : '');
   wrap.innerHTML = `<div class="duel-label">${mode === 'enemy' ? 'Their waters' : 'Your waters'}</div>`;
 
   const grid = document.createElement('div');
   grid.className = 'sv-grid';
-  grid.appendChild(document.createElement('span')); // empty corner
+  // EVERY item is placed explicitly. Grid positions explicit items before auto ones,
+  // so a single auto-flowed cell would reflow around the hulls and shear the board.
+  const place = (el, col, row) => { el.style.gridColumn = String(col); el.style.gridRow = String(row); return el; };
+  grid.appendChild(place(document.createElement('span'), 1, 1)); // empty corner
   for (let x = 0; x < s.size; x++) {
     const h = document.createElement('span');
     h.className = 'sv-coord';
     h.textContent = SV_FILES[x];
-    grid.appendChild(h);
+    grid.appendChild(place(h, x + 2, 1));
   }
   const at = new Map(cells.map((c) => [c.x + ',' + c.y, c]));
   const last = s.last;
@@ -2581,21 +2621,11 @@ function svGrid(s, cells, mode) {
     const r = document.createElement('span');
     r.className = 'sv-coord';
     r.textContent = y + 1;
-    grid.appendChild(r);
+    grid.appendChild(place(r, 1, y + 2));
     for (let x = 0; x < s.size; x++) {
       const c = at.get(x + ',' + y) || { x, y, shot: null };
       const cell = document.createElement('button');
       let cls = 'sv-cell';
-      if (mode === 'own' && c.ship) {
-        cls += c.sunk ? ' ship sunk' : ' ship';
-        // square off the sides that continue into the same hull, so a carrier
-        // reads as one five-cell object instead of five separate tiles
-        const same = (dx, dy) => (at.get((x + dx) + ',' + (y + dy)) || {}).ship === c.ship;
-        if (same(0, -1)) cls += ' jn';
-        if (same(0, 1)) cls += ' js';
-        if (same(-1, 0)) cls += ' jw';
-        if (same(1, 0)) cls += ' je';
-      }
       if (c.shot === 'hit') cls += ' hit';
       else if (c.shot === 'miss') cls += ' miss';
       if (mode === 'enemy' && c.sunk) cls += ' wreck';
@@ -2603,15 +2633,43 @@ function svGrid(s, cells, mode) {
       cell.className = cls;
       cell.title = `${SV_FILES[x]}${y + 1}${c.sunk ? ' · ' + c.sunk : ''}`;
       const fireable = mode === 'enemy' && you.canFire && c.shot === null;
-      cell.disabled = !fireable;
-      if (fireable) {
+      // While positioning, every square is a drop target for the selected ship.
+      const droppable = placing && svSel != null;
+      cell.disabled = !fireable && !droppable;
+      if (fireable) cell.onclick = () => { tapAck(cell); send({ type: 'fire', x, y }); };
+      else if (droppable) {
+        cell.classList.add('drop');
         cell.onclick = () => {
           tapAck(cell);
-          send({ type: 'fire', x, y });
+          const sh = (ships || []).find((p) => p.index === svSel);
+          send({ type: 'placeShip', index: svSel, x, y, horiz: sh ? sh.horiz : true });
         };
       }
-      grid.appendChild(cell);
+      grid.appendChild(place(cell, x + 2, y + 2));
     }
+  }
+
+  // Hulls sit over the water as grid items of their own; hit markers paint above them.
+  for (const sh of ships || []) {
+    const el = document.createElement(placing ? 'button' : 'div');
+    el.className = 'sv-ship' + (sh.sunk ? ' sunk' : '') + (mode === 'enemy' ? ' wreck' : '') + (svSel === sh.index ? ' picked' : '');
+    el.style.gridColumn = sh.horiz ? `${sh.x + 2} / span ${sh.size}` : `${sh.x + 2}`;
+    el.style.gridRow = sh.horiz ? `${sh.y + 2}` : `${sh.y + 2} / span ${sh.size}`;
+    el.title = `${sh.name} · ${sh.size}`;
+    el.innerHTML = svHullSvg(sh.size, sh.horiz);
+    if (placing) {
+      // Only the ship in hand lets taps through to the water beneath it — so you can
+      // nudge it one square onto its own tail, while still tapping any OTHER hull to
+      // pick that one up instead. (Dropping onto another ship is illegal anyway, so
+      // nothing is lost by letting those hulls keep their clicks.)
+      if (svSel === sh.index) el.classList.add('pass');
+      el.onclick = () => {
+        tapAck(el);
+        svSel = svSel === sh.index ? null : sh.index;
+        render();
+      };
+    }
+    grid.appendChild(el);
   }
   wrap.appendChild(grid);
   return wrap;
@@ -2625,8 +2683,8 @@ function renderSvBoards(s) {
     box.innerHTML = '<div class="duel-label">Both fleets are hidden from the sideline</div>';
     return;
   }
-  if (s.phase !== 'place') box.appendChild(svGrid(s, you.enemy || [], 'enemy'));
-  box.appendChild(svGrid(s, you.own || [], 'own'));
+  if (s.phase !== 'place') box.appendChild(svGrid(s, you.enemy || [], you.wrecks || [], 'enemy'));
+  box.appendChild(svGrid(s, you.own || [], you.fleet || [], 'own'));
 }
 
 function renderSvStatus(s) {
@@ -2634,7 +2692,11 @@ function renderSvStatus(s) {
   if (s.over) return duelStatus('svStatus', 'All ships accounted for', false);
   if (you.spectator) return duelStatus('svStatus', 'Spectating', false);
   if (s.phase === 'place') {
-    return duelStatus('svStatus', you.ready ? 'Fleet at sea — <b>waiting for them</b>' : 'Position your fleet, then <b>give the order</b>', true);
+    if (you.ready) return duelStatus('svStatus', 'Fleet at sea — <b>waiting for them</b>', true);
+    const sh = (you.fleet || []).find((p) => p.index === svSel);
+    return duelStatus('svStatus', sh
+      ? `<b>${escapeHtml(sh.name)}</b> in hand — tap a square to set its bow`
+      : 'Tap a ship to move it, or <b>give the order</b>', true);
   }
   if (!you.isTurn) {
     const active = (s.players || []).find((p) => p.isTurn);
@@ -2657,11 +2719,32 @@ function renderSvActions(s) {
   }
   const you = s.you || {};
   if (you.spectator || s.phase !== 'place' || you.ready) return;
+
+  // The fleet strip is the ship picker: it names each hull and shows its length,
+  // which the silhouettes alone can't say once they're side by side on the water.
+  const strip = document.createElement('div');
+  strip.className = 'sv-fleetbar';
+  for (const sh of you.fleet || []) {
+    const b = document.createElement('button');
+    b.className = 'sv-shipbtn' + (svSel === sh.index ? ' picked' : '');
+    b.innerHTML = `<span class="nm">${escapeHtml(sh.name)}</span><span class="sz">${sh.size}</span>`;
+    b.onclick = () => {
+      tapAck(b);
+      svSel = svSel === sh.index ? null : sh.index;
+      render();
+    };
+    strip.appendChild(b);
+  }
+  area.appendChild(strip);
+
   const row = document.createElement('div');
   row.className = 'btn-row';
-  row.appendChild(actBtn('Shuffle fleet', 'btn btn-ghost btn-lg', () => send({ type: 'shuffleFleet' })));
-  row.appendChild(actBtn('Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
+  const rot = actBtn('Rotate', 'btn btn-ghost btn-lg', () => send({ type: 'rotateShip', index: svSel }));
+  rot.disabled = svSel == null;
+  row.appendChild(rot);
+  row.appendChild(actBtn('Shuffle all', 'btn btn-ghost btn-lg', () => { svSel = null; send({ type: 'shuffleFleet' }); }));
   area.appendChild(row);
+  area.appendChild(actBtn('Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
 }
 
 // ---------------------------------------------------------------------------

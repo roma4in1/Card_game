@@ -1,6 +1,6 @@
 // game.test.ts — Manhunt. The runner's position is the whole game, so most of this checks
-// what the hunter is and isn't told. The rest: the surfacing schedule, the two-agent turn,
-// and the two-half structure that makes an asymmetric game fair.
+// what the hunter is and isn't told. The rest: the surfacing schedule, the three-agent
+// turn, and the two-half structure that makes an asymmetric game fair.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { manhunt, NODES, EDGES, TRANSPORT, type MHState } from './game.ts';
@@ -17,17 +17,20 @@ const act = (s: MHState, seat: number, msg: Record<string, unknown>, ctx: GameCo
 const view = (s: MHState, seat: number | null) => def.view(s, seat) as any;
 const TAXI = 0, BUS = 1, TUBE = 2;
 
-/** A fresh match with the runner and both agents put exactly where we want them. */
-function mk(runnerAt: number, hunterAt: [number, number]): { s: MHState; ctx: GameContext & { now: number } } {
+/** A fresh match with the runner and every agent put exactly where we want them. */
+function mk(runnerAt: number, hunterAt: number[]): { s: MHState; ctx: GameContext & { now: number } } {
   const ctx = mkCtx();
   const s = def.create(setup, ctx) as MHState;
-  s.runnerAt = runnerAt;
+  // Move the recorded start too, or the fixture claims one opening position while the
+  // pieces sit on another — and the start is public, so that discrepancy is visible.
+  s.runnerAt = s.startRunner = runnerAt;
   s.hunterAt = [...hunterAt];
+  s.startHunters = [...hunterAt];
   return { s, ctx };
 }
-/** Move both agents somewhere harmless to complete the hunter's half of a turn. */
+/** Move every agent somewhere harmless to complete the hunter's half of a turn. */
 function idleHunt(s: MHState, ctx: GameContext) {
-  for (const piece of [0, 1]) {
+  for (let piece = 0; piece < s.hunterAt.length; piece++) {
     if (s.stage !== 'hunter') return;
     const from = s.hunterAt[s.hunterPiece];
     const to = EDGES[TAXI][from].find((n) => n !== s.runnerAt && !s.hunterAt.includes(n));
@@ -35,6 +38,8 @@ function idleHunt(s: MHState, ctx: GameContext) {
     assert.equal(act(s, s.order[1 - s.runner], { type: 'hunt', to }, ctx).error, undefined);
   }
 }
+// Agents parked in the far corner, well clear of anything a test is doing up top.
+const AWAY = [27, 28, 29];
 
 // ---------------------------------------------------------------------------
 // The secret: where the runner is
@@ -43,8 +48,8 @@ function idleHunt(s: MHState, ctx: GameContext) {
 test('the hunter is never sent the runner’s position between surfacings', () => {
   // Two worlds where the runner takes a different taxi out of the same node. Both are
   // hidden turns, so the hunter's view has to be identical in each.
-  const worlds = [4, 1].map((to) => {
-    const { s, ctx } = mk(0, [15, 12]);
+  const worlds = [5, 1].map((to) => {
+    const { s, ctx } = mk(0, AWAY);
     act(s, 0, { type: 'run', to, transport: TAXI }, ctx);
     return { hunter: view(s, 1), log: s.log.join(' | '), runner: view(s, 0) };
   });
@@ -52,11 +57,11 @@ test('the hunter is never sent the runner’s position between surfacings', () =
   assert.equal(worlds[0].log, worlds[1].log, 'and the public log does not name the node');
   assert.equal(worlds[0].hunter.runnerAt, null, 'no position is sent at all');
   assert.equal(worlds[0].hunter.trail[0].node, null, 'nor hidden inside the trail');
-  assert.equal(worlds[0].runner.runnerAt, 4, 'the runner, of course, knows where they are');
+  assert.equal(worlds[0].runner.runnerAt, 5, 'the runner, of course, knows where they are');
 });
 
 test('the transport used is public even while the position is not', () => {
-  const { s, ctx } = mk(0, [15, 12]);
+  const { s, ctx } = mk(0, AWAY);
   act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx);
   const hunter = view(s, 1);
   assert.equal(hunter.trail.length, 1);
@@ -66,7 +71,7 @@ test('the transport used is public even while the position is not', () => {
 });
 
 test('the runner has to surface on every third turn, and the hunter sees it', () => {
-  const { s, ctx } = mk(0, [15, 12]);
+  const { s, ctx } = mk(0, AWAY);
   for (let turn = 1; turn <= 3; turn++) {
     assert.equal(s.turn, turn);
     const opts = view(s, 0).you.moves;
@@ -85,7 +90,7 @@ test('the runner has to surface on every third turn, and the hunter sees it', ()
 });
 
 test('a sighting is remembered but goes stale — the position hides again next turn', () => {
-  const { s, ctx } = mk(0, [15, 12]);
+  const { s, ctx } = mk(0, AWAY);
   for (let turn = 1; turn <= 3; turn++) {
     const opts = view(s, 0).you.moves;
     act(s, 0, { type: 'run', to: opts[0].to, transport: opts[0].transport }, ctx);
@@ -102,8 +107,8 @@ test('a sighting is remembered but goes stale — the position hides again next 
 });
 
 test('a spectator learns no more than the hunter does', () => {
-  const { s, ctx } = mk(0, [15, 12]);
-  act(s, 0, { type: 'run', to: 4, transport: TAXI }, ctx);
+  const { s, ctx } = mk(0, AWAY);
+  assert.equal(act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx).error, undefined);
   const spec = view(s, null);
   assert.equal(spec.runnerAt, null);
   assert.equal(spec.you.spectator, true);
@@ -111,47 +116,83 @@ test('a spectator learns no more than the hunter does', () => {
   assert.deepEqual(spec.trail, view(s, 1).trail);
 });
 
+test('the starting stop is public, and identical for both halves', () => {
+  // It has to be. The second-half hunter has already run from that stop themselves, so
+  // hiding it in the first half handed the first runner an advantage the second never had
+  // — in a match scored by comparing the two runs.
+  const ctx = mkCtx();
+  const s = def.create(setup, ctx) as MHState;
+  assert.equal(view(s, 1).runnerAt, s.startRunner, 'the hunter sees the runner on the start line');
+  assert.equal(view(s, null).runnerAt, s.startRunner, 'and so does the sideline');
+  const opts = view(s, 0).you.moves;
+  act(s, 0, { type: 'run', to: opts[0].to, transport: opts[0].transport }, ctx);
+  assert.equal(view(s, 1).runnerAt, null, 'and loses them the moment they move');
+});
+
+test('the trail alone does not pin the runner down', () => {
+  // The bug this guards: on the old 4×4 map a single announced transport narrowed the
+  // runner to one stop about 40% of the time, because a taxi offered only three exits.
+  // Replay what the hunt can actually see and check the belief set really does open up.
+  const { s, ctx } = mk(0, AWAY);
+  let belief = new Set<number>([s.startRunner]);
+  for (let turn = 1; turn <= 2; turn++) {
+    const opts = view(s, 0).you.moves;
+    act(s, 0, { type: 'run', to: opts[0].to, transport: opts[0].transport }, ctx);
+    const step = view(s, 1).trail[turn - 1];
+    assert.equal(step.node, null, `turn ${turn} is hidden`);
+    const next = new Set<number>();
+    for (const from of belief) for (const to of EDGES[step.transport][from]) next.add(to);
+    belief = next;
+    idleHunt(s, ctx);
+  }
+  assert.ok(belief.size >= 6, `two hidden moves should leave real doubt, got ${belief.size} stops`);
+  assert.ok(belief.has(s.runnerAt), 'and the truth is somewhere inside it');
+});
+
 // ---------------------------------------------------------------------------
 // Movement rules
 // ---------------------------------------------------------------------------
 
 test('you can only travel a route that exists for the transport you name', () => {
-  const { s, ctx } = mk(0, [15, 12]);
-  assert.ok(EDGES[TAXI][0].includes(1), 'node 0 has a taxi to 1');
+  const { s, ctx } = mk(0, AWAY);
+  assert.ok(EDGES[TAXI][0].includes(1), 'stop 0 has a taxi to 1');
   assert.equal(EDGES[TUBE][0].includes(1), false, 'but no tube to 1');
   assert.match(act(s, 0, { type: 'run', to: 1, transport: TUBE }, ctx).error!, /No underground route/);
-  assert.match(act(s, 0, { type: 'run', to: 9, transport: TAXI }, ctx).error!, /No taxi route/);
+  assert.match(act(s, 0, { type: 'run', to: 14, transport: TAXI }, ctx).error!, /No taxi route/);
   assert.match(act(s, 0, { type: 'run', to: 1, transport: 9 }, ctx).error!, /No such transport/);
-  assert.equal(act(s, 0, { type: 'run', to: 3, transport: TUBE }, ctx).error, undefined, 'the corners are on the tube');
+  assert.equal(act(s, 0, { type: 'run', to: 4, transport: TUBE }, ctx).error, undefined, 'stop 0 is an underground hub');
 });
 
 test('the runner may not step onto an agent, and the wrong player cannot move', () => {
-  const { s, ctx } = mk(0, [1, 12]);
+  const { s, ctx } = mk(0, [1, 28, 29]);
   assert.match(act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx).error!, /straight into an agent/);
   assert.match(act(s, 1, { type: 'run', to: 4, transport: TAXI }, ctx).error!, /hunting, not running/);
   assert.match(act(s, 0, { type: 'hunt', to: 5 }, ctx).error!, /runner is moving/);
   assert.match(act(s, 5, { type: 'run', to: 4, transport: TAXI }, ctx).error!, /not in this match/);
 });
 
-test('both agents move each turn, one after the other', () => {
-  const { s, ctx } = mk(0, [15, 12]);
-  act(s, 0, { type: 'run', to: 4, transport: TAXI }, ctx);
+test('every agent moves each turn, one after the other', () => {
+  const { s, ctx } = mk(0, AWAY);
+  act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx);
   assert.equal(s.stage, 'hunter');
   assert.equal(s.hunterPiece, 0);
-  assert.match(act(s, 0, { type: 'run', to: 5, transport: TAXI }, ctx).error!, /hunt is moving/);
-  act(s, 1, { type: 'hunt', to: 14 }, ctx);
-  assert.equal(s.hunterPiece, 1, 'the second agent is up');
-  assert.equal(s.turn, 1, 'still the same turn');
-  act(s, 1, { type: 'hunt', to: 13 }, ctx);
+  assert.match(act(s, 0, { type: 'run', to: 2, transport: TAXI }, ctx).error!, /hunt is moving/);
+  for (let piece = 0; piece < AWAY.length; piece++) {
+    assert.equal(s.hunterPiece, piece, `agent ${piece + 1} is up`);
+    assert.equal(s.turn, 1, 'still the same turn');
+    const from = s.hunterAt[piece];
+    const to = EDGES[TAXI][from].find((n) => !s.hunterAt.includes(n) && n !== s.runnerAt)!;
+    assert.equal(act(s, 1, { type: 'hunt', to }, ctx).error, undefined);
+  }
   assert.equal(s.stage, 'runner', 'now the runner moves again');
   assert.equal(s.turn, 2);
-  assert.deepEqual(s.hunterAt, [14, 13]);
 });
 
-test('an agent cannot move onto its partner', () => {
-  const { s, ctx } = mk(0, [15, 14]);
-  act(s, 0, { type: 'run', to: 4, transport: TAXI }, ctx);
-  assert.match(act(s, 1, { type: 'hunt', to: 14 }, ctx).error!, /other agent is already there/);
+test('an agent cannot move onto another agent', () => {
+  const partner = EDGES[TAXI][29].find((n) => n !== 28)!;
+  const { s, ctx } = mk(0, [29, partner, 20]);
+  act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx);
+  assert.match(act(s, 1, { type: 'hunt', to: partner }, ctx).error!, /other agent is already there/);
 });
 
 // ---------------------------------------------------------------------------
@@ -159,9 +200,9 @@ test('an agent cannot move onto its partner', () => {
 // ---------------------------------------------------------------------------
 
 test('landing on the runner ends the half, and the turn of the capture does not count', () => {
-  const { s, ctx } = mk(0, [15, 12]);
+  const { s, ctx } = mk(0, AWAY);
   act(s, 0, { type: 'run', to: 1, transport: TAXI }, ctx); // runner at 1, turn 1
-  s.hunterAt[0] = 2; // put an agent next door
+  s.hunterAt[0] = 2; // put an agent next door (2 has a taxi to 1)
   act(s, 1, { type: 'hunt', to: 1 }, ctx);
   assert.equal(s.caught, true);
   assert.equal(s.survived[0], 0, 'caught on turn 1 means nothing survived');
@@ -170,7 +211,7 @@ test('landing on the runner ends the half, and the turn of the capture does not 
 
 test('a runner with nowhere left to go is run to ground', () => {
   // Node 0's exits are 1 and 4 by taxi, 2 and 8 by bus, 3 by tube — box every one of them.
-  const { s, ctx } = mk(5, [1, 4]);
+  const { s, ctx } = mk(6, [1, 28, 29]);
   act(s, 0, { type: 'run', to: 4, transport: TAXI }, ctx);
   assert.equal(s.caught, false);
   s.runnerAt = 0;
@@ -186,7 +227,7 @@ test('a runner with nowhere left to go is run to ground', () => {
 });
 
 test('surviving all twelve turns is the best a runner can do', () => {
-  const { s, ctx } = mk(0, [15, 12]);
+  const { s, ctx } = mk(0, AWAY);
   let guard = 0;
   while (s.phase === 'run' && guard++ < 200) {
     const seat = s.order[s.stage === 'runner' ? s.runner : 1 - s.runner];
@@ -300,7 +341,7 @@ test('bots play a whole match to a decided result, always legally', () => {
 // ---------------------------------------------------------------------------
 
 test('the map is fully connected and every node has a way out', () => {
-  assert.equal(NODES.length, 16);
+  assert.equal(NODES.length, 30);
   for (const n of NODES) {
     const out = EDGES.reduce((acc, byNode) => acc + byNode[n.id].length, 0);
     assert.ok(out >= 2, `node ${n.id} has only ${out} exits`);
