@@ -6,6 +6,8 @@
 // selected game plugin. After any state-changing call it broadcasts each seat's
 // private view. It holds NO game rules — those live in the room and the games.
 
+// FIRST: settings from .env or a mounted secret file, before anything reads them.
+import { describeTelemetryTarget } from './platform/env.ts';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +35,9 @@ import {
   viewFor,
   MAX_SEATS,
   type Room,
+  matchRecord,
 } from './platform/room.ts';
+import { recordMatch } from './platform/telemetry.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = join(__dirname, 'client');
@@ -54,6 +58,7 @@ function send(ws: WebSocket | null, obj: unknown) {
 }
 
 function broadcast(room: Room) {
+  flushMatch(room);
   room.lastActivity = Date.now();
   const ws = sockets.get(room.code);
   if (ws) {
@@ -86,11 +91,22 @@ function scheduleBots(room: Room) {
 }
 
 function dropRoom(code: string) {
+  const room = rooms.get(code);
+  // A room dying with a match still running IS the interesting case: it means everyone
+  // walked out part-way through, which no scoreboard would ever show.
+  if (room) flushMatch(room, { abandoned: true });
   const t = botTimers.get(code);
   if (t) clearTimeout(t);
   botTimers.delete(code);
   rooms.delete(code);
   sockets.delete(code);
+}
+
+/** File the match record if this room has just finished one. Cheap and idempotent — the
+ *  room itself only lets it through once — so it can sit on every broadcast. */
+function flushMatch(room: Room, opts: { abandoned?: boolean } = {}) {
+  const record = matchRecord(room, opts);
+  if (record) recordMatch(record);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +321,11 @@ setInterval(() => {
   }
 }, 30 * 1000).unref();
 
-server.listen(PORT, () => console.log(`Love & Liar server on http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Love & Liar server on http://localhost:${PORT}`);
+  // Say where match records are going. A misconfigured deployment otherwise looks
+  // perfectly healthy and is discovered weeks later as an empty table.
+  console.log(describeTelemetryTarget());
+});
 
 export { rooms };

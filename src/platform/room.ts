@@ -7,6 +7,7 @@
 import { randomInt, randomBytes } from 'node:crypto';
 import type { GameContext, GameDef, Rng } from './types.ts';
 import { GAMES, GAME_SUMMARIES, DEFAULT_GAME } from './registry.ts';
+import { anonymise, type MatchRecord } from './telemetry.ts';
 
 export const MAX_SEATS = 8;
 
@@ -32,6 +33,15 @@ export interface Room {
   log: string[];
   lastActivity: number;
   emptyHumanSince: number | null; // epoch-ms the room last had zero connected humans (null while one is online)
+  match: MatchProgress | null; // bookkeeping for the match record; see telemetry.ts
+}
+
+/** What a finished match needs to report, gathered as it is played. */
+interface MatchProgress {
+  startedAt: number;
+  actions: number;
+  seats: number[]; // the seats dealt in, in order
+  recorded: boolean; // fires once: filed either when the match ends or when it is abandoned
 }
 
 /** Default values for a game's host-configurable options. */
@@ -73,6 +83,7 @@ export function createRoom(code: string, rng: Rng = cryptoRng): Room {
     log: [],
     lastActivity: Date.now(),
     emptyHumanSince: null,
+    match: null,
   };
 }
 
@@ -175,6 +186,54 @@ function buildGame(room: Room, def: GameDef, joined: number[]) {
   const players = joined.map((s) => ({ seat: s, name: room.members[s]!.name }));
   room.game = { def, state: def.create({ seats: joined, players, options: room.options }, ctxFor(room)) };
   room.phase = 'playing';
+  room.match = { startedAt: Date.now(), actions: 0, seats: [...joined], recorded: false };
+}
+
+/** The record for a match that has just ended, or `null` if there is nothing to file —
+ *  no match, or one already filed. This is called on every state change, so it must be
+ *  cheap, and it must fire exactly once per match. */
+export function matchRecord(room: Room, opts: { abandoned?: boolean } = {}): MatchRecord | null {
+  const progress = room.match;
+  if (!room.game || !progress || progress.recorded) return null;
+  const outcome = room.game.def.result(room.game.state);
+  if (!outcome.over && !opts.abandoned) return null;
+  if (!outcome.over && !progress.actions) return null; // nobody played a move: not a match
+  progress.recorded = true;
+
+  const scores = scoreBySeat(room);
+  const winners = outcome.over ? [...outcome.winners] : [];
+  return {
+    at: new Date().toISOString(),
+    game: room.gameId,
+    room: anonymise(room.code),
+    players: progress.seats.length,
+    bots: progress.seats.filter((s) => room.members[s]?.bot).length,
+    options: { ...room.options },
+    seats: progress.seats.map((seat) => ({
+      seat,
+      bot: !!room.members[seat]?.bot,
+      score: scores[seat] ?? null,
+      won: winners.includes(seat),
+    })),
+    winners,
+    drawn: outcome.over && winners.length > 1,
+    finished: outcome.over,
+    actions: progress.actions,
+    seconds: Math.round((Date.now() - progress.startedAt) / 1000),
+  };
+}
+
+/** Games keep their own scores under their own names, and some keep none at all. Read them
+ *  off the public view rather than teaching this module every game's private state shape. */
+function scoreBySeat(room: Room): Record<number, number> {
+  const out: Record<number, number> = {};
+  try {
+    const view = room.game!.def.view(room.game!.state, null) as { players?: { seat: number; score?: number }[] };
+    for (const p of view.players ?? []) if (typeof p.score === 'number') out[p.seat] = p.score;
+  } catch {
+    /* a game without a scoreboard simply reports none */
+  }
+  return out;
 }
 
 /** Host replays the SAME game with the same players once the match is over —
@@ -198,7 +257,13 @@ export function restart(room: Room, seat: number): ActionResult {
 /** Route an in-game action to the active game. */
 export function act(room: Room, seat: number, msg: Record<string, unknown>): ActionResult {
   if (room.phase !== 'playing' || !room.game) return fail('No game in progress.');
-  return room.game.def.act(room.game.state, seat, msg, ctxFor(room)) ?? ok;
+  // A game returns `undefined` for a message type it does not handle, and that is NOT a
+  // move — collapsing it into `ok` before counting would let any junk a client sends
+  // inflate the move count in the match record.
+  const raw = room.game.def.act(room.game.state, seat, msg, ctxFor(room));
+  const res = raw ?? ok;
+  if (raw !== undefined && !res.error && room.match) room.match.actions += 1;
+  return res;
 }
 
 /** Leave the room: a bot takes over the seat so play continues; the host is

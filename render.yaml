@@ -16,3 +16,8 @@ services:
       # Node 24 runs the .ts server directly via native type stripping (no build).
       - key: NODE_VERSION
         value: "24"
+      # Match records. Without this the server writes them to its own container, which is
+      # wiped on every deploy and spin-down — i.e. online play is recorded nowhere. Set it
+      # in the Render dashboard to a Postgres connection string and the records survive.
+      - key: DATABASE_URL
+        sync: false

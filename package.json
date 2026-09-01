@@ -1,7 +1,7 @@
 {
   "name": "love-and-liar",
   "version": "1.0.0",
-  "description": "Love & Liar — a 2-player online bluffing card game",
+  "description": "Love & Liar \u2014 a 2-player online bluffing card game",
   "type": "module",
   "engines": {
     "node": ">=22.6.0"
@@ -10,10 +10,13 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "smoke": "node smoke/smoke.cjs",
     "start": "node src/server.ts",
-    "dev": "node --watch src/server.ts"
+    "dev": "node --watch src/server.ts",
+    "stats": "node src/stats.ts",
+    "db:check": "node src/db-check.ts"
   },
   "dependencies": {
     "node": "^26.4.0",
+    "pg": "^8.23.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {

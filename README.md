@@ -147,6 +147,24 @@ src/
     style.css       The visual system.
     app.js          Thin renderer — shows only the server's private view.
 build-wordbank.cjs  Builds players.json from the Transfermarkt dumps.
+
+### Match records
+
+Every finished match writes one anonymous JSON record — game, seat order, which seats were
+bots, the bot-skill setting, the result, length. No names, no room codes, no IPs: seat
+index and a bot flag answer the questions, and a room code is stored only as a salted hash.
+
+    npm run stats            # what has been played, and what it says
+
+Records go wherever the server can keep them. Locally that is `data/matches.jsonl`
+(gitignored). A deployed instance has no durable disk, so set `DATABASE_URL` and they go to
+Postgres instead — `npm run stats` then reads from there too. If the database is
+unreachable the records fall back to the file rather than being dropped, and a match is
+never delayed or failed by telemetry.
+
+What it is for: every bot-strength number in this repo came from bots playing bots. These
+records are how you find out whether a difficulty is beatable by a person, whether moving
+first decides games, and which games get abandoned half-way through.
 decoy.cjs           Shared player-similarity / decoy selection (+ its own tests).
 players.json        The committed football player bank.
 ```

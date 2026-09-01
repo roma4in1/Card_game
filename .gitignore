@@ -9,3 +9,10 @@ node_modules/
 # Kept locally to regenerate players.json; the committed players.json is what the app uses.
 raw-players.json
 legends-raw.json
+
+# match telemetry (local analysis only — never commit play data)
+data/
+
+# local secrets — never commit (DATABASE_URL holds a real password)
+.env
+.env.local
