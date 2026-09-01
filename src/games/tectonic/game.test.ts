@@ -240,6 +240,51 @@ test('the bot slides toward the land worth having, not just the first way out', 
   assert.equal(s.pawns[0].q, -3, 'and it is now sitting in the half worth having');
 });
 
+test('thinking leaves the board exactly as it found it', () => {
+  // The search plays moves on the REAL state and takes them back again, rather than
+  // copying ~130 hexes per node. That is only safe if the undo is perfect: a single field
+  // left behind would corrupt a live match, silently and permanently.
+  const s = def.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as TState;
+  for (let n = 0; n < 12 && !s.over; n++) {
+    const seat = s.order[s.turn];
+    const before = JSON.stringify(s);
+    const mv = def.bot!(s, seat, ctx);
+    assert.equal(JSON.stringify(s), before, 'the bot mutated the game while thinking about it');
+    if (!mv) break;
+    act(s, seat, mv, ctx);
+  }
+});
+
+test('a bot-played match keeps the board consistent and the points conserved', () => {
+  const s = def.create({ seats: [0, 1, 2], players: [0, 1, 2].map((i) => ({ seat: i, name: 'P' + i })) }, ctx) as TState;
+  const total = Object.values(s.hexes).reduce((a, h) => a + h.value, 0);
+  for (let n = 0; n < 4000 && !s.over; n++) {
+    const seat = s.order[s.turn];
+    const mv = def.bot!(s, seat, ctx);
+    if (!mv) break;
+    assert.equal(act(s, seat, mv, ctx).error, undefined, JSON.stringify(mv));
+
+    // every pawn stands on a present hex that points back at it, and no two share one
+    const seen = new Set<string>();
+    for (const p of s.pawns) {
+      const key = `${p.q},${p.r}`;
+      const h = s.hexes[key];
+      assert.ok(h, `pawn ${p.id} is off the board`);
+      assert.equal(h.state, 'present', `pawn ${p.id} is standing on a gap`);
+      assert.equal(h.pawn, p.id, `hex ${key} does not point back at pawn ${p.id}`);
+      assert.equal(seen.has(key), false, `two pawns share ${key}`);
+      seen.add(key);
+    }
+    // and every point banked is a hex that was actually removed
+    const banked = s.scores.reduce((a, b) => a + b, 0);
+    const gone = Object.values(s.hexes).filter((h) => h.state === 'gap').reduce((a, h) => a + h.value, 0);
+    const standing = Object.values(s.hexes).filter((h) => h.state === 'present').reduce((a, h) => a + h.value, 0);
+    assert.equal(banked, gone, 'points banked do not match the hexes removed');
+    assert.equal(banked + standing, total, 'points appeared or vanished');
+  }
+  assert.equal(s.over, true);
+});
+
 test('the bot keeps its own counsel — repeat matches are not identical', () => {
   const play = (seq: number[]) => {
     let i = 0;
