@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { quoridor, type QState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
+const seeded = (n: number) => { let a = n; return () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648); };
 const ctx: GameContext = { rng: () => 0.5, now: 0 };
 function newQ(np: number): QState {
   const seats = Array.from({ length: np }, (_, i) => i);
@@ -235,4 +236,43 @@ test('a full match plays to a winner via the bot', () => {
   }
   assert.equal(s.over, true);
   assert.ok(quoridor.result(s).winners.length === 1);
+});
+
+// ---------------------------------------------------------------------------
+// Bot
+// ---------------------------------------------------------------------------
+
+test('the bot places walls, and a bot match still reaches a winner', () => {
+  // The regression this guards: the old bot only ever walked its shortest path and never
+  // placed a single wall, handing away half the game to anyone who did.
+  const ctx: GameContext = { rng: seeded(2024), now: 0 };
+  const s = quoridor.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as QState;
+  let acts = 0;
+  for (; acts < 3000 && !s.over; acts++) {
+    const seat = s.order[s.turn];
+    const mv = quoridor.bot!(s, seat, ctx)!;
+    assert.ok(mv, 'the bot on turn always has something to do');
+    assert.equal((quoridor.act(s, seat, mv, ctx) ?? {}).error, undefined, JSON.stringify(mv));
+  }
+  assert.equal(s.over, true, 'the match finished');
+  assert.equal(typeof s.winner, 'number');
+  assert.ok(s.walls.length >= 4, `a bot game should see walls go down, saw ${s.walls.length}`);
+  assert.ok(s.wallsLeft.some((w) => w < 10), 'and they came out of someone’s supply');
+});
+
+test('the bot answers a wall rather than replaying the same game every time', () => {
+  // Deterministic search means two bots play the identical match forever, which a human
+  // can simply memorise. The tie-break jitter has to make repeat games diverge.
+  const play = (seed: number) => {
+    const ctx: GameContext = { rng: seeded(seed), now: 0 };
+    const s = quoridor.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as QState;
+    for (let n = 0; n < 3000 && !s.over; n++) {
+      const seat = s.order[s.turn];
+      quoridor.act(s, seat, quoridor.bot!(s, seat, ctx)!, ctx);
+    }
+    // `moveLog` is dead state (declared, never written), so sign the game by what the
+    // board actually ended up looking like.
+    return JSON.stringify({ walls: s.walls, pawns: s.pawns, winner: s.winner });
+  };
+  assert.notEqual(play(11), play(77), 'two matches should not be move-for-move identical');
 });

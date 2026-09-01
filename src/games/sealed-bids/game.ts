@@ -13,6 +13,7 @@
 // players keep notes on paper.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
 
 const CARDS = 13; // hands are 1..13, and there are 13 prizes
 const REVEAL_MS = 2200; // how long both bids stay face-up before the next prize
@@ -49,6 +50,7 @@ export interface SBState {
   last: LastRound | null;
   revealAt: number; // when the face-up reveal ends
   phase: 'bid' | 'reveal' | 'done';
+  skill: number; // how hard the bots play (1 casual … 3 sharp)
   over: boolean;
   winners: number[]; // seats on the winning side
   log: string[];
@@ -180,18 +182,195 @@ function viewState(s: SBState, seat: number | null): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Bot — bids around the prize's worth, never quite predictably
+// Endgame solver — exact play once the deck is short enough to see to the end.
+//
+// The information here is unusually friendly: both hands are PUBLIC (each is 1..13 less
+// the cards spent, and every bid is revealed), so the only thing left unknown is the
+// order of the prizes still to come. That makes the last few rounds a small, fully
+// specified game, and small enough to solve outright rather than guess at.
+//
+// Each round is a simultaneous move, so it is a matrix game and its solution is a MIXED
+// strategy — there is no single best card, and any deterministic rule can be read and
+// beaten. Backward induction gives the exact value of every reachable position; Brown's
+// fictitious play solves the matrix at each one and hands back the mixture to bid from.
+//
+// It maximises the final MARGIN rather than the probability of winning. The two only come
+// apart when a match is already decided, which `decidedAlready` catches separately.
+// ---------------------------------------------------------------------------
+
+const ENDGAME_CARDS = 5; // solve once each hand is down to this many
+const FP_ITERATIONS = 600; // fictitious-play sweeps per genuinely mixed matrix
+
+export const bit = (card: number) => 1 << (card - 1);
+function bitsOf(mask: number): number[] {
+  const out: number[] = [];
+  for (let c = 1; c <= CARDS; c++) if (mask & bit(c)) out.push(c);
+  return out;
+}
+
+/** Solve a zero-sum matrix game from the row player's side. Fictitious play: each side
+ *  repeatedly best-responds to the other's play so far, which converges to the value for
+ *  zero-sum games. Returns that value and the row player's mixture over its bids. */
+function solveMatrix(M: number[][]): { value: number; mix: number[] } {
+  const rows = M.length;
+  const cols = M[0].length;
+  if (rows === 1 && cols === 1) return { value: M[0][0], mix: [1] };
+
+  // Most positions have a saddle point — a bid that is best whatever they do. Where
+  // maximin meets minimax the game has a pure solution and an exact value, so take it
+  // rather than letting fictitious play creep up on a number we already know.
+  const rowMins = M.map((r) => Math.min(...r));
+  const colMaxs = M[0].map((_, j) => Math.max(...M.map((r) => r[j])));
+  const maximin = Math.max(...rowMins);
+  const minimax = Math.min(...colMaxs);
+  if (maximin === minimax) {
+    const mix = new Array(rows).fill(0);
+    mix[rowMins.indexOf(maximin)] = 1;
+    return { value: maximin, mix };
+  }
+
+  const rowGain = new Array(cols).fill(0); // what each column has scored against our play
+  const colGain = new Array(rows).fill(0); // what each row has scored against theirs
+  const played = new Array(rows).fill(0);
+  for (let t = 0; t < FP_ITERATIONS; t++) {
+    let br = 0;
+    for (let i = 1; i < rows; i++) if (colGain[i] > colGain[br]) br = i;
+    played[br] += 1;
+    for (let j = 0; j < cols; j++) rowGain[j] += M[br][j];
+    let bc = 0;
+    for (let j = 1; j < cols; j++) if (rowGain[j] < rowGain[bc]) bc = j;
+    for (let i = 0; i < rows; i++) colGain[i] += M[i][bc];
+  }
+  // The two running bests bracket the true value from either side; take the midpoint.
+  // The two running bests bracket the true value from either side; the midpoint is the
+  // best estimate, and it can never sit outside the exact maximin/minimax bounds.
+  const upper = Math.max(...colGain) / FP_ITERATIONS;
+  const lower = Math.min(...rowGain) / FP_ITERATIONS;
+  const value = Math.min(minimax, Math.max(maximin, (upper + lower) / 2));
+  return { value, mix: played.map((n) => n / FP_ITERATIONS) };
+}
+
+/** Exact value of a position, and the mixture to bid from. `pot` is what is on the table
+ *  now; `unseen` is every prize still face-down. */
+export function solveEndgame(
+  handMe: number,
+  handFoe: number,
+  unseen: number,
+  pot: number,
+  memo: Map<string, { value: number; mix: number[] }>,
+): { value: number; mix: number[] } {
+  const key = `${handMe}:${handFoe}:${unseen}:${pot}`;
+  const hit = memo.get(key);
+  if (hit) return hit;
+
+  const mine = bitsOf(handMe);
+  const theirs = bitsOf(handFoe);
+  const nextPrizes = bitsOf(unseen);
+  const M: number[][] = [];
+  for (const a of mine) {
+    const row: number[] = [];
+    for (const b of theirs) {
+      const immediate = a > b ? pot : b > a ? -pot : 0;
+      let rest = 0;
+      if (nextPrizes.length) {
+        // The next prize is equally likely to be any of the ones still face-down.
+        for (const p of nextPrizes) {
+          rest += solveEndgame(handMe & ~bit(a), handFoe & ~bit(b), unseen & ~bit(p), (a === b ? pot : 0) + p, memo).value;
+        }
+        rest /= nextPrizes.length;
+      }
+      // A tie on the very last round carries a pot that is never awarded — worth nothing.
+      row.push(immediate + rest);
+    }
+    M.push(row);
+  }
+  const solved = solveMatrix(M);
+  memo.set(key, solved);
+  return solved;
+}
+
+// ---------------------------------------------------------------------------
+// Bot — spends in proportion to what is left, and reads the opponent's hand.
+//
+// The old bot bid whatever card sat nearest the pot's face value, which is a losing rule:
+// early on it burns a 9 on a 9 that is only the fourth-best prize still to come, and late
+// on it has nothing left for the prizes that matter.
+//
+// This one ranks the pot against every prize NOT yet turned over — all public, since the
+// deck is 1..13 and you have seen the ones that have gone — and spends the card of the
+// matching rank. If this pot is the second-richest thing left, it plays its second-best
+// card. It then checks the opponent's remaining hand (equally public, being 1..13 minus
+// what they have spent) and, where it can, shades down to the cheapest card that still
+// beats what they would play by the same reasoning: winning a prize by one point leaves
+// the better card in hand. Prizes it cannot win economically it concedes with its lowest
+// card rather than throwing a good one away.
 // ---------------------------------------------------------------------------
 
 function botMove(s: SBState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.phase !== 'bid') return null;
   const pid = s.order.indexOf(seat);
   if (pid < 0 || s.bids[pid] !== null || !s.hands[pid].length) return null;
-  // Spend roughly in proportion to what's on the table, then jitter one step either way
-  // so a human can't simply read the pot and bid one higher every round.
-  const target = sum(s.pot);
-  const ranked = [...s.hands[pid]].sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
-  const pick = ranked[Math.min(ranked.length - 1, Math.floor(rng() * Math.min(3, ranked.length)))];
+
+  const mine = [...s.hands[pid]].sort((a, b) => b - a); // best first
+  const theirs = [...s.hands[1 - pid]].sort((a, b) => b - a);
+  if (mine.length === 1) return { type: 'bid', card: mine[0] };
+
+  // Casual: bids at random. Unreadable, but it throws its best cards away on scraps.
+  if (s.skill <= CASUAL) return { type: 'bid', card: mine[Math.floor(rng() * mine.length)] };
+  // Steady: spends whatever card sits nearest the pot's face value — the obvious rule,
+  // and a losing one, since it burns a 9 on a 9 that is only the fourth prize left.
+  if (s.skill <= STEADY) {
+    const target = sum(s.pot);
+    const ranked = [...mine].sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
+    return { type: 'bid', card: ranked[Math.min(ranked.length - 1, Math.floor(rng() * Math.min(3, ranked.length)))] };
+  }
+
+  // Every prize still to be turned over, plus the one on the table. Revealed prizes are
+  // public — they have each been played for — so this is deduction, not peeking.
+  const revealed = new Set(s.prizes.slice(0, s.round + 1));
+  const unseen = s.prizes.filter((v) => !revealed.has(v));
+  const potTotal = sum(s.pot);
+
+  // Short enough to see to the end: stop guessing and solve it.
+  if (mine.length <= ENDGAME_CARDS) {
+    const lead = s.scores[pid] - s.scores[1 - pid];
+    const stillOnTable = potTotal + unseen.reduce((a, b) => a + b, 0);
+    if (lead > stillOnTable) return { type: 'bid', card: mine[mine.length - 1] }; // already won; spend nothing
+    const maskOf = (cards: number[]) => cards.reduce((m, c) => m | bit(c), 0);
+    const { mix } = solveEndgame(maskOf(mine), maskOf(theirs), maskOf(unseen), potTotal, new Map());
+    // Bid from the equilibrium mixture — a fixed choice here would be readable.
+    const order = [...mine].sort((a, b) => a - b); // solveEndgame enumerates ascending
+    let roll = rng();
+    for (let i = 0; i < order.length; i++) {
+      roll -= mix[i] ?? 0;
+      if (roll <= 0) return { type: 'bid', card: order[i] };
+    }
+    return { type: 'bid', card: order[order.length - 1] };
+  }
+  // Where this pot ranks among what remains: 0 = the richest thing still on offer.
+  const rank = unseen.filter((v) => v > potTotal).length;
+  const target = mine[Math.min(rank, mine.length - 1)];
+
+  // What they would spend if they reasoned the same way — their card of the same rank.
+  const predicted = theirs[Math.min(rank, theirs.length - 1)];
+  let pick = target;
+  if (target > predicted) {
+    // Winning is affordable: shade down to the cheapest card that still takes it, and
+    // keep the better one back for a richer pot.
+    const cheapest = mine.filter((c) => c > predicted).sort((a, b) => a - b)[0];
+    if (cheapest !== undefined) pick = cheapest;
+  } else if (potTotal <= (unseen.length ? unseen.reduce((a, b) => a + b, 0) / unseen.length : potTotal)) {
+    // Not worth a fight, and below the average prize still to come: concede it cheaply.
+    pick = mine[mine.length - 1];
+  }
+
+  // A pinch of noise, or a human reads the rule off two rounds of play and bids one over.
+  if (rng() < 0.18) {
+    const i = mine.indexOf(pick);
+    const shift = rng() < 0.5 ? -1 : 1;
+    const j = Math.max(0, Math.min(mine.length - 1, i + shift));
+    pick = mine[j];
+  }
   return { type: 'bid', card: pick };
 }
 
@@ -205,12 +384,13 @@ export const sealedBids: GameDef<SBState> = {
   blurb: 'Both bid a card in secret for each prize — highest takes it, and both cards are spent either way.',
   minPlayers: 2,
   maxPlayers: 2,
+  options: [SKILL_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 ? null : 'Sealed Bids is a two-player duel.';
   },
 
-  create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): SBState {
+  create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): SBState {
     const players: (SBPlayer | null)[] = new Array(8).fill(null);
     for (const pi of setup.players) players[pi.seat] = { name: pi.name, connected: true };
     const deck = Array.from({ length: CARDS }, (_, i) => i + 1);
@@ -227,6 +407,7 @@ export const sealedBids: GameDef<SBState> = {
       last: null,
       revealAt: 0,
       phase: 'bid',
+      skill: initSkill(setup.options?.skill),
       over: false,
       winners: [],
       log: [],

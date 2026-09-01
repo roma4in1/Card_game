@@ -188,3 +188,32 @@ test('the bot never bids a card it has already spent', () => {
     def.tick!(s, ctx);
   }
 });
+
+test('bot skill is a real ladder, not a label', () => {
+  // Sharp against Casual over many matches: if the setting did nothing, this would sit
+  // around half. Both sides are driven from one state, with `skill` swapped per seat.
+  let sharpWins = 0;
+  let casualWins = 0;
+  for (let g = 0; g < 60; g++) {
+    let a = g * 7919 + 3;
+    const rng = () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const ctx = { rng, now: 1000 } as GameContext & { now: number };
+    const s = start(ctx);
+    const sharpSeat = g % 2;
+    for (let n = 0; n < 200 && !s.over; n++) {
+      for (const seat of [0, 1]) {
+        s.skill = seat === sharpSeat ? 3 : 1;
+        const mv = def.bot!(s, seat, ctx);
+        if (mv) act(s, seat, mv, ctx);
+      }
+      s.skill = 3;
+      ctx.now += 5000;
+      def.tick!(s, ctx);
+    }
+    const hi = s.scores[s.order.indexOf(sharpSeat)];
+    const lo = s.scores[s.order.indexOf(1 - sharpSeat)];
+    if (hi > lo) sharpWins++; else if (lo > hi) casualWins++;
+  }
+  assert.ok(sharpWins > casualWins * 3, `Sharp should dominate Casual, got ${sharpWins}-${casualWins}`);
+});
+

@@ -250,15 +250,49 @@ test('the bot only ever makes legal moves, and drives a match to a winner', () =
   }
 });
 
-test('the bot walks away from a battle it cannot win while walking away is still cheap', () => {
-  // B faces two lost fronts and holds four cards, so conceding costs the minimum 2.
+test('the bot walks away only from a battle that is genuinely lost', () => {
+  // Hopeless on purpose: A holds all three fronts, and the Sea front is BLOCKADED, so B —
+  // holding no Sea cards — cannot legally place anything there at all. That caps B at one
+  // front. Taking Air needs three of B's four cards, which leaves one for Land, and one
+  // card cannot reach 8. Fighting on costs 6; conceding with four in hand costs 2.
+  const { s, ctx } = mk([], [card(AIR, 1), card(AIR, 2), card(LAND, 1), card(LAND, 2)]);
+  s.fronts[AIR] = [{ pid: 0, cardId: card(AIR, 6), faceDown: false }];
+  s.fronts[LAND] = [{ pid: 0, cardId: card(LAND, 6), faceDown: false }];
+  s.fronts[SEA] = [{ pid: 0, cardId: card(SEA, 6), faceDown: false }];
+  s.recon[0][AIR] = true;
+  s.entrench[0][LAND] = true;
+  s.blocked[1][SEA] = true; // A's Sea card blockaded B out of that front
+  s.turn = 1;
+  assert.deepEqual(def.bot!(s, 1, ctx), { type: 'withdraw' });
+});
+
+test('the bot does not concede a battle it can still win with a Recon line', () => {
+  // The same shape but WITHOUT the blockade, and this one is winnable: bury both Sea cards
+  // behind a face-up Air 2 — Recon lifts them from 2 to 3 each, for 8 against A's 6 — then
+  // take the empty Sea front with the spare Air 1. Two fronts to one. A bot that only
+  // looks one card ahead cannot see it and throws away 2 points conceding.
   const { s, ctx } = mk([], [card(AIR, 1), card(AIR, 2), card(SEA, 1), card(SEA, 2)]);
   s.fronts[AIR] = [{ pid: 0, cardId: card(AIR, 6), faceDown: false }];
   s.fronts[LAND] = [{ pid: 0, cardId: card(LAND, 6), faceDown: false }];
   s.recon[0][AIR] = true;
   s.entrench[0][LAND] = true;
   s.turn = 1;
-  assert.deepEqual(def.bot!(s, 1, ctx), { type: 'withdraw' });
+  const mv = def.bot!(s, 1, ctx) as any;
+  assert.notEqual(mv.type, 'withdraw', 'this battle is there to be won');
+
+  // and play the line out to prove the win is real, not just the bot's opinion
+  for (const step of [
+    { cardId: card(AIR, 2), front: AIR, faceDown: false },
+    { cardId: card(SEA, 1), front: AIR, faceDown: true },
+    { cardId: card(SEA, 2), front: AIR, faceDown: true },
+    { cardId: card(AIR, 1), front: SEA, faceDown: true },
+  ]) {
+    s.turn = 1;
+    assert.equal(act(s, 1, { type: 'deploy', ...step }, ctx).error, undefined);
+  }
+  assert.equal(frontStrength(s, AIR, 1), 8, 'Recon turned two buried 1s and 2s into 3s');
+  assert.equal(s.result!.winner, 1, 'B takes Air and Sea');
+  assert.deepEqual(s.scores, [0, 6]);
 });
 
 test('view is consistent for both seats on everything that is public', () => {

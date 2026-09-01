@@ -15,6 +15,7 @@
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
 import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
+import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
 
 const SIZE = 8;
 export const FLEET: { name: string; size: number }[] = [
@@ -53,6 +54,7 @@ export interface SVState {
   last: { pid: number; x: number; y: number; result: 'hit' | 'miss'; sunk: string | null } | null;
   phase: 'place' | 'play' | 'done';
   timer: Timer;
+  skill: number; // how hard the bots play (1 casual … 3 sharp)
   over: boolean;
   winners: number[]; // seats
   log: string[];
@@ -319,9 +321,20 @@ function viewState(s: SVState, seat: number | null): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Bot — hunts on a parity grid, then finishes what it wounds.
-// It reads ONLY what a player in its seat can see: its own shot history, and the
-// ships it has actually sunk. Unsunk enemy positions are never consulted.
+// Bot — plays the density map, the way a strong human plays Battleship.
+//
+// For every ship still afloat it counts every placement still consistent with what it
+// has been told — inside the board, clear of its own misses, clear of the hulls it has
+// already sunk — and shoots wherever the most placements overlap. That alone beats
+// checkerboard sweeping: it hunts big ships first because they have more ways to fit,
+// and it tightens automatically as misses carve the water up.
+//
+// With a hit outstanding it switches to finishing that ship: only placements covering
+// the wounded cells count, so it follows the hull's axis instead of poking blindly at
+// all four neighbours.
+//
+// It reads ONLY what a player in its seat can see: its own shot history, and the ships
+// it has actually sunk. Unsunk enemy positions are never consulted.
 // ---------------------------------------------------------------------------
 
 function botMove(s: SVState, seat: number, rng: Rng): Record<string, unknown> | null {
@@ -332,30 +345,109 @@ function botMove(s: SVState, seat: number, rng: Rng): Record<string, unknown> | 
 
   const foe = 1 - pid;
   const mine = s.shots[pid];
-  const sunkCells = new Set<number>();
-  for (const sh of s.fleets[foe]) if (isSunk(sh)) for (const [cx, cy] of shipCells(sh)) sunkCells.add(cy * s.size + cx);
+  const N = s.size;
+  const unfired = () => {
+    const out: number[] = [];
+    for (let i = 0; i < mine.length; i++) if (mine[i] === null) out.push(i);
+    return out;
+  };
+  const shoot = (i: number) => ({ type: 'fire', x: i % N, y: Math.floor(i / N) });
 
-  // 1) finish a wounded ship: any hit that isn't part of something already sunk
-  const targets: number[] = [];
-  for (let y = 0; y < s.size; y++) {
-    for (let x = 0; x < s.size; x++) {
-      const i = idx(s, x, y);
-      if (mine[i] !== 'hit' || sunkCells.has(i)) continue;
+  // Casual: fires blind. No sweep, no follow-up — a beginner with a grid.
+  if (s.skill <= CASUAL) {
+    const left = unfired();
+    return left.length ? shoot(left[Math.floor(rng() * left.length)]) : null;
+  }
+
+  // What the shooter legitimately knows: which squares it has tried, and the hulls of
+  // the ships it has sunk (announced by name when they go down).
+  const sunkCells = new Set<number>();
+  const sunkNames: string[] = [];
+  for (const sh of s.fleets[foe]) {
+    if (!isSunk(sh)) continue;
+    sunkNames.push(sh.name);
+    for (const [cx, cy] of shipCells(sh)) sunkCells.add(cy * N + cx);
+  }
+  // Hits that don't belong to anything sunk yet — a ship is still out there, wounded.
+  const wounded: number[] = [];
+  for (let i = 0; i < mine.length; i++) if (mine[i] === 'hit' && !sunkCells.has(i)) wounded.push(i);
+
+  // Ships still afloat, by size. Names repeat (two 3s), so strike them off one by one.
+  const afloat: number[] = [];
+  const toRemove = [...sunkNames];
+  for (const spec of FLEET) {
+    const k = toRemove.indexOf(spec.name);
+    if (k >= 0) toRemove.splice(k, 1);
+    else afloat.push(spec.size);
+  }
+  if (!afloat.length) return null;
+
+  // Steady: checkerboard sweep, then poke around a hit. Sound, but it never works out
+  // which ship it is chasing, so it wastes shots on squares no hull could occupy.
+  if (s.skill <= STEADY) {
+    const targets: number[] = [];
+    for (const i of wounded) {
+      const x = i % N;
+      const y = Math.floor(i / N);
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
         const nx = x + dx;
         const ny = y + dy;
-        if (inBoard(s, nx, ny) && mine[idx(s, nx, ny)] === null) targets.push(idx(s, nx, ny));
+        if (inBoard(s, nx, ny) && mine[ny * N + nx] === null) targets.push(ny * N + nx);
+      }
+    }
+    if (!targets.length) for (const i of unfired()) if ((i % N + Math.floor(i / N)) % 2 === 0) targets.push(i);
+    const pool = targets.length ? targets : unfired();
+    return pool.length ? shoot(pool[Math.floor(rng() * pool.length)]) : null;
+  }
+
+  const density = new Array(N * N).fill(0);
+  for (const size of afloat) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        for (const horiz of [true, false]) {
+          if (horiz ? x + size > N : y + size > N) continue;
+          let ok = true;
+          let covers = 0;
+          const cells: number[] = [];
+          for (let k = 0; k < size && ok; k++) {
+            const i = (horiz ? y : y + k) * N + (horiz ? x + k : x);
+            // a miss rules the placement out; so does a square already known to be
+            // another ship's hull
+            if (mine[i] === 'miss' || sunkCells.has(i)) ok = false;
+            else {
+              cells.push(i);
+              if (mine[i] === 'hit') covers++;
+            }
+          }
+          if (!ok) continue;
+          // Finishing mode: while a ship is wounded, only placements that explain those
+          // hits are worth anything — that is what keeps the bot on the hull's axis.
+          if (wounded.length && covers === 0) continue;
+          const weight = covers ? 1 + covers * 12 : 1;
+          for (const i of cells) if (mine[i] === null) density[i] += weight;
+        }
       }
     }
   }
-  // 2) otherwise sweep: no ship is smaller than 2, so every other square finds them all
-  if (!targets.length) {
-    for (let y = 0; y < s.size; y++) for (let x = 0; x < s.size; x++) if (mine[idx(s, x, y)] === null && (x + y) % 2 === 0) targets.push(idx(s, x, y));
+
+  let best = -1;
+  let bestScore = -1;
+  for (let i = 0; i < density.length; i++) {
+    if (mine[i] !== null) continue;
+    const score = density[i] + rng() * 0.5; // jitter only breaks exact ties
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
   }
-  if (!targets.length) for (let i = 0; i < mine.length; i++) if (mine[i] === null) targets.push(i);
-  if (!targets.length) return null;
-  const pickIdx = targets[Math.floor(rng() * targets.length)];
-  return { type: 'fire', x: pickIdx % s.size, y: Math.floor(pickIdx / s.size) };
+  // Every remaining square is provably empty (can happen late on): take any of them.
+  if (best < 0 || bestScore <= 0.5) {
+    const left: number[] = [];
+    for (let i = 0; i < mine.length; i++) if (mine[i] === null) left.push(i);
+    if (!left.length) return null;
+    best = left[Math.floor(rng() * left.length)];
+  }
+  return { type: 'fire', x: best % N, y: Math.floor(best / N) };
 }
 
 // --- turn timer: a stalled player forfeits the shot to their own bot ---
@@ -375,7 +467,7 @@ export const salvo: GameDef<SVState> = {
   blurb: 'Hide your fleet, then hunt theirs square by square. Every hit earns another shot.',
   minPlayers: 2,
   maxPlayers: 2,
-  options: [TIMER_OPTION],
+  options: [SKILL_OPTION, TIMER_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 ? null : 'Salvo is a two-player duel.';
@@ -398,6 +490,7 @@ export const salvo: GameDef<SVState> = {
       last: null,
       phase: 'place',
       timer: initTimer(setup.options?.timer),
+      skill: initSkill(setup.options?.skill),
       over: false,
       winners: [],
       log: [],

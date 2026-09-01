@@ -27,6 +27,9 @@ export interface GameOption {
   max: number;
   step?: number;
   default: number;
+  /** Optional names for each step, from `min` upward — the client shows these instead of
+   *  the raw number, so a 1-to-3 setting can read "Casual / Steady / Sharp". */
+  labels?: string[];
 }
 
 /** Result of a game once it finishes. */

@@ -11,6 +11,7 @@
 // hex you LEAVE is removed (becomes a gap) and its value banked to you.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
 
 export const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
@@ -62,6 +63,7 @@ export interface TState {
   winner: number | null; // player-index, or null when shared
   winners: number[]; // seats on the winning side
   over: boolean;
+  skill: number; // how hard the bots play (1 casual … 3 sharp)
   log: string[];
 }
 
@@ -365,22 +367,167 @@ function viewState(s: TState, seat: number | null): Record<string, unknown> {
   };
 }
 
-function botMove(s: TState, seat: number): Record<string, unknown> | null {
+/** A working copy of everything a slide changes. */
+function cloneState(s: TState): TState {
+  const hexes: Record<string, Hex> = {};
+  for (const k of Object.keys(s.hexes)) hexes[k] = { ...s.hexes[k] };
+  return { ...s, hexes, pawns: s.pawns.map((p) => ({ ...p })), scores: [...s.scores] };
+}
+
+/** The slide rule again, on a scratch board: bank the hex you leave, travel to the last
+ *  free hex, hand the turn to the next player who can still move. */
+function simSlide(sim: TState, pawnId: number, direction: number) {
+  const p = sim.pawns.find((x) => x.id === pawnId)!;
+  let q = p.q;
+  let r = p.r;
+  for (;;) {
+    const nq = q + DIRS[direction][0];
+    const nr = r + DIRS[direction][1];
+    const h = sim.hexes[id(nq, nr)];
+    if (!h || h.state !== 'present' || h.pawn !== null) break;
+    q = nq;
+    r = nr;
+  }
+  const origin = sim.hexes[id(p.q, p.r)];
+  sim.scores[p.owner] += origin.value;
+  origin.state = 'gap';
+  origin.pawn = null;
+  p.q = q;
+  p.r = r;
+  sim.hexes[id(q, r)].pawn = p.id;
+  recomputeAlive(sim);
+  for (let i = 1; i <= sim.np; i++) {
+    const cand = (sim.turn + i) % sim.np;
+    if (sim.pawns.some((x) => x.owner === cand && x.alive)) {
+      sim.turn = cand;
+      break;
+    }
+  }
+}
+
+/** What the board is worth to `me`: points banked, plus a share of what is still standing
+ *  on each island, minus what the opposition can expect from theirs.
+ *
+ *  The share matters more than the immediate grab. Land nobody can reach is worth nothing
+ *  to anyone; land only YOUR pawns can reach is as good as banked; land you are sharing
+ *  splits by how many pawns each side has on it. A pawn also always strands itself on one
+ *  last hex, so no island is ever collected clean — hence the discount. */
+function evalPosition(s: TState, me: number): number {
+  const comp: Record<string, number> = {};
+  const sums: number[] = [];
+  const counts: Record<number, number>[] = [];
+  let nc = 0;
+  for (const key of Object.keys(s.hexes)) {
+    if (s.hexes[key].state !== 'present' || comp[key] !== undefined) continue;
+    let sum = 0;
+    const stack = [key];
+    comp[key] = nc;
+    while (stack.length) {
+      const k = stack.pop()!;
+      sum += s.hexes[k].value;
+      const [q, r] = k.split(',').map(Number);
+      for (const [dq, dr] of DIRS) {
+        const nk = id(q + dq, r + dr);
+        if (s.hexes[nk] && s.hexes[nk].state === 'present' && comp[nk] === undefined) {
+          comp[nk] = nc;
+          stack.push(nk);
+        }
+      }
+    }
+    sums[nc] = sum;
+    counts[nc] = {};
+    nc++;
+  }
+  for (const p of s.pawns) {
+    if (!p.alive) continue;
+    const c = comp[id(p.q, p.r)];
+    if (c === undefined) continue;
+    counts[c][p.owner] = (counts[c][p.owner] || 0) + 1;
+  }
+
+  const potential = new Array(s.np).fill(0);
+  for (let c = 0; c < nc; c++) {
+    const owners = Object.keys(counts[c]).map(Number);
+    if (!owners.length) continue; // an island nobody can still reach is worth nothing
+    const pawnsHere = owners.reduce((a, pid) => a + counts[c][pid], 0);
+    for (const pid of owners) potential[pid] += sums[c] * (counts[c][pid] / pawnsHere) * 0.8;
+  }
+
+  const alive = new Array(s.np).fill(0);
+  for (const p of s.pawns) if (p.alive) alive[p.owner]++;
+
+  const worth = (pid: number) => s.scores[pid] + potential[pid] + alive[pid] * 0.4;
+  let rival = -Infinity;
+  for (let pid = 0; pid < s.np; pid++) if (pid !== me) rival = Math.max(rival, worth(pid));
+  return worth(me) - rival;
+}
+
+// ---------------------------------------------------------------------------
+// Bot — looks a move ahead and plays for territory, not for the next hex.
+//
+// The old bot banked whichever hex it happened to be standing on that was worth most,
+// and never looked at where the slide put it. That loses two ways: it strands pawns on
+// good land, and it opens islands for the other side to harvest. This one plays the move
+// out, lets the next player answer it, and scores the board that results — so it will
+// take a cheap hex now to seal an island only its own pawns can reach.
+// ---------------------------------------------------------------------------
+
+function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.over) return null;
   const pid = s.order.indexOf(seat);
   if (pid !== s.turn) return null;
   const moves = legalMoves(s);
   if (!moves.length) return null;
-  // Greedy: bank the highest-value origin hex available now.
+
+  // Casual: banks the dearest hex it is standing on and ignores where that leaves it —
+  // which is how a pawn ends up stranded on good land with nothing left to reach.
+  if (s.skill <= CASUAL) {
+    let pick = moves[0];
+    let bestVal = -1;
+    for (const m of moves) {
+      const p = s.pawns.find((x) => x.id === m.pawnId)!;
+      const v = s.hexes[id(p.q, p.r)].value + rng() * 0.5;
+      if (v > bestVal) {
+        bestVal = v;
+        pick = m;
+      }
+    }
+    return { type: 'slide', pawnId: pick.pawnId, direction: pick.direction, distance: pick.distance };
+  }
+
   let best = moves[0];
-  let bestVal = -1;
+  let bestValue = -Infinity;
   for (const m of moves) {
-    const p = s.pawns.find((x) => x.id === m.pawnId)!;
-    const v = s.hexes[id(p.q, p.r)].value;
-    if (v > bestVal) ((bestVal = v), (best = m));
+    const sim = cloneState(s);
+    simSlide(sim, m.pawnId, m.direction);
+    let value: number;
+    // Steady stops here: it judges the board it just made, but never lets the next player
+    // answer, so it walks into replies it could have seen coming.
+    if (s.skill <= STEADY) value = evalPosition(sim, pid);
+    else if (sim.turn === pid || sim.pawns.every((p) => !p.alive)) {
+      value = evalPosition(sim, pid); // nobody else can answer
+    } else {
+      // Let the next player take their best swing at it, and judge what is left.
+      const replies = legalMoves(sim);
+      value = Infinity;
+      for (const r of replies) {
+        const after = cloneState(sim);
+        simSlide(after, r.pawnId, r.direction);
+        value = Math.min(value, evalPosition(after, pid));
+      }
+      if (!replies.length) value = evalPosition(sim, pid);
+    }
+    // Only separates options the evaluation already rates level, but it keeps repeat
+    // matches from replaying the same game move for move.
+    const score = value + rng() * 0.3;
+    if (score > bestValue) {
+      bestValue = score;
+      best = m;
+    }
   }
   return { type: 'slide', pawnId: best.pawnId, direction: best.direction, distance: best.distance };
 }
+
 
 // ---------------------------------------------------------------------------
 // GameDef factory (board config injected; no data bank needed)
@@ -401,12 +548,13 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
     blurb: 'Slide pawns across a shrinking hex board, banking the tiles you leave. Isolate land, harvest the most.',
     minPlayers: 2,
     maxPlayers: 4,
+    options: [SKILL_OPTION],
 
     validateStart(seats) {
       return seats.length >= 2 && seats.length <= 4 ? null : 'Tectonic Shift is for 2 to 4 players.';
     },
 
-    create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): TState {
+    create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): TState {
       const np = setup.seats.length;
       const players: (TPlayer | null)[] = new Array(8).fill(null);
       const nameBySeat = new Map(setup.players.map((p) => [p.seat, p.name]));
@@ -461,6 +609,7 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
         winner: null,
         winners: [],
         over: false,
+        skill: initSkill(setup.options?.skill),
         log: [],
       };
       recomputeAlive(s);
@@ -490,8 +639,8 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
       return { over: s.over, winners: s.over ? s.winners : [] };
     },
 
-    bot(s, seat) {
-      return botMove(s, seat);
+    bot(s, seat, ctx) {
+      return botMove(s, seat, ctx.rng);
     },
   };
 }

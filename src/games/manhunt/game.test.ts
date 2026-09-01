@@ -264,6 +264,29 @@ test('both halves start from the identical position, with the roles swapped', ()
   assert.deepEqual(s.trail, [], 'with a clean trail');
 });
 
+test('two runs of the same length are split by how deep into the turn each was caught', () => {
+  // Against a good hunt both runs cluster low, so whole turns tie constantly. A run that
+  // slipped past two agents before the third took it beat one that fell to the first.
+  const { s, ctx } = mk(0, AWAY);
+  s.half = 1;
+  s.runner = 1; // B is running; A (player 0) hunts
+  s.survived = [4, null];
+  s.survivedSteps = [4 * 3 + 1, null]; // A lasted 4 turns and evaded one agent of the fifth
+  s.turn = 5;
+  s.stage = 'hunter';
+  s.hunterPiece = 2; // B has already evaded agents 1 and 2 this turn
+  s.runnerAt = 10;
+  const closer = EDGES[TAXI][10].find((n) => n !== 27 && n !== 28)!;
+  s.hunterAt = [27, 28, closer];
+  assert.equal(act(s, s.order[0], { type: 'hunt', to: 10 }, ctx).error, undefined);
+
+  assert.equal(s.over, true);
+  assert.deepEqual(s.survived, [4, 4], 'both lasted four whole turns');
+  assert.deepEqual(s.survivedSteps, [13, 14], 'but B stayed clear of one more agent');
+  assert.deepEqual(def.result(s).winners, [s.order[1]], 'so B takes it rather than drawing');
+  assert.match(s.log.join(' '), /one more agent/);
+});
+
 test('the longer run wins; equal runs are honours even', () => {
   const outcomes: [number, number, number[]][] = [
     [7, 3, [0]],

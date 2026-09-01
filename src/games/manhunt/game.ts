@@ -21,6 +21,7 @@
 // deduce from it.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
 
 const TURNS = 12; // a half lasts this many turns if the runner is never caught
 const SURFACE_EVERY = 3; // …and they must surface on every third one
@@ -104,9 +105,14 @@ export interface MHState {
   hunterAt: number[];
   trail: TrailStep[];
   survived: (number | null)[]; // by player-index: turns survived on their run
+  // The same run measured in agent-moves evaded. Turns are what players read, but they are
+  // coarse: against a good hunt both runs cluster low and tie far too often. This separates
+  // "caught by the first agent" from "caught by the third" without changing the game.
+  survivedSteps: (number | null)[];
   caught: boolean;
   breakAt: number;
   phase: 'run' | 'break' | 'done';
+  skill: number; // how hard the bots play (1 casual … 3 sharp)
   over: boolean;
   winners: number[]; // seats
   log: string[];
@@ -146,8 +152,9 @@ function beginHalf(s: MHState, half: number) {
   log(s, `Half ${half + 1}: ${nameOf(s, s.runner)} runs from stop ${s.startRunner + 1}, ${nameOf(s, hunterOf(s))} hunts. ${TURNS} turns.`);
 }
 
-function endHalf(s: MHState, survivedTurns: number, now: number) {
+function endHalf(s: MHState, survivedTurns: number, steps: number, now: number) {
   s.survived[s.runner] = survivedTurns;
+  s.survivedSteps[s.runner] = steps;
   log(s, s.caught
     ? `${nameOf(s, s.runner)} is caught on turn ${s.turn} — ${survivedTurns} turn${survivedTurns === 1 ? '' : 's'} survived.`
     : `${nameOf(s, s.runner)} runs out the clock — all ${survivedTurns} turns survived.`);
@@ -160,13 +167,16 @@ function endHalf(s: MHState, survivedTurns: number, now: number) {
   s.over = true;
   s.phase = 'done';
   const [a, b] = s.survived as number[];
-  if (a === b) {
+  const [sa, sb] = s.survivedSteps as number[];
+  if (sa === sb) {
     s.winners = s.order.slice();
     log(s, `Both lasted ${a} turns — honours even.`);
   } else {
-    const win = a > b ? 0 : 1;
+    const win = sa > sb ? 0 : 1;
     s.winners = [s.order[win]];
-    log(s, `🏆 ${nameOf(s, win)} wins — ${Math.max(a, b)} turns survived to ${Math.min(a, b)}.`);
+    log(s, a === b
+      ? `🏆 ${nameOf(s, win)} wins — both lasted ${a} turns, but they stayed clear of one more agent.`
+      : `🏆 ${nameOf(s, win)} wins — ${Math.max(a, b)} turns survived to ${Math.min(a, b)}.`);
   }
 }
 
@@ -214,7 +224,9 @@ function huntMove(s: MHState, pid: number, toRaw: unknown, now: number): ActionR
   if (to === s.runnerAt) {
     s.caught = true;
     log(s, `Agent ${s.hunterPiece + 1} closes on ${to + 1}.`);
-    endHalf(s, s.turn - 1, now); // caught during this turn, so it doesn't count as survived
+    // Caught during this turn, so the turn itself doesn't count — but the agents that
+    // moved before this one and missed do.
+    endHalf(s, s.turn - 1, (s.turn - 1) * s.hunterAt.length + s.hunterPiece, now);
     return ok;
   }
   if (s.hunterPiece < s.hunterAt.length - 1) {
@@ -224,7 +236,7 @@ function huntMove(s: MHState, pid: number, toRaw: unknown, now: number): ActionR
 
   // Every agent has moved — the turn is complete.
   if (s.turn >= TURNS) {
-    endHalf(s, TURNS, now);
+    endHalf(s, TURNS, TURNS * s.hunterAt.length, now);
     return ok;
   }
   s.turn += 1;
@@ -234,7 +246,7 @@ function huntMove(s: MHState, pid: number, toRaw: unknown, now: number): ActionR
   if (!runnerOptions(s).length) {
     s.caught = true;
     log(s, `The runner is cornered at turn ${s.turn} with no way out.`);
-    endHalf(s, s.turn - 1, now);
+    endHalf(s, s.turn - 1, (s.turn - 1) * s.hunterAt.length, now);
   }
   return ok;
 }
@@ -294,6 +306,7 @@ function viewState(s: MHState, seat: number | null): Record<string, unknown> {
     activeSeat: s.phase === 'run' ? s.order[s.stage === 'runner' ? s.runner : hunterOf(s)] : null,
     caught: s.caught,
     survived: s.survived,
+    survivedSteps: s.survivedSteps,
     you:
       myPid >= 0
         ? {
@@ -361,12 +374,57 @@ function botMove(s: MHState, seat: number, rng: Rng): Record<string, unknown> | 
     if (pid !== s.runner) return null;
     const opts = runnerOptions(s);
     if (!opts.length) return null;
-    // Keep as far from both agents as possible; prefer the fast routes when it's close.
+    // Casual: wanders. Steady: runs from the agents but never thinks about what the
+    // announced transport gives away, so it often collapses its own cover.
+    if (s.skill <= CASUAL) {
+      const m = opts[Math.floor(rng() * opts.length)];
+      return { type: 'run', to: m.to, transport: m.transport };
+    }
+    if (s.skill <= STEADY) {
+      const away = s.hunterAt.map((h) => distances(h));
+      let pick = opts[0];
+      let bestAway = -Infinity;
+      for (const m of opts) {
+        const v = Math.min(...away.map((d) => d[m.to])) * 10 + m.transport + rng();
+        if (v > bestAway) {
+          bestAway = v;
+          pick = m;
+        }
+      }
+      return { type: 'run', to: pick.to, transport: pick.transport };
+    }
+
+    // A runner has two levers and they are separate: the TRANSPORT it announces decides
+    // how much doubt the hunt is left with, and the DESTINATION decides how safe it is.
+    // The old bot only ever pulled the second one — it sprinted away from the agents and
+    // announced whatever got it there, often collapsing its own cover to a single stop.
+    const belief = beliefSet(s); // exactly what the hunt can work out right now
+    const surfacing = surfaces(s.turn); // on a surfacing turn cover is spent anyway
     const fromAgents = s.hunterAt.map((h) => distances(h));
+    // How many stops the hunt would still have to consider, per transport announced.
+    const doubt = TRANSPORT.map((_, t) => {
+      const spread = new Set<number>();
+      for (const b of belief) for (const to of exits(b, t)) spread.add(to);
+      for (const h of s.hunterAt) spread.delete(h);
+      return spread.size;
+    });
+
     let best = opts[0];
     let bestScore = -Infinity;
     for (const m of opts) {
-      const score = Math.min(...fromAgents.map((d) => d[m.to])) * 10 + m.transport + rng();
+      const nearest = Math.min(...fromAgents.map((d) => d[m.to]));
+      // An agent already next door can simply step on: that outweighs everything else.
+      const adjacent = fromAgents.filter((d) => d[m.to] <= 1).length;
+      const closing = fromAgents.filter((d) => d[m.to] === 2).length;
+      // Somewhere with plenty of onward routes is somewhere you do not get cornered.
+      const mobility = allMoves(m.to).filter((n) => !s.hunterAt.includes(n.to)).length;
+      const score =
+        -140 * adjacent -
+        18 * closing +
+        14 * Math.min(nearest, 5) +
+        2.2 * mobility +
+        (surfacing ? 0 : 5 * doubt[m.transport]) +
+        rng() * 2;
       if (score > bestScore) {
         bestScore = score;
         best = m;
@@ -380,25 +438,65 @@ function botMove(s: MHState, seat: number, rng: Rng): Record<string, unknown> | 
   const opts = allMoves(from).filter((m) => !s.hunterAt.some((n, i) => i !== s.hunterPiece && n === m.to));
   if (!opts.length) return null;
 
-  // Close on the whole belief set, not just the last sighting: land on a candidate stop if
-  // one is in reach, otherwise take the move that sits nearest the most candidates. Agents
-  // spread across the set instead of all chasing the same stop — the other agents' own
-  // distances are subtracted, so this one goes where it is most needed.
+  // Casual: patrols at random. Steady: walks at the last place the runner was seen,
+  // which is exactly the mistake of chasing where they WERE rather than where they can be.
+  if (s.skill <= CASUAL) return { type: 'hunt', to: opts[Math.floor(rng() * opts.length)].to };
+  if (s.skill <= STEADY) {
+    const seen = lastSeen(s);
+    const toFocus = distances(seen ? seen.node! : s.startRunner);
+    let pick = opts[0];
+    let bestD = Infinity;
+    for (const m of opts) {
+      const v = toFocus[m.to] + rng() * 0.5;
+      if (v < bestD) {
+        bestD = v;
+        pick = m;
+      }
+    }
+    return { type: 'hunt', to: pick.to };
+  }
+
+  // Close on the whole belief set, not just the last sighting. Two refinements make this
+  // a real hunt rather than a chase:
+  //
+  //  • Not every candidate stop is equally likely. A runner worth catching keeps its
+  //    distance, so stops far from every agent carry more weight than ones tucked under
+  //    an agent's nose — the hunt concentrates where the quarry actually wants to be.
+  //  • Chase where the belief is GOING, not where it is. The runner moves again before
+  //    the next agent does, so each candidate is spread one move onward first.
+  //
+  // Agents also discount whatever a teammate already covers, so they fan out instead of
+  // all converging on the same stop.
   const belief = beliefSet(s);
   if (!belief.length) return { type: 'hunt', to: opts[Math.floor(rng() * opts.length)].to };
   const others = s.hunterAt.filter((_, i) => i !== s.hunterPiece).map((h) => distances(h));
+
+  // Where the runner could stand after its next move, weighted by how appealing that
+  // stop looks to something trying not to be caught.
+  const agentDist = s.hunterAt.map((h) => distances(h)); // hoisted: this is inside two loops
+  const weight = new Map<number, number>();
+  for (const b of belief) {
+    for (const nxt of [b, ...allMoves(b).map((m) => m.to)]) {
+      if (s.hunterAt.includes(nxt)) continue;
+      const room = Math.min(...agentDist.map((d) => d[nxt]));
+      weight.set(nxt, (weight.get(nxt) ?? 0) + 1 + Math.min(room, 4));
+    }
+  }
+  if (!weight.size) return { type: 'hunt', to: opts[Math.floor(rng() * opts.length)].to };
+
   let best = opts[0];
   let bestScore = Infinity;
   for (const m of opts) {
     if (belief.includes(m.to)) return { type: 'hunt', to: m.to }; // a chance of an outright catch
     const d = distances(m.to);
     let score = 0;
-    for (const b of belief) {
-      const mine = d[b];
-      const nearestOther = others.length ? Math.min(...others.map((o) => o[b])) : Infinity;
-      score += Math.min(mine, nearestOther); // only count what nobody else already covers
+    let total = 0;
+    for (const [node, w] of weight) {
+      const nearestOther = others.length ? Math.min(...others.map((o) => o[node])) : Infinity;
+      score += w * Math.min(d[node], nearestOther); // only what nobody else already covers
+      total += w;
     }
-    score = score / belief.length + rng() * 0.25;
+    score = score / total + rng() * 0.2;
     if (score < bestScore) {
       bestScore = score;
       best = m;
@@ -417,12 +515,13 @@ export const manhunt: GameDef<MHState> = {
   blurb: 'One runs hidden, one hunts with three agents. Swap roles at half time — outlast their run to win.',
   minPlayers: 2,
   maxPlayers: 2,
+  options: [SKILL_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 ? null : 'Manhunt is a two-player duel.';
   },
 
-  create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): MHState {
+  create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): MHState {
     const players: (MHPlayer | null)[] = new Array(8).fill(null);
     for (const pi of setup.players) players[pi.seat] = { name: pi.name, connected: true };
 
@@ -459,9 +558,11 @@ export const manhunt: GameDef<MHState> = {
       hunterAt: [...startHunters],
       trail: [],
       survived: [null, null],
+      survivedSteps: [null, null],
       caught: false,
       breakAt: 0,
       phase: 'run',
+      skill: initSkill(setup.options?.skill),
       over: false,
       winners: [],
       log: [],

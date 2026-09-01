@@ -211,6 +211,52 @@ test('the default board has a central void and a randomized point layout', () =>
 });
 
 // ---------------------------------------------------------------------------
+// Bot
+// ---------------------------------------------------------------------------
+
+test('the bot slides toward the land worth having, not just the first way out', () => {
+  // Both slides bank the SAME hex — the one the pawn is standing on — so a bot that only
+  // values the hex it leaves is choosing blind, and takes whichever direction it happens
+  // to enumerate first. Leaving (0,0) splits the board in two: a dead end of 2 points to
+  // the east, and 20 points of open ground to the west. Only the landing matters here.
+  const s = mk({
+    hexes: [
+      { q: 0, r: 0, value: 3 },
+      { q: 1, r: 0, value: 1 }, { q: 2, r: 0, value: 1 },
+      { q: -1, r: 0, value: 4 }, { q: -2, r: 0, value: 4 }, { q: -3, r: 0, value: 4 },
+      { q: -2, r: 1, value: 4 }, { q: -3, r: 1, value: 4 },
+      // a private strip for P1 so the match doesn't end while we look
+      { q: 0, r: 5, value: 1 }, { q: 1, r: 5, value: 1 }, { q: 2, r: 5, value: 1 },
+    ],
+    pawns: [{ id: 0, owner: 0, q: 0, r: 0 }, { id: 1, owner: 1, q: 0, r: 5 }],
+  });
+  s.turn = 0;
+  const mv = def.bot!(s, 0, ctx) as any;
+  assert.equal(mv.pawnId, 0);
+  assert.equal(mv.direction, 3, 'it goes west, into the 20 points, not east into the dead end');
+
+  act(s, 0, mv, ctx);
+  assert.equal(s.scores[0], 3, 'either way it banks the 3 it was standing on');
+  assert.equal(s.pawns[0].q, -3, 'and it is now sitting in the half worth having');
+});
+
+test('the bot keeps its own counsel — repeat matches are not identical', () => {
+  const play = (seq: number[]) => {
+    let i = 0;
+    const c = { rng: () => seq[i++ % seq.length], now: 0 };
+    const st = def.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, c) as TState;
+    for (let n = 0; n < 4000 && !st.over; n++) {
+      const seat = st.order[st.turn];
+      const mv = def.bot!(st, seat, c);
+      if (!mv) break;
+      act(st, seat, mv, c);
+    }
+    return JSON.stringify(st.scores) + '|' + st.log.length;
+  };
+  assert.notEqual(play([0.11, 0.83, 0.37, 0.62]), play([0.71, 0.19, 0.94, 0.28]));
+});
+
+// ---------------------------------------------------------------------------
 // View parity (no redaction) + full autoplay
 // ---------------------------------------------------------------------------
 

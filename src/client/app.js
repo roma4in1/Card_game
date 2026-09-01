@@ -699,6 +699,8 @@ function renderGamePicker(s) {
   const values = lob.options || {};
   specs.forEach((opt) => {
     const cur = values[opt.key] != null ? values[opt.key] : opt.default;
+    // A setting may name its steps (e.g. bot skill), in which case show the name.
+    const shown = (v) => (opt.labels && opt.labels[v - opt.min] != null ? opt.labels[v - opt.min] : String(v));
     const row = document.createElement('div');
     row.className = 'gp-option';
     row.innerHTML = `<span class="gp-optlbl">${escapeHtml(opt.label)}</span>`;
@@ -712,13 +714,13 @@ function renderGamePicker(s) {
       inc.disabled = cur >= opt.max;
       const val = document.createElement('span');
       val.className = 'gp-optval';
-      val.textContent = String(cur);
+      val.textContent = shown(cur);
       stepper.append(dec, val, inc);
       row.appendChild(stepper);
     } else {
       const val = document.createElement('span');
       val.className = 'gp-optval';
-      val.textContent = String(cur);
+      val.textContent = shown(cur);
       row.appendChild(val);
     }
     box.appendChild(row);

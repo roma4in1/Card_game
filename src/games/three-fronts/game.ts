@@ -19,6 +19,7 @@
 // Everything else — hand sizes, every face-up card, every bonus in force — is on the table.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
+import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
 
 /** Front 0/1/2 doubles as a card's theatre. */
 export const FRONTS = [
@@ -79,6 +80,7 @@ export interface TFState {
   result: BattleResult | null;
   nextAt: number;
   phase: 'battle' | 'result' | 'done';
+  skill: number; // how hard the bots play (1 casual … 3 sharp)
   over: boolean;
   winners: number[]; // seats
   log: string[];
@@ -97,9 +99,17 @@ const nameOf = (s: TFState, pid: number) => s.players[s.order[pid]]!.name;
 // Strength & control
 // ---------------------------------------------------------------------------
 
+/** The parts of a position the scoring rules actually read. `TFState` satisfies it, and
+ *  so does the sampled board the bot reasons over — one implementation, both callers. */
+interface Board {
+  fronts: Play[][];
+  recon: boolean[][];
+  entrench: boolean[][];
+}
+
 /** What `pid` musters at `front`: face-up cards at rank, face-down at 2 (3 under Recon),
  *  plus one extra per card if they are Entrenched there. */
-export function frontStrength(s: TFState, front: number, pid: number): number {
+export function frontStrength(s: Board, front: number, pid: number): number {
   let total = 0;
   let count = 0;
   for (const p of s.fronts[front]) {
@@ -112,7 +122,7 @@ export function frontStrength(s: TFState, front: number, pid: number): number {
 }
 
 /** Who holds each front — a tie is held by neither. */
-function control(s: TFState): (number | null)[] {
+function control(s: Board): (number | null)[] {
   return FRONTS.map((_, f) => {
     const a = frontStrength(s, f, 0);
     const b = frontStrength(s, f, 1);
@@ -121,7 +131,7 @@ function control(s: TFState): (number | null)[] {
 }
 
 const heldBy = (ctl: (number | null)[], pid: number) => ctl.filter((c) => c === pid).length;
-const totalStrength = (s: TFState, pid: number) => FRONTS.reduce((acc, _, f) => acc + frontStrength(s, f, pid), 0);
+const totalStrength = (s: Board, pid: number) => FRONTS.reduce((acc, _, f) => acc + frontStrength(s, f, pid), 0);
 
 /** Conceding early is cheap; conceding with nothing left costs nearly a full defeat. */
 function withdrawValue(cardsLeft: number): number {
@@ -331,14 +341,120 @@ function viewState(s: TFState, seat: number | null): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Bot — greedy: try every legal commitment, keep the one that leaves the board best.
-// Withdraws when the battle looks lost and conceding is still cheap.
+// Bot — samples the hands it cannot see, then plays each battle out.
+//
+// The old bot looked one card ahead: it played whatever left the board looking best right
+// now. That loses to anyone who sets a trap, because a card that wins a front today is
+// often the card you needed tomorrow, and it never valued a face-down bluff properly.
+//
+// This one plays imperfect information the way it should be played. It knows its own
+// hand, every face-up card, and its own buried cards; everything else — the six cards
+// that sat out, the opponent's hand, and what they have buried — is a single unknown pool.
+// So it DEALS that pool at random a number of times, and for each deal plays the battle
+// out to the end with both sides grabbing greedily. A move's worth is its average result
+// over those deals, which is what makes it treat a buried 2 and a buried 6 as the same
+// threat until it has reason not to.
+//
+// Withdrawing is scored on the same scale — its cost is known exactly — so the bot walks
+// away precisely when fighting on is worth less than the concession.
 // ---------------------------------------------------------------------------
 
+const SAMPLES = 14; // deals per decision — enough to rank moves, cheap enough to be instant
+
+/** The mutable part of a position a rollout needs. */
+interface Sim extends Board {
+  blocked: boolean[][];
+  hands: number[][];
+}
+
+const cloneSim = (s: TFState | Sim): Sim => ({
+  fronts: s.fronts.map((f) => f.map((p) => ({ ...p }))),
+  recon: s.recon.map((r) => [...r]),
+  entrench: s.entrench.map((r) => [...r]),
+  blocked: s.blocked.map((r) => [...r]),
+  hands: s.hands.map((h) => [...h]),
+});
+
+/** Apply a deployment to a sampled board, bonuses and all. */
+function simDeploy(sim: Sim, pid: number, cardId: number, front: number, faceDown: boolean) {
+  sim.hands[pid] = sim.hands[pid].filter((c) => c !== cardId);
+  sim.fronts[front].push({ pid, cardId, faceDown });
+  if (faceDown) return;
+  if (front === 0) sim.recon[pid][front] = true;
+  else if (front === 1) sim.entrench[pid][front] = true;
+  else sim.blocked[1 - pid][front] = true;
+}
+
+function simMoves(sim: Sim, pid: number): { cardId: number; front: number; faceDown: boolean }[] {
+  const out: { cardId: number; front: number; faceDown: boolean }[] = [];
+  for (const cardId of sim.hands[pid]) {
+    for (let front = 0; front < FRONTS.length; front++) {
+      if (cardTheatre(cardId) === front) out.push({ cardId, front, faceDown: false });
+      if (!sim.blocked[pid][front]) out.push({ cardId, front, faceDown: true });
+    }
+  }
+  return out;
+}
+
 /** Score a position from `pid`'s side: fronts held first, raw strength as the tiebreak. */
-function evaluate(s: TFState, pid: number): number {
-  const ctl = control(s);
-  return (heldBy(ctl, pid) - heldBy(ctl, 1 - pid)) * 100 + (totalStrength(s, pid) - totalStrength(s, 1 - pid));
+function evaluate(b: Board, pid: number): number {
+  const ctl = control(b);
+  return (heldBy(ctl, pid) - heldBy(ctl, 1 - pid)) * 100 + (totalStrength(b, pid) - totalStrength(b, 1 - pid));
+}
+
+/** Play the battle out, both sides grabbing the best immediate position, and report the
+ *  points it would pay the bot. Nobody withdraws inside a rollout — the real decision to
+ *  withdraw is taken at the root, where the cost is known exactly. */
+function rollout(sim: Sim, toMove: number, me: number, rng: Rng): number {
+  let turn = toMove;
+  for (let guard = 0; guard < 16; guard++) {
+    if (!sim.hands[0].length && !sim.hands[1].length) break;
+    if (!sim.hands[turn].length) turn = 1 - turn;
+    const moves = simMoves(sim, turn);
+    if (!moves.length) break;
+    let best = moves[0];
+    let bestScore = -Infinity;
+    for (const m of moves) {
+      const probe = cloneSim(sim);
+      simDeploy(probe, turn, m.cardId, m.front, m.faceDown);
+      const score = evaluate(probe, turn) + rng();
+      if (score > bestScore) {
+        bestScore = score;
+        best = m;
+      }
+    }
+    simDeploy(sim, turn, best.cardId, best.front, best.faceDown);
+    turn = 1 - turn;
+  }
+  const ctl = control(sim);
+  const held = [heldBy(ctl, 0), heldBy(ctl, 1)];
+  let winner: number | null;
+  if (held[0] !== held[1]) winner = held[0] > held[1] ? 0 : 1;
+  else {
+    const tot = [totalStrength(sim, 0), totalStrength(sim, 1)];
+    winner = tot[0] === tot[1] ? null : tot[0] > tot[1] ? 0 : 1;
+  }
+  if (winner === null) return 0;
+  return winner === me ? FOUGHT_OUT : -FOUGHT_OUT;
+}
+
+/** Deal the unknown pool: the opponent's buried cards and their hand. Everything the bot
+ *  is entitled to know stays fixed; only what it cannot see is invented. */
+function sampleBoard(s: TFState, me: number, rng: Rng): Sim {
+  const foe = 1 - me;
+  const known = new Set<number>(s.hands[me]);
+  const hiddenSlots: { front: number; at: number }[] = [];
+  s.fronts.forEach((plays, front) => {
+    plays.forEach((p, at) => {
+      if (!p.faceDown || p.pid === me) known.add(p.cardId);
+      else hiddenSlots.push({ front, at });
+    });
+  });
+  const pool = shuffle(Array.from({ length: FRONTS.length * RANKS }, (_, i) => i).filter((c) => !known.has(c)), rng);
+  const sim = cloneSim(s);
+  hiddenSlots.forEach((slot, i) => { sim.fronts[slot.front][slot.at].cardId = pool[i]; });
+  sim.hands[foe] = pool.slice(hiddenSlots.length, hiddenSlots.length + s.hands[foe].length);
+  return sim;
 }
 
 function botMove(s: TFState, seat: number, rng: Rng): Record<string, unknown> | null {
@@ -346,34 +462,54 @@ function botMove(s: TFState, seat: number, rng: Rng): Record<string, unknown> | 
   const pid = s.order.indexOf(seat);
   if (pid < 0 || pid !== s.turn || !s.hands[pid].length) return null;
 
-  let best: Record<string, unknown> | null = null;
-  let bestScore = -Infinity;
-  for (const cardId of s.hands[pid]) {
-    for (let front = 0; front < FRONTS.length; front++) {
-      for (const faceDown of [false, true]) {
-        if (!faceDown && cardTheatre(cardId) !== front) continue;
-        if (faceDown && s.blocked[pid][front]) continue;
-        // try it on a scratch copy — the real state is never touched
-        const probe: TFState = { ...s, fronts: s.fronts.map((f) => [...f]), recon: s.recon.map((r) => [...r]), entrench: s.entrench.map((r) => [...r]) };
-        probe.fronts[front] = [...probe.fronts[front], { pid, cardId, faceDown }];
-        if (!faceDown) {
-          if (front === 0) probe.recon[pid][front] = true;
-          else if (front === 1) probe.entrench[pid][front] = true;
-        }
-        const score = evaluate(probe, pid) + rng(); // jitter so equal options vary
-        if (score > bestScore) {
-          bestScore = score;
-          best = { type: 'deploy', cardId, front, faceDown };
-        }
+  const candidates = simMoves(cloneSim(s), pid);
+  if (!candidates.length) return null;
+
+  // Casual: commits a card at random. It will bluff by accident and never on purpose.
+  if (s.skill <= CASUAL) {
+    const m = candidates[Math.floor(rng() * candidates.length)];
+    return { type: 'deploy', cardId: m.cardId, front: m.front, faceDown: m.faceDown };
+  }
+  // Steady: takes the best board it can reach this move, and concedes on the same rule.
+  // No sampling, so a face-down card is worth a flat 2 to it whatever is really under it.
+  if (s.skill <= STEADY) {
+    let pick = candidates[0];
+    let bestNow = -Infinity;
+    for (const m of candidates) {
+      const probe = cloneSim(s);
+      simDeploy(probe, pid, m.cardId, m.front, m.faceDown);
+      const v = evaluate(probe, pid) + rng();
+      if (v > bestNow) {
+        bestNow = v;
+        pick = m;
       }
+    }
+    const ctl = control(s);
+    if (heldBy(ctl, 1 - pid) >= 2 && bestNow < 0 && withdrawValue(s.hands[pid].length) <= 2) return { type: 'withdraw' };
+    return { type: 'deploy', cardId: pick.cardId, front: pick.front, faceDown: pick.faceDown };
+  }
+  const boards = Array.from({ length: SAMPLES }, () => sampleBoard(s, pid, rng));
+
+  let best = candidates[0];
+  let bestValue = -Infinity;
+  for (const m of candidates) {
+    let total = 0;
+    for (const board of boards) {
+      const probe = cloneSim(board);
+      simDeploy(probe, pid, m.cardId, m.front, m.faceDown);
+      total += rollout(probe, 1 - pid, pid, rng);
+    }
+    const value = total / boards.length + rng() * 0.01;
+    if (value > bestValue) {
+      bestValue = value;
+      best = m;
     }
   }
 
-  // Cut losses: if the best we can do still leaves them holding two fronts and we have
-  // enough cards left that conceding is cheap, take the cheap loss instead.
-  const ctl = control(s);
-  if (heldBy(ctl, 1 - pid) >= 2 && bestScore < 0 && withdrawValue(s.hands[pid].length) <= 2) return { type: 'withdraw' };
-  return best;
+  // Conceding is worth exactly minus its price. Fight on only if that beats it.
+  const concede = -withdrawValue(s.hands[pid].length);
+  if (concede > bestValue) return { type: 'withdraw' };
+  return { type: 'deploy', cardId: best.cardId, front: best.front, faceDown: best.faceDown };
 }
 
 // ---------------------------------------------------------------------------
@@ -386,12 +522,13 @@ export const threeFronts: GameDef<TFState> = {
   blurb: 'A card duel over air, land and sea — play face-up for power, face-down to bluff, or withdraw and pay less.',
   minPlayers: 2,
   maxPlayers: 2,
+  options: [SKILL_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 ? null : 'Three Fronts is a two-player duel.';
   },
 
-  create(setup: { seats: number[]; players: PlayerInfo[] }, ctx: GameContext): TFState {
+  create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): TFState {
     const players: (TFPlayer | null)[] = new Array(8).fill(null);
     for (const pi of setup.players) players[pi.seat] = { name: pi.name, connected: true };
     const s: TFState = {
@@ -411,6 +548,7 @@ export const threeFronts: GameDef<TFState> = {
       result: null,
       nextAt: 0,
       phase: 'battle',
+      skill: initSkill(setup.options?.skill),
       over: false,
       winners: [],
       log: [],
