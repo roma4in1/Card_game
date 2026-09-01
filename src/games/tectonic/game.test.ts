@@ -2,7 +2,7 @@
 // hand-built minimal boards; the default board's value map + central hole are checked too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTectonic, decideWinners, recomputeAlive, type TState } from './game.ts';
+import { createTectonic, decideWinners, recomputeAlive, DIRS, type TState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const ctx: GameContext = { rng: () => 0.5, now: 0 };
@@ -208,6 +208,75 @@ test('the default board has a central void and a randomized point layout', () =>
   const b = def.create(setup, { rng: rng([0.8, 0.2, 0.6, 0.4]), now: 0 }) as TState;
   assert.deepEqual(bag(a), bag(b), 'same pool of point values every game');
   assert.notDeepEqual(layout(a), layout(b), 'the layout differs between games');
+});
+
+// ---------------------------------------------------------------------------
+// The opening position
+// ---------------------------------------------------------------------------
+
+test('no opening move by anyone can strand another player’s pawn', () => {
+  // The bug this guards: pawns used to start shoulder to shoulder along the ring, which
+  // left the ones in the middle of an arc with both ring neighbours taken by their own
+  // side and a single hex inward as their only way out. One exit is one opponent move from
+  // being eliminated, before that player had taken a turn at all — worst at three and four
+  // players, and identical every match, because the placement never varied.
+  for (const np of [2, 3, 4]) {
+    for (let seed = 1; seed <= 8; seed++) {
+      let a = seed * 613 + np;
+      const rng = () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const seats = Array.from({ length: np }, (_, i) => i);
+      const s = def.create({ seats, players: seats.map((i) => ({ seat: i, name: 'P' + i })) }, { rng, now: 0 }) as TState;
+
+      for (let mover = 0; mover < np; mover++) {
+        const from: TState = JSON.parse(JSON.stringify(s));
+        from.turn = mover;
+        for (const m of (view(from, from.order[mover]) as any).legal) {
+          const after: TState = JSON.parse(JSON.stringify(from));
+          const p = after.pawns.find((x) => x.id === m.pawnId)!;
+          const origin = after.hexes[`${p.q},${p.r}`];
+          origin.state = 'gap';
+          origin.pawn = null;
+          p.q = m.to[0];
+          p.r = m.to[1];
+          after.hexes[`${p.q},${p.r}`].pawn = p.id;
+          recomputeAlive(after);
+          const stranded = after.pawns.find((x) => x.owner !== mover && !x.alive);
+          assert.equal(stranded, undefined, `${np}p: seat ${mover} stranded pawn ${stranded?.id} of seat ${stranded?.owner} on move one`);
+        }
+      }
+    }
+  }
+});
+
+test('every pawn starts with room to move, whatever anyone else does first', () => {
+  // The guarantee behind the test above: a single slide can cost a pawn at most two exits
+  // — the gap it leaves behind and the hex it lands on — so three exits cannot be closed
+  // in one move. This is the property to preserve if the layout is ever changed again.
+  for (const np of [2, 3, 4]) {
+    const seats = Array.from({ length: np }, (_, i) => i);
+    const s = def.create({ seats, players: seats.map((i) => ({ seat: i, name: 'P' + i })) }, ctx) as TState;
+    for (const p of s.pawns) {
+      const exits = DIRS.filter(([dq, dr]) => {
+        const h = s.hexes[`${p.q + dq},${p.r + dr}`];
+        return h && h.state === 'present' && h.pawn === null;
+      }).length;
+      assert.ok(exits >= 3, `pawn ${p.id} (seat ${p.owner}, ${np}p) starts with only ${exits} way(s) out`);
+    }
+  }
+});
+
+test('the pieces are set out differently each match, not just the points', () => {
+  // Values were already dealt afresh every game, but the pawns stood on the same hexes
+  // every time — so the opening looked identical match after match, and the bot answered
+  // it the same way.
+  const layout = (seed: number) => {
+    let a = seed;
+    const rng = () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const s = def.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, { rng, now: 0 }) as TState;
+    return s.pawns.map((p) => `${p.q},${p.r}`).join('|');
+  };
+  const seen = new Set([layout(7), layout(99), layout(1234), layout(555)]);
+  assert.ok(seen.size > 1, 'four matches produced the same starting layout every time');
 });
 
 // ---------------------------------------------------------------------------

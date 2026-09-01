@@ -635,18 +635,29 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
       }
       if (usingDefaultValue) reduceFives(hexes); // exactly three 5-tiles on the default board
 
-      // Place each player's pawns in a contiguous arc on the outer ring (own side).
+      // Each player's pawns take an arc of the outer ring, SPACED rather than shoulder to
+      // shoulder. Packing them together left the pawns in the middle of an arc with their
+      // two ring neighbours taken by their own side and a single hex inward as their only
+      // way out — one exit, which any opponent could seal on the opening move. Leaving a
+      // hex between them gives every pawn both ring neighbours as well, so no single move
+      // by anyone can strand one from the starting position.
       const ring = ringCells(radius);
       const arc = Math.floor(ring.length / np);
-      // Never hand out more pawns than the player's own arc of the ring can hold: two
-      // arcs overlapping would stack pawns on one hex and orphan the hex→pawn link.
-      const per = Math.min(pawnsPer[np] ?? 4, arc);
+      const STRIDE = 2; // one empty hex between neighbouring pawns
+      // Never claim more of the ring than this player's own arc: overlapping arcs would
+      // stack pawns on one hex and orphan the hex→pawn link.
+      const per = Math.min(pawnsPer[np] ?? 4, Math.floor((arc + 1) / STRIDE));
+      const span = (per - 1) * STRIDE; // ring hexes from this player's first pawn to their last
+      // Turn the whole arrangement by a random amount each match. The board's values are
+      // already dealt afresh every game; rotating the pieces too means the opening itself
+      // differs, instead of every match starting from the identical picture.
+      const spin = Math.floor(ctx.rng() * ring.length);
       const pawns: Pawn[] = [];
       let pawnId = 0;
       for (let pid = 0; pid < np; pid++) {
-        const center = pid * arc + Math.floor(arc / 2);
+        const start = pid * arc + Math.floor((arc - span) / 2);
         for (let k = 0; k < per; k++) {
-          const idx = (center - Math.floor(per / 2) + k + ring.length) % ring.length;
+          const idx = (start + k * STRIDE + spin + ring.length) % ring.length;
           const [q, r] = ring[idx];
           pawns.push({ id: pawnId, owner: pid, q, r, alive: true });
           hexes[id(q, r)].pawn = pawnId;

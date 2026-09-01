@@ -47,6 +47,7 @@ export interface QState {
   walls: Wall[];
   turn: number; // active player-index
   turnStage: 'start' | 'moved'; // 'moved' = pawn already moved this turn, may still wall or end
+  turnsPlayed: number; // completed turns, so the bots can tell an opening from a middlegame
   winner: number | null; // player-index
   over: boolean;
   timer: Timer; // opt-in per-turn countdown
@@ -243,6 +244,7 @@ function legalWalls(s: QState): Wall[] {
 function nextTurn(s: QState) {
   s.turn = (s.turn + 1) % s.np;
   s.turnStage = 'start';
+  s.turnsPlayed += 1;
 }
 
 function movePawn(s: QState, pid: number, toCell: unknown): ActionResult {
@@ -624,6 +626,7 @@ function search(sim: QSim, me: number, toMove: number, depth: number, alpha: num
 }
 
 const NODE_BUDGET = 5000; // per decision — deterministic, so play never depends on load
+const OPENING_TURNS = 6; // three turns each, while a lost tempo is still recoverable
 // (5000 rather than the old 800: numbering the edges made a node roughly nine times
 // cheaper, and the budget was raised to spend that back on the search.)
 
@@ -633,6 +636,32 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
   if (pid !== s.turn) return null;
   const sim = simOf(s);
   const foe = (pid + 1) % s.np;
+  // How near to the best a move has to be before this bot will consider it just as good,
+  // and pick between them at random. The search is deterministic, so without something
+  // here every match is the identical game and a human who beat it once could replay the
+  // line forever.
+  //
+  // It is scaled to STEP and set by skill, because variety is not free: from the starting
+  // square only one move makes ground, and it is a full step better than sidestepping.
+  //
+  // Sharp widens its band for the OPENING only. The search assumes the opposition answers
+  // perfectly, which is what makes that step look decisive — against a person it is not,
+  // and a game that always begins the same way is worth less than the tempo it costs, with
+  // a whole match left to recover in. Past the opening it tightens again, because a
+  // middlegame given away does not get recovered.
+  const opening = s.turnsPlayed < OPENING_TURNS;
+  const spread = s.skill <= CASUAL
+    ? STEP * 1.2
+    : s.skill <= STEADY
+      ? STEP * 0.55
+      : opening ? STEP * 1.05 : STEP * 0.06;
+  /** Everything within `spread` of the best, one of them at random. */
+  const pickNear = <T,>(scored: { item: T; value: number }[]): T => {
+    const best = Math.max(...scored.map((x) => x.value));
+    const band = scored.filter((x) => x.value >= best - spread);
+    return band[Math.floor(rng() * band.length)].item;
+  };
+
   // Casual never walls at all — it just races, which is exactly the beginner's mistake
   // and exactly what this bot used to do at every level.
   if (s.skill <= CASUAL) {
@@ -640,22 +669,13 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
     const dist = distToGoal(blockedEdges(s.walls), s.goals[pid]);
     const moves = simMoves(sim, pid);
     if (!moves.length) return null;
-    let pick = moves[0];
-    let bestD = Infinity;
-    for (const m of moves) {
-      const d = dist[m[0]][m[1]] + rng() * 0.5;
-      if (d < bestD) {
-        bestD = d;
-        pick = m;
-      }
-    }
-    return { type: 'movePawn', toCell: pick };
+    // Walking the shortest path is a UNIQUE move most of the time, so a beginner bot doing
+    // exactly that plays the identical game every time — which it did. Judging steps on the
+    // same scale as everything else lets the wide Casual band take a sidestep now and then:
+    // varied, a little careless, and about right for the level.
+    return { type: 'movePawn', toCell: pickNear(moves.map((m) => ({ item: m, value: -dist[m[0]][m[1]] * STEP }))) };
   }
 
-  // The search is deterministic, so without this every bot match is the identical game
-  // and a human who beat it once could replay the line forever. A step is worth 12, so
-  // this only ever separates options the search already rated level.
-  const jitter = () => rng() * 3;
   // Search COMPLETE ROUNDS only. A depth here is one player's whole turn, so stopping on
   // an odd one hands the bot a turn the opponent never gets to answer — it then rates the
   // position as if it moved twice in a row.
@@ -681,21 +701,16 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
     const walls = candidateWalls(sim, pid, foe);
     if (!walls.length) return { type: 'endTurn' };
     let best: Wall | null = null;
-    let bestValue = -Infinity;
     for (let depth = 2; depth <= maxDepth; depth += 2) {
       if (ctl.aborted) break;
-      let holdValue = search(sim, pid, foe, depth, -Infinity, Infinity, tt, ctl) + jitter();
-      let localBest: Wall | null = null;
-      let localValue = holdValue;
+      // Holding on to the wall is one of the options, not a separate question.
+      const scored: { item: Wall | null; value: number }[] = [
+        { item: null, value: search(sim, pid, foe, depth, -Infinity, Infinity, tt, ctl) },
+      ];
       for (const wall of walls) {
-        const v = search(applyTurn(sim, pid, { wall }), pid, foe, depth, -Infinity, Infinity, tt, ctl) + jitter();
-        if (v > localValue) {
-          localValue = v;
-          localBest = wall;
-        }
+        scored.push({ item: wall, value: search(applyTurn(sim, pid, { wall }), pid, foe, depth, -Infinity, Infinity, tt, ctl) });
       }
-      best = localBest;
-      bestValue = localValue;
+      best = pickNear(scored);
     }
     return best ? { type: 'placeWall', slot: [best.r, best.c], orientation: best.o } : { type: 'endTurn' };
   }
@@ -713,31 +728,26 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
   // the pair forever. Preferring progress guarantees it always has a reason to move on.
   const myDist = distToGoal(blockedEdges(sim.walls), sim.goals[pid]);
   const closeness = (m: Cell) => -myDist[m[0]][m[1]];
-  // Never step AWAY from the goal while a step toward it exists. This is a guarantee, not
-  // a preference: the game has no repetition rule, so without it two bots can shuffle
-  // between the same squares forever — which they measurably did, a 4-move cycle that ran
-  // until the test's guard gave up. Restricting the pawn to forward steps makes its
-  // distance strictly decrease every turn it can move, so a match always terminates.
-  // Walls are unaffected and still chosen by the full search, which is where the play is.
-  const here = myDist[sim.pawns[pid][0]][sim.pawns[pid][1]];
-  const forward = moves.filter((m) => myDist[m[0]][m[1]] < here);
-  if (forward.length) moves = forward;
+  // There was a rule here restricting the pawn to forward steps. It existed because two
+  // bots could otherwise shuffle between the same squares forever — this game has no
+  // repetition rule — and it worked, at the cost of the opening: only one move reduces the
+  // distance from the starting square, so the bot played the identical first move in every
+  // game it ever played, and could never sidestep.
+  //
+  // The shuffling was the turn-blind evaluation, not the missing rule. With the tempo term
+  // in `evalSim` it does not happen: 25 bot matches finish, including with a constant rng,
+  // where tie-break jitter cannot rescue a standoff. So the restriction is gone, the
+  // opening varies again, and the full-match test guards the behaviour it was protecting.
   let best = moves[0];
   for (let depth = 2; depth <= maxDepth; depth += 2) {
     if (ctl.aborted) break;
-    let localBest = moves[0];
-    let localValue = -Infinity;
-    let localClose = -Infinity;
-    for (const move of moves) {
-      const v = search(applyTurn(sim, pid, { move }), pid, foe, depth, -Infinity, Infinity, tt, ctl) + jitter();
-      const c = closeness(move);
-      if (v > localValue || (v === localValue && c > localClose)) {
-        localValue = v;
-        localClose = c;
-        localBest = move;
-      }
-    }
-    best = localBest;
+    const scored = moves.map((move) => ({
+      item: move,
+      // Ground made toward the goal breaks exact ties, so a bot with nothing to choose
+      // between two squares still gets on with the race rather than drifting sideways.
+      value: search(applyTurn(sim, pid, { move }), pid, foe, depth, -Infinity, Infinity, tt, ctl) + closeness(move) * 0.001,
+    }));
+    best = pickNear(scored);
   }
   return { type: 'movePawn', toCell: best };
 }
@@ -775,6 +785,7 @@ export const quoridor: GameDef<QState> = {
       walls: [],
       turn: 0,
       turnStage: 'start',
+      turnsPlayed: 0,
       winner: null,
       over: false,
       timer: initTimer(setup.options?.timer),

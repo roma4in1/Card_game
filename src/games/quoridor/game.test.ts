@@ -260,6 +260,45 @@ test('the bot places walls, and a bot match still reaches a winner', () => {
   assert.ok(s.wallsLeft.some((w) => w < 10), 'and they came out of someone’s supply');
 });
 
+test('every level varies its opening, and Sharp tightens up once past it', () => {
+  // Repetition between games is a real complaint, and it is not free to fix: from the
+  // starting square only one move makes ground, and it is a full step better than
+  // sidestepping. The search calls that decisive because it assumes the opposition answers
+  // perfectly — against a person it does not, so Sharp spends the tempo on being
+  // unpredictable while there is a whole match left to recover in, and plays it straight
+  // afterwards, when a move given away stays given away.
+  const firstMoves = (skill: number, turnsPlayed = 0) => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 12; seed++) {
+      const ctx: GameContext = { rng: seeded(seed * 4409 + 7), now: 0 };
+      const s = quoridor.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as QState;
+      s.skill = skill;
+      s.turnsPlayed = turnsPlayed;
+      const mv = quoridor.bot!(s, 0, ctx) as { toCell?: [number, number] };
+      seen.add(JSON.stringify(mv.toCell));
+    }
+    return seen;
+  };
+  assert.ok(firstMoves(1).size > 1, 'Casual should not open the same way every game');
+  assert.ok(firstMoves(3).size > 1, 'nor should Sharp');
+
+  // Past the opening the band closes: the same position, played straight, every time.
+  assert.equal(firstMoves(3, 30).size, 1, 'Sharp should stop improvising once the game is under way');
+});
+
+test('a varied opening is still a sensible one — never a step backwards', () => {
+  // Unpredictable is not the same as careless. Whatever Sharp opens with, it must not
+  // actually lose ground; the band is one step wide so it can sidestep, not retreat.
+  for (let seed = 0; seed < 15; seed++) {
+    const ctx: GameContext = { rng: seeded(seed * 913 + 5), now: 0 };
+    const s = quoridor.create({ seats: [0, 1], players: [{ seat: 0, name: 'A' }, { seat: 1, name: 'B' }] }, ctx) as QState;
+    const before = s.pawns[0][0]; // player 0 races toward row 8, so its row is its progress
+    const mv = quoridor.bot!(s, 0, ctx) as { type: string; toCell: [number, number] };
+    assert.equal(mv.type, 'movePawn');
+    assert.ok(mv.toCell[0] >= before, `opened by retreating from row ${before} to ${mv.toCell[0]}`);
+  }
+});
+
 test('the bot answers a wall rather than replaying the same game every time', () => {
   // Deterministic search means two bots play the identical match forever, which a human
   // can simply memorise. The tie-break jitter has to make repeat games diverge.
