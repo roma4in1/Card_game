@@ -63,6 +63,7 @@ function log(s: QState, msg: string) {
   s.log.push(msg);
   if (s.log.length > 40) s.log.shift();
 }
+const DIRS4: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const onBoard = (r: number, c: number) => r >= 0 && r < N && c >= 0 && c < N;
 const isGoal = (goal: Goal, r: number, c: number) =>
   goal === 'top' ? r === N - 1 : goal === 'bottom' ? r === 0 : goal === 'left' ? c === 0 : c === N - 1;
@@ -71,25 +72,38 @@ const isGoal = (goal: Goal, r: number, c: number) =>
 // Wall ⇄ edge geometry
 // ---------------------------------------------------------------------------
 
-function edgeKey(r1: number, c1: number, r2: number, c2: number): string {
-  if (r1 > r2 || (r1 === r2 && c1 > c2)) return `${r2},${c2}|${r1},${c1}`;
-  return `${r1},${c1}|${r2},${c2}`;
+// Edges are numbered, not named. Every path search asks "is this edge walled?" for each
+// of four neighbours of every cell it visits, so this is the hottest operation in the
+// game — and it used to build a string like "3,4|4,4" and hash it into a Set each time.
+// Numbering the board's 144 edges turns that into one multiply and an array read.
+//
+//   0..71   a step between rows r and r+1 in column c   → r * N + c        (r < N-1)
+//   72..143 a step between columns c and c+1 in row r   → 72 + r * (N-1) + c
+const V_EDGES = (N - 1) * N; // 72 vertical steps
+const EDGE_COUNT = V_EDGES * 2;
+export type Blocked = Uint8Array;
+
+/** The index of the edge between two ADJACENT cells. */
+function edgeIndex(r1: number, c1: number, r2: number, c2: number): number {
+  return c1 === c2 ? Math.min(r1, r2) * N + c1 : V_EDGES + r1 * (N - 1) + Math.min(c1, c2);
 }
 
-function blockedEdges(walls: Wall[]): Set<string> {
-  const set = new Set<string>();
+function blockedEdges(walls: Wall[]): Blocked {
+  const bs = new Uint8Array(EDGE_COUNT);
   for (const w of walls) {
     if (w.o === 'H') {
-      set.add(edgeKey(w.r, w.c, w.r + 1, w.c));
-      set.add(edgeKey(w.r, w.c + 1, w.r + 1, w.c + 1));
+      // blocks stepping between rows w.r and w.r+1, in both columns it spans
+      bs[w.r * N + w.c] = 1;
+      bs[w.r * N + w.c + 1] = 1;
     } else {
-      set.add(edgeKey(w.r, w.c, w.r, w.c + 1));
-      set.add(edgeKey(w.r + 1, w.c, w.r + 1, w.c + 1));
+      // blocks stepping between columns w.c and w.c+1, in both rows it spans
+      bs[V_EDGES + w.r * (N - 1) + w.c] = 1;
+      bs[V_EDGES + (w.r + 1) * (N - 1) + w.c] = 1;
     }
   }
-  return set;
+  return bs;
 }
-const isEdgeBlocked = (bs: Set<string>, r1: number, c1: number, r2: number, c2: number) => bs.has(edgeKey(r1, c1, r2, c2));
+const isEdgeBlocked = (bs: Blocked, r1: number, c1: number, r2: number, c2: number) => bs[edgeIndex(r1, c1, r2, c2)] === 1;
 
 /** A new wall overlaps an existing one, or crosses a perpendicular wall at the same slot. */
 function wallConflicts(walls: Wall[], r: number, c: number, o: Orient): boolean {
@@ -105,42 +119,56 @@ function wallConflicts(walls: Wall[], r: number, c: number, o: Orient): boolean 
 // Pathfinding (no-trap rule) + bot distances
 // ---------------------------------------------------------------------------
 
-function bfsCanReach(bs: Set<string>, start: Cell, goal: Goal): boolean {
-  const seen = new Set<string>([`${start[0]},${start[1]}`]);
-  const queue: Cell[] = [start];
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  while (queue.length) {
-    const [r, c] = queue.shift()!;
+function bfsCanReach(bs: Blocked, start: Cell, goal: Goal): boolean {
+  // Flat arrays and a read pointer rather than a Set of "r,c" strings and shift().
+  const seen = new Uint8Array(N * N);
+  const queue = new Int16Array(N * N);
+  let head = 0;
+  let tail = 0;
+  queue[tail++] = start[0] * N + start[1];
+  seen[start[0] * N + start[1]] = 1;
+  while (head < tail) {
+    const cell = queue[head++];
+    const r = (cell / N) | 0;
+    const c = cell % N;
     if (isGoal(goal, r, c)) return true;
-    for (const [dr, dc] of DIRS) {
+    for (const [dr, dc] of DIRS4) {
       const nr = r + dr;
       const nc = c + dc;
       if (!onBoard(nr, nc) || isEdgeBlocked(bs, r, c, nr, nc)) continue;
-      const key = `${nr},${nc}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      queue.push([nr, nc]);
+      const next = nr * N + nc;
+      if (seen[next]) continue;
+      seen[next] = 1;
+      queue[tail++] = next;
     }
   }
   return false;
 }
 
 /** Distance from every cell to the nearest goal-edge cell (walls block; pawns ignored). */
-function distToGoal(bs: Set<string>, goal: Goal): number[][] {
+function distToGoal(bs: Blocked, goal: Goal): number[][] {
   const dist = Array.from({ length: N }, () => new Array(N).fill(Infinity));
-  const queue: Cell[] = [];
-  for (let r = 0; r < N; r++)
-    for (let c = 0; c < N; c++)
-      if (isGoal(goal, r, c)) ((dist[r][c] = 0), queue.push([r, c]));
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  while (queue.length) {
-    const [r, c] = queue.shift()!;
-    for (const [dr, dc] of DIRS) {
+  const queue = new Int16Array(N * N);
+  let head = 0;
+  let tail = 0;
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      if (isGoal(goal, r, c)) {
+        dist[r][c] = 0;
+        queue[tail++] = r * N + c;
+      }
+    }
+  }
+  while (head < tail) {
+    const cell = queue[head++];
+    const r = (cell / N) | 0;
+    const c = cell % N;
+    for (const [dr, dc] of DIRS4) {
       const nr = r + dr;
       const nc = c + dc;
       if (!onBoard(nr, nc) || isEdgeBlocked(bs, r, c, nr, nc) || dist[nr][nc] < Infinity) continue;
       dist[nr][nc] = dist[r][c] + 1;
-      queue.push([nr, nc]);
+      queue[tail++] = nr * N + nc;
     }
   }
   return dist;
@@ -168,8 +196,7 @@ function legalMoves(s: QState): Cell[] {
   const push = (rr: number, cc: number) => {
     if (!out.some((m) => m[0] === rr && m[1] === cc)) out.push([rr, cc]);
   };
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  for (const [dr, dc] of DIRS) {
+  for (const [dr, dc] of DIRS4) {
     const nr = r + dr;
     const nc = c + dc;
     if (!onBoard(nr, nc) || isEdgeBlocked(bs, r, c, nr, nc)) continue;
@@ -352,7 +379,7 @@ interface QSim {
   np: number;
 }
 const simOf = (s: QState): QSim => ({ pawns: s.pawns.map((p) => [...p] as Cell), walls: [...s.walls], wallsLeft: [...s.wallsLeft], goals: [...s.goals], np: s.np });
-const distOf = (sim: QSim, pid: number, bs: Set<string>) => distToGoal(bs, sim.goals[pid])[sim.pawns[pid][0]][sim.pawns[pid][1]];
+const distOf = (sim: QSim, pid: number, bs: Blocked) => distToGoal(bs, sim.goals[pid])[sim.pawns[pid][0]][sim.pawns[pid][1]];
 
 const WIN = 10000;
 
@@ -367,7 +394,17 @@ const WALL_WORTH = 22; // a wall still in hand, in the same units (~a fifth of a
  *  time, and it is wrong in ALTERNATING directions as the search goes deeper — which is
  *  what made searching further play worse rather than better. The half-step of tempo
  *  below puts the boundary in exactly the right place for both sides to move, so the sign
- *  of this function predicts a walls-free race outright. */
+ *  of this function predicts a walls-free race outright.
+ *
+ *  TRIED AND REJECTED — a corridor term. The obvious next thing this function is missing
+ *  is that it measures a route's LENGTH but not how easily one wall could cut it, so a
+ *  nine-step walk down open board and a nine-step walk down a channel read alike. Scoring
+ *  the narrowest point of each player's route (counting cells within a couple of steps of
+ *  optimal, since with a whole row as the goal no strict shortest path ever steps sideways)
+ *  worked exactly as intended on test positions — and lost games: 37% at an equal node
+ *  count, 22% once its two extra path searches per leaf were paid for out of the same
+ *  clock. It is not a calibration problem; the bot simply plays worse when it shies away
+ *  from narrow ground it usually has to cross anyway. Left out on the evidence. */
 function evalSim(sim: QSim, me: number, toMove: number): number {
   const bs = blockedEdges(sim.walls);
   const mine = distOf(sim, me, bs);
@@ -586,7 +623,9 @@ function search(sim: QSim, me: number, toMove: number, depth: number, alpha: num
   return best;
 }
 
-const NODE_BUDGET = 800; // per decision — deterministic, so play never depends on load
+const NODE_BUDGET = 5000; // per decision — deterministic, so play never depends on load
+// (5000 rather than the old 800: numbering the edges made a node roughly nine times
+// cheaper, and the budget was raised to spend that back on the search.)
 
 function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.over) return null;
@@ -621,19 +660,19 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
   // an odd one hands the bot a turn the opponent never gets to answer — it then rates the
   // position as if it moved twice in a row.
   //
-  // Depth used to make this bot actively WORSE: four turns lost to two, 40-60. That was
-  // never the search — it was the evaluation, which could not tell whose move it was and
-  // so misjudged every race by a step, in alternating directions as the tree deepened.
-  // With the tempo term in `evalSim` that reverses: four turns now beats two, 58-42.
+  // ONE round, for both levels. Depth has been measured four separate ways here and it
+  // simply is not the lever: it lost outright while the evaluation was turn-blind (38%),
+  // and once that was fixed and the edge lookups made ~9x cheaper — so a second round
+  // became genuinely affordable — it settled at neutral (51% at matched time, 90 games).
+  // Compute is far better spent on BREADTH, which measured 62% for the same clock.
   //
-  // It still does not pay for its keep HERE, though. Given a fixed node budget, a second
-  // round costs more than it returns — Sharp at four turns fell to 48% against Steady,
-  // where Sharp at two turns beats the same opponent 65%. The budget buys more by weighing
-  // more walls than by looking further ahead, so both levels search one round and Sharp is
-  // separated by breadth. Worth revisiting if the evaluation gets sharper still: the
-  // position suite in eval.test.ts is there to make that measurable rather than hopeful.
+  // The position suite in eval.test.ts exists to make the next attempt here measurable
+  // rather than hopeful, whichever direction it goes in.
   const maxDepth = 2;
-  WALL_CANDIDATES = s.skill <= STEADY ? 3 : 8;
+  // Weighing more walls per turn is what the speed-up bought: 18 beats 8 by 62% for the
+  // same time. Not unbounded, though — taking every wall along their route instead was no
+  // better (48%), because the far ones cannot bite yet and only dilute the search.
+  WALL_CANDIDATES = s.skill <= STEADY ? 3 : 18;
   const budget = s.skill <= STEADY ? 150 : NODE_BUDGET;
   const tt = new Map<number, TTEntry>();
   const ctl = { aborted: false, nodes: 0, budget };

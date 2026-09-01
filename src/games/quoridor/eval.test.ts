@@ -11,6 +11,10 @@
 // right answer is known outright rather than agreed by opinion, so the evaluation can be
 // pinned to it. The rest of the suite fixes the things a race cannot: what a wall is
 // worth, and that the opening is level.
+//
+// It also has to be able to say NO. A corridor term — penalising a route one wall could
+// cut — passed its own position tests here and then lost games (37% at equal nodes), so it
+// was dropped. Tests that only ever confirm are not worth writing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { quoridor, evaluatePosition, N, type QState, type Cell, type Wall } from './game.ts';
