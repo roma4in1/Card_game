@@ -20,6 +20,7 @@ import { sealedBids } from '../games/sealed-bids/game.ts';
 import { salvo } from '../games/salvo/game.ts';
 import { threeFronts } from '../games/three-fronts/game.ts';
 import { manhunt } from '../games/manhunt/game.ts';
+import { volleyFire } from '../games/volley-fire/game.ts';
 
 const spyGame = createSpyGame(SPY_WORDS);
 const codenames = createCodenames(CODENAMES_WORDS);
@@ -27,7 +28,7 @@ const memoryMatch = createMemoryMatch(CONCEPTS);
 const whoAmI = createWhoAmI(SPY_WORDS); // reuses the football player bank (players.json)
 const guessPlayer = createGuessPlayer(SPY_WORDS); // also reuses players.json
 
-const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch, whoAmI, guessPlayer, penguinKnockout, iceFootball, sealedBids, salvo, threeFronts, manhunt];
+const ALL: GameDef[] = [winOrDie, lockIn, yahtzee, spyGame, codenames, quoridor, tectonic, memoryMatch, whoAmI, guessPlayer, penguinKnockout, iceFootball, sealedBids, salvo, threeFronts, manhunt, volleyFire];
 
 export const GAMES: Record<string, GameDef> = Object.fromEntries(ALL.map((g) => [g.id, g]));
 export const GAME_SUMMARIES: GameSummary[] = ALL.map(gameSummary);

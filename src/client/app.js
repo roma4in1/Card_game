@@ -547,6 +547,11 @@ function render() {
     renderThreeFronts(s);
     return;
   }
+  if (s.gameId === 'volley-fire') {
+    ensureScreen('volleyfire');
+    renderVolleyFire(s);
+    return;
+  }
   if (s.gameId === 'salvo') {
     ensureScreen('salvo');
     renderSalvo(s);
@@ -2545,6 +2550,244 @@ function renderTfActions(s) {
   wd.innerHTML = `Withdraw — concede this battle for <b>${cost}</b>`;
   wd.onclick = () => send({ type: 'withdraw' });
   area.appendChild(wd);
+}
+
+// ---------------------------------------------------------------------------
+// Volley Fire — four shots, one answer
+// ---------------------------------------------------------------------------
+
+const VF_FILES = 'ABCDEFGH';
+let vfSel = null;      // ship being positioned during placement
+let vfAiming = [];     // squares picked for this volley, not yet fired
+
+function renderVolleyFire(s) {
+  $('vfRoom').textContent = s.room;
+  const pill = $('vfPhase');
+  // Short: the top bar is crowded and a longer word gets cut off mid-way.
+  pill.textContent = s.over ? 'Over' : s.phase === 'place' ? 'Place' : 'Fire';
+  pill.className = 'phase-pill';
+  $('vfCopy').onclick = copyInvite;
+  const you = s.you || {};
+  if (s.phase !== 'place' || you.ready) vfSel = null;
+  if (!you.canFire) vfAiming = [];
+  // Drop anything already fired at (the board moved on under a stale selection).
+  vfAiming = vfAiming.filter((c) => (you.enemy || [])[c] && !you.enemy[c].fired);
+
+  duelRoster('vfPlayers', s, (p) => {
+    const total = p.afloat + p.sunkShips.length;
+    const pips = (s.fleet || []).map((f, i) => `<i class="sv-pip${i < p.afloat ? '' : ' down'}" style="height:${5 + f.size * 1.6}px"></i>`).join('');
+    return `<span class="sv-fleet" title="${p.afloat} of ${total} afloat">${pips}</span>` +
+      (s.phase === 'place'
+        ? `<span class="duel-tag${p.ready ? ' on' : ''}">${p.ready ? 'ready' : 'placing'}</span>`
+        : `<span class="duel-p-num">${p.afloat}<span class="of">/${total}</span></span>`);
+  });
+  renderVfBoards(s);
+  renderVfVolleys(s);
+  renderVfStatus(s);
+  renderVfActions(s);
+  duelLog('vfLog', s);
+}
+
+/** One grid. `mode` is 'enemy' (you fire into it) or 'own' (your waters). */
+function vfGrid(s, mode) {
+  const you = s.you || {};
+  const placing = mode === 'own' && s.phase === 'place' && !you.ready && !you.spectator;
+  const cells = mode === 'enemy' ? (you.enemy || []) : (you.own || []);
+  const ships = mode === 'enemy' ? (you.wrecks || []) : (you.fleet || []);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'sv-grid-wrap' + (mode === 'own' && s.phase !== 'place' ? ' own' : '');
+  wrap.innerHTML = `<div class="duel-label">${mode === 'enemy' ? 'Their waters' : 'Your waters'}</div>`;
+  const grid = document.createElement('div');
+  grid.className = 'sv-grid';
+  // EVERY item is placed explicitly. The hulls below are, and CSS Grid positions explicit
+  // items before it auto-places anything — so one auto-placed cell gets shunted aside by a
+  // ship and drags the rest of the board out of line behind it.
+  const place = (el, col, row) => { el.style.gridColumn = String(col); el.style.gridRow = String(row); return el; };
+  grid.appendChild(place(document.createElement('span'), 1, 1)); // empty corner
+  for (let x = 0; x < s.size; x++) {
+    const h = document.createElement('span');
+    h.className = 'sv-coord';
+    h.textContent = VF_FILES[x];
+    grid.appendChild(place(h, x + 2, 1));
+  }
+  for (let y = 0; y < s.size; y++) {
+    const r = document.createElement('span');
+    r.className = 'sv-coord';
+    r.textContent = y + 1;
+    grid.appendChild(place(r, 1, y + 2));
+    for (let x = 0; x < s.size; x++) {
+      const idx = y * s.size + x;
+      const c = cells[idx] || {};
+      const cell = document.createElement('button');
+      let cls = 'sv-cell';
+      if (mode === 'enemy') {
+        // A fired square with no verdict is the whole point: shown as spent, not resolved.
+        if (c.mark === 'hit') cls += ' hit';
+        else if (c.mark === 'miss') cls += ' miss';
+        else if (c.fired) cls += ' spent';
+        if (vfAiming.includes(idx)) cls += ' aimed';
+      } else if (c.incoming) cls += ' miss';
+      cell.className = cls;
+      place(cell, x + 2, y + 2);
+      cell.title = `${VF_FILES[x]}${y + 1}`;
+      const aimable = mode === 'enemy' && you.canFire && !c.fired;
+      const droppable = placing && vfSel != null;
+      cell.disabled = !aimable && !droppable;
+      if (aimable) {
+        cell.onclick = () => {
+          tapAck(cell);
+          const at = vfAiming.indexOf(idx);
+          if (at >= 0) vfAiming.splice(at, 1);
+          else if (vfAiming.length < (s.volleySize || 4)) vfAiming.push(idx);
+          render();
+        };
+      } else if (droppable) {
+        cell.classList.add('drop');
+        cell.onclick = () => {
+          tapAck(cell);
+          const sh = (you.fleet || []).find((p) => p.index === vfSel);
+          send({ type: 'placeShip', index: vfSel, x, y, horiz: sh ? sh.horiz : true });
+        };
+      }
+      grid.appendChild(cell);
+    }
+  }
+
+  for (const sh of ships) {
+    if (mode === 'enemy' && !sh.sunk) continue;
+    const el = document.createElement(placing ? 'button' : 'div');
+    el.className = 'sv-ship' + (sh.sunk ? ' sunk' : '') + (mode === 'enemy' ? ' wreck' : '') + (vfSel === sh.index ? ' picked' : '');
+    el.style.gridColumn = sh.horiz ? `${sh.x + 2} / span ${sh.size}` : `${sh.x + 2}`;
+    el.style.gridRow = sh.horiz ? `${sh.y + 2}` : `${sh.y + 2} / span ${sh.size}`;
+    el.title = `${sh.name} · ${sh.size}`;
+    el.innerHTML = svHullSvg(sh.size, sh.horiz);
+    if (placing) {
+      if (vfSel != null) el.classList.add('pass');
+      el.onclick = () => {
+        tapAck(el);
+        vfSel = vfSel === sh.index ? null : sh.index;
+        render();
+      };
+    }
+    grid.appendChild(el);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function renderVfBoards(s) {
+  const box = $('vfBoards');
+  box.innerHTML = '';
+  const you = s.you || {};
+  if (you.spectator) {
+    box.innerHTML = '<div class="duel-label">Both fleets are hidden from the sideline</div>';
+    return;
+  }
+  if (s.phase !== 'place') box.appendChild(vfGrid(s, 'enemy'));
+  box.appendChild(vfGrid(s, 'own'));
+}
+
+/** Your volley record — the working you reason from, since the board will not tell you. */
+function renderVfVolleys(s) {
+  const box = $('vfVolleys');
+  box.innerHTML = '';
+  const volleys = (s.you || {}).volleys || [];
+  if (!volleys.length || s.phase === 'place') return;
+  const head = document.createElement('div');
+  head.className = 'duel-label';
+  head.textContent = 'Your volleys';
+  box.appendChild(head);
+  const list = document.createElement('div');
+  list.className = 'vf-volleys';
+  for (const v of volleys.slice().reverse()) {
+    const open = v.cells.filter((c) => ((s.you.enemy || [])[c] || {}).mark === 'unknown');
+    const row = document.createElement('div');
+    row.className = 'vf-volley' + (open.length ? ' open' : ' settled');
+    // What the volley found, by ship — this is the working a player reasons from.
+    const found = Object.entries(v.byShip || {}).map(([n, k]) => `${k}×${escapeHtml(n)}`).join(' ');
+    row.innerHTML =
+      `<span class="vf-vn">${v.n}</span>` +
+      `<span class="vf-vcells">${v.cells.map((c) => `${VF_FILES[c % s.size]}${Math.floor(c / s.size) + 1}`).join(' ')}</span>` +
+      `<span class="vf-vhits">${found || '—'}</span>` +
+      (v.sunk.length ? `<span class="vf-vsunk">${v.sunk.map(escapeHtml).join(', ')} sunk</span>` : '');
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+}
+
+function renderVfStatus(s) {
+  const you = s.you || {};
+  if (s.over) return duelStatus('vfStatus', 'All ships accounted for', false);
+  if (you.spectator) return duelStatus('vfStatus', 'Spectating', false);
+  if (s.phase === 'place') {
+    if (you.ready) return duelStatus('vfStatus', 'Fleet at sea — <b>waiting for them</b>', true);
+    const sh = (you.fleet || []).find((p) => p.index === vfSel);
+    return duelStatus('vfStatus', sh ? `<b>${escapeHtml(sh.name)}</b> in hand — tap a square to set its bow` : 'Tap a ship to move it, or <b>give the order</b>', true);
+  }
+  if (!you.isTurn) {
+    const active = (s.players || []).find((p) => p.isTurn);
+    return duelStatus('vfStatus', `<b>${active ? escapeHtml(active.name) : '…'}</b> is choosing a volley`, true);
+  }
+  const want = s.volleySize || 4;
+  const left = want - vfAiming.length;
+  return duelStatus('vfStatus', left > 0
+    ? `Pick <b>${left}</b> more — you learn which ships, not which shots`
+    : '<b>Ready to fire</b>', true);
+}
+
+function renderVfActions(s) {
+  const area = $('vfActions');
+  area.innerHTML = '';
+  if (s.over) {
+    area.appendChild(duelOver(s, (win, shared, names) => (win ? '🏆 Fleet destroyed — you win!' : `${names} sank your fleet`),
+      (s.players || []).map((p) => ({ seat: p.seat, name: p.name, note: `${p.sunkShips.length} of ${p.sunkShips.length + p.afloat} sunk`, total: p.afloat }))));
+    return;
+  }
+  const you = s.you || {};
+  if (you.spectator) return;
+
+  if (s.phase === 'place') {
+    if (you.ready) return;
+    const strip = document.createElement('div');
+    strip.className = 'sv-fleetbar';
+    for (const sh of you.fleet || []) {
+      const b = document.createElement('button');
+      b.className = 'sv-shipbtn' + (vfSel === sh.index ? ' picked' : '');
+      b.innerHTML = `<span class="nm">${escapeHtml(sh.name)}</span><span class="sz">${sh.size}</span>`;
+      b.onclick = () => {
+        tapAck(b);
+        vfSel = vfSel === sh.index ? null : sh.index;
+        render();
+      };
+      strip.appendChild(b);
+    }
+    area.appendChild(strip);
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    const rot = actBtn('Rotate', 'btn btn-ghost btn-lg', () => send({ type: 'rotateShip', index: vfSel }));
+    rot.disabled = vfSel == null;
+    row.appendChild(rot);
+    row.appendChild(actBtn('Shuffle all', 'btn btn-ghost btn-lg', () => { vfSel = null; send({ type: 'shuffleFleet' }); }));
+    area.appendChild(row);
+    area.appendChild(actBtn('Give the order', 'btn btn-primary btn-lg', () => send({ type: 'ready' })));
+    return;
+  }
+
+  if (!you.isTurn) return;
+  const want = s.volleySize || 4;
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  const clear = actBtn('Clear', 'btn btn-quiet btn-lg', () => { vfAiming = []; render(); });
+  clear.disabled = !vfAiming.length;
+  row.appendChild(clear);
+  const fire = actBtn(`Fire ${vfAiming.length}/${want}`, 'btn btn-primary btn-lg', () => {
+    send({ type: 'volley', cells: [...vfAiming] });
+    vfAiming = [];
+  });
+  fire.disabled = vfAiming.length !== want;
+  row.appendChild(fire);
+  area.appendChild(row);
 }
 
 // ---------------------------------------------------------------------------
@@ -4871,6 +5114,7 @@ $('pkLeaveBtn').onclick = backToLobby;
 $('ifLeaveBtn').onclick = backToLobby;
 $('sbLeaveBtn').onclick = backToLobby;
 $('svLeaveBtn').onclick = backToLobby;
+$('vfLeaveBtn').onclick = backToLobby;
 $('tfLeaveBtn').onclick = backToLobby;
 $('mhLeaveBtn').onclick = backToLobby;
 
@@ -4951,6 +5195,13 @@ $('tfRulesBtn').onclick = () => $('tfRulesSheet').classList.remove('hidden');
 $('tfRulesClose').onclick = () => $('tfRulesSheet').classList.add('hidden');
 $('tfRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'tfRulesSheet') $('tfRulesSheet').classList.add('hidden');
+});
+
+// Volley Fire rules sheet
+$('vfRulesBtn').onclick = () => $('vfRulesSheet').classList.remove('hidden');
+$('vfRulesClose').onclick = () => $('vfRulesSheet').classList.add('hidden');
+$('vfRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'vfRulesSheet') $('vfRulesSheet').classList.add('hidden');
 });
 
 // Salvo rules sheet

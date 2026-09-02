@@ -241,6 +241,18 @@ h1, h2, h3 { font-family: 'Outfit', 'Inter', sans-serif; margin: 0; }
 }
 .rank-pill:active { transform: scale(0.96); }
 
+/* On a phone the top bar runs out of room: the room code plus four fixed controls need
+   more width than there is, and the only shrinkable item — the phase pill — was being
+   squeezed to nothing and cut mid-word on every game screen ("Pl", "Ba", "At"). Tighten
+   the chrome at narrow widths and give the pill a floor it cannot shrink below. */
+.phase-pill { min-width: 3.4rem; text-align: center; }
+@media (max-width: 470px) {
+  .topbar { gap: 5px; }
+  .room-pill, .phase-pill, .rank-pill { padding: 7px 8px; font-size: 0.7rem; }
+  .room-pill b { letter-spacing: 0.1em; }
+  .icon-btn { width: 33px; height: 33px; font-size: 1rem; }
+}
+
 /* ===========================================================================
    Game — the table
    =========================================================================== */
@@ -1740,3 +1752,43 @@ button.sv-ship:hover .body { fill: #7b8ba7; }
 .mh-step.tube .line { background: #f4725c; }
 .mh-step.seen { border-color: var(--gold); color: var(--gold); background: rgba(245, 196, 81, 0.1); }
 .duel-board .mh-trail { margin-top: var(--s3); }
+
+/* ── Volley Fire — four shots, one answer ──────────────────────────────────── */
+.screen.volleyfire { --accent: #ff9d5c; }
+.vf-main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 10px 0; overflow-y: auto; min-height: 0; }
+.vf-boards { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+
+/* A square that has been fired at but gave no verdict — the state that defines this game.
+   Deliberately distinct from both hit and miss: spent, not answered. */
+.sv-cell.spent {
+  background: repeating-linear-gradient(45deg, #2b3242, #2b3242 3px, #232936 3px, #232936 6px);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.sv-cell.spent::after {
+  content: '?'; position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 0.62rem; font-weight: 700; color: var(--faint);
+}
+/* Squares picked for the volley about to be fired. */
+.sv-cell.aimed {
+  background: color-mix(in srgb, var(--accent) 40%, #1b2333);
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.vf-log { display: flex; flex-direction: column; gap: 5px; }
+.vf-volleys { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.vf-volley {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px;
+  padding: 5px 9px; border-radius: var(--r-sm); background: var(--surface);
+  border: 1px solid var(--line); font-size: 0.76rem;
+}
+/* Still ambiguous — the ones worth staring at. */
+.vf-volley.open { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.vf-volley.settled { opacity: 0.55; }
+.vf-vn { font-family: 'Outfit', sans-serif; font-weight: 800; color: var(--muted); min-width: 1.5ch; }
+.vf-vcells { letter-spacing: 0.05em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.vf-vhits { font-family: 'Outfit', sans-serif; font-weight: 800; color: var(--accent); }
+.vf-vsunk { grid-column: 1 / -1; font-size: 0.68rem; color: var(--good); }
+
+@media (min-width: 560px) {
+  .vf-boards { flex-direction: row; align-items: flex-start; justify-content: center; }
+}

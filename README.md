@@ -31,6 +31,7 @@ stripping.
 | **Salvo** | 2 | Hide a fleet, hunt theirs square by square. Every hit earns another shot. |
 | **Sealed Bids** | 2 | Both bid a card in secret for each prize — highest takes it, and both cards are spent either way. |
 | **Manhunt** | 2 | One runs hidden, one hunts with three agents; swap at half time and outlast their run. |
+| **Volley Fire** | 2 | Salvo's harder cousin: fire four shots at once and learn which ships you found, never which shot found them. |
 
 Five of these are powered by a shared **football player bank** (Spy Game, Who Am I?,
 Guess the Player, and the decoy engine) — see [The player bank](#the-player-bank).
@@ -138,7 +139,7 @@ src/
     win-or-die/  lock-in/  yahtzee/  spy-game/  codenames/
     quoridor/  tectonic/  memory-match/  who-am-i/  guess-player/
     penguin-knockout/  ice-football/
-    three-fronts/  salvo/  sealed-bids/  manhunt/     Two-player duels.
+    three-fronts/  salvo/  sealed-bids/  manhunt/  volley-fire/   Two-player duels.
         game.ts        Pure plugin (rules + per-seat view). game.test.ts alongside.
         wordbank.ts / conceptbank.ts   Loads injected data for data-driven games.
   server.ts         Thin transport: static files, WebSocket plumbing, broadcast, tick.

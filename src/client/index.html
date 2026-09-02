@@ -730,6 +730,50 @@
       </div>
     </div>
 
+    <!-- Volley Fire (two-player blurred-feedback fleets) -->
+    <section id="volleyfire" class="screen volleyfire hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="vfRoom">····</b></div>
+        <div class="phase-pill" id="vfPhase">—</div>
+        <button id="vfRulesBtn" class="rank-pill" title="How to play">Rules</button>
+        <button id="vfLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="vfCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="vf-main">
+        <div class="duel-roster" id="vfPlayers"></div>
+        <div class="vf-boards" id="vfBoards"></div>
+        <div class="vf-log" id="vfVolleys"></div>
+        <div class="duel-status" id="vfStatus"></div>
+        <div class="action-area" id="vfActions"></div>
+      </main>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="vfLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Volley Fire rules reference -->
+    <div id="vfRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Volley Fire — how to play</h3>
+          <button id="vfRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Four shots at once. You learn which ships you found — never which shot found them.</p>
+        <div class="rules-body">
+          <p><b>Set up</b> as in Salvo: you're dealt a legal fleet, then <b>tap a ship and tap a square</b> to move it, <b>rotate</b> to turn it, or <b>shuffle</b> the lot. Then give the order.</p>
+          <p>Each turn you pick <b>four squares</b> and fire them together. You're told <b>which ships you hit and how many times</b> — "two on the Carrier, one on the Destroyer" — but never <b>which</b> of your four shots did it.</p>
+          <p>That is the whole game. Two hits on a five-long ship somewhere in four named squares is a real clue, and the clues stack up: a position that would have shown in an earlier answer, and didn't, is ruled out.</p>
+          <p>Every shot must be at a square you <b>haven't fired at before</b> — you can't pad a volley with known water to isolate one square.</p>
+          <p><b>None or all</b> is marked for you automatically: nothing hit means all four are water, four hits means all four are ship. <b>Anything in between stays open</b> for you to work out.</p>
+          <p>A ship <b>sinks once all its squares have been fired at</b> — you never have to hit it twice — and only then is it shown to you. Sink all five to win.</p>
+          <p>Spread your shots to find the fleet; cluster them to pin it down. One volley cannot do both.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Connection overlay -->
     <div id="overlay" class="overlay hidden">
       <div class="spinner" aria-hidden="true"></div>
