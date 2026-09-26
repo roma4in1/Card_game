@@ -206,6 +206,33 @@ test('a bot plays its turn through botMove', () => {
   assert.ok(moves > 0, 'the bot took at least one action');
 });
 
+test('a bot works its move out once, however often the server asks', () => {
+  // The server asks once to see whether a bot move is due and again when the delay is
+  // up. For a searching bot the thinking is the whole cost, so the answer is kept — but
+  // only while the game, and who is playing it, are exactly as they were.
+  const room = lobby(1);
+  assert.equal(selectGame(room, room.host, 'tectonic').error, undefined);
+  assert.equal(addBot(room, room.host).error, undefined);
+  assert.equal(startMatch(room, room.host).error, undefined);
+  const real = room.game!.def;
+  let calls = 0;
+  room.game = { state: room.game!.state, def: { ...real, bot: (s, seat, ctx) => (calls++, real.bot!(s, seat, ctx)) } };
+
+  assert.equal(botMove(room), null, 'the human moves first, so no bot move is due');
+  // The state is untouched, but the human hands their seat to a bot: a kept "nothing to
+  // do" would stall the match here.
+  leave(room, 0);
+  const mv = botMove(room);
+  assert.ok(mv, 'once the seat is a bot, its move is due');
+  const before = calls;
+  assert.deepEqual(botMove(room), mv, 'asked again, the same answer');
+  assert.equal(calls, before, 'without thinking again');
+
+  assert.equal(act(room, mv.seat, mv.msg).error, undefined);
+  botMove(room);
+  assert.ok(calls > before, 'a move changes the game, so the next answer is fresh');
+});
+
 test('hasHumans is false once every seat is a bot', () => {
   const room = lobby(2);
   leave(room, 0);

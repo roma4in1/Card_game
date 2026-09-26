@@ -34,6 +34,7 @@ export interface Room {
   lastActivity: number;
   emptyHumanSince: number | null; // epoch-ms the room last had zero connected humans (null while one is online)
   match: MatchProgress | null; // bookkeeping for the match record; see telemetry.ts
+  botPlan?: { stamp: string; move: { seat: number; msg: Record<string, unknown> } | null }; // see botMove
 }
 
 /** What a finished match needs to report, gathered as it is played. */
@@ -282,16 +283,31 @@ export function leave(room: Room, seat: number): ActionResult {
   return ok;
 }
 
-/** The next action a bot-controlled seat should take, or null if none is due. */
+/** The next action a bot-controlled seat should take, or null if none is due.
+ *
+ *  The server asks this twice per bot move — once to see whether a move is due, and again
+ *  when the human-like delay is up — and for the searching bots the thinking is nearly all
+ *  of the work. So the answer is kept, and handed back as long as nothing has changed:
+ *  the same game state, and the same seats under bot control. Anything that moves either
+ *  (a player acting, a timer, someone leaving) changes the stamp and it is worked out
+ *  afresh. Game states are plain JSON — they already travel over the wire as such — so
+ *  the stamp is exact. */
 export function botMove(room: Room): { seat: number; msg: Record<string, unknown> } | null {
   if (room.phase !== 'playing' || !room.game || !room.game.def.bot) return null;
   const def = room.game.def;
-  for (const s of seats(room)) {
-    if (!room.members[s]!.bot) continue;
+  const botSeats = seats(room).filter((s) => room.members[s]!.bot);
+  const stamp = botSeats.join(',') + '|' + JSON.stringify(room.game.state);
+  if (room.botPlan?.stamp === stamp) return room.botPlan.move;
+  let move: { seat: number; msg: Record<string, unknown> } | null = null;
+  for (const s of botSeats) {
     const msg = def.bot!(room.game.state, s, ctxFor(room));
-    if (msg) return { seat: s, msg };
+    if (msg) {
+      move = { seat: s, msg };
+      break;
+    }
   }
-  return null;
+  room.botPlan = { stamp, move };
+  return move;
 }
 
 /** Is any real (non-bot) player still seated? Once false, the room is abandoned. */

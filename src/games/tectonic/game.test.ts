@@ -2,7 +2,7 @@
 // hand-built minimal boards; the default board's value map + central hole are checked too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTectonic, decideWinners, recomputeAlive, DIRS, type TState } from './game.ts';
+import { createTectonic, decideWinners, recomputeAlive, chooseSlide, SHARP_PLAN, DIRS, type TState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const ctx: GameContext = { rng: () => 0.5, now: 0 };
@@ -307,6 +307,70 @@ test('the bot slides toward the land worth having, not just the first way out', 
   act(s, 0, mv, ctx);
   assert.equal(s.scores[0], 3, 'either way it banks the 3 it was standing on');
   assert.equal(s.pawns[0].q, -3, 'and it is now sitting in the half worth having');
+});
+
+test('a threat from any rival counts, not only from the next player to move', () => {
+  // Four players. Sliding east lands P0's only pawn on a 5 with a single way out, and P3
+  // — last in the turn order — can slide into that way out and strand it. The old bot
+  // looked three slides ahead in turn order: its own, P1's and P2's. P3's answer was
+  // beyond it. Best-reply search lets whichever rival hurts most answer at once.
+  const board = () => {
+    const s = mk({
+      np: 4,
+      hexes: [
+        { q: 0, r: 0, value: 0 }, { q: 1, r: 0, value: 1 }, { q: 2, r: 0, value: 5 },
+        { q: 1, r: -1, value: 0 }, { q: 1, r: -2, value: 0 },
+        { q: 0, r: 1, value: 1 }, { q: 0, r: 2, value: 3 },
+        ...line(5, [1, 1, 1, 1, 1], 5), // P1 and P2, busy elsewhere
+      ],
+      pawns: [
+        { id: 0, owner: 0, q: 0, r: 0 },
+        { id: 1, owner: 1, q: 0, r: 5 }, { id: 2, owner: 2, q: 4, r: 5 },
+        { id: 3, owner: 3, q: 1, r: -2 }, // slides south to (1,0), sealing (2,0)
+      ],
+    });
+    return s;
+  };
+  const east = 0;
+
+  const steady = board();
+  steady.skill = 2;
+  assert.equal((def.bot!(steady, 0, ctx) as any).direction, east, 'on the board alone, the 5 is the best landing');
+
+  const sharp = board();
+  sharp.skill = 3;
+  assert.notEqual((def.bot!(sharp, 0, ctx) as any).direction, east, 'Sharp sees P3 waiting and stays out');
+
+  // The control: move P3 away, and the same slide becomes the right one again.
+  const clear = board();
+  clear.skill = 3;
+  clear.hexes['1,-2'] = { value: 0, state: 'gap', pawn: null };
+  clear.hexes['2,5'].pawn = 3;
+  Object.assign(clear.pawns[3], { q: 2, r: 5 });
+  recomputeAlive(clear);
+  assert.equal((def.bot!(clear, 0, ctx) as any).direction, east, 'with nobody to spring it, the 5 is simply good');
+});
+
+test('a search cut short still plays a legal move, and the same one every time', () => {
+  // The budget is counted in positions, never milliseconds, so a busy server cannot
+  // change the move. A budget far too small to finish even one reply still has to
+  // produce something legal, from moves compared at the same depth.
+  for (const np of [2, 4]) {
+    let a = 4242 + np;
+    const rng = () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const seats = Array.from({ length: np }, (_, i) => i);
+    const s = def.create({ seats, players: seats.map((i) => ({ seat: i, name: 'P' + i })) }, { rng, now: 0 }) as TState;
+    for (let n = 0; n < 40 && !s.over; n++) {
+      const legal = view(s, s.order[s.turn]).legal.map((m: any) => `${m.pawnId}/${m.direction}`);
+      for (const budget of [5, 60, 400]) {
+        const pick = () => chooseSlide(s, s.turn, () => 0.25, { ...SHARP_PLAN, budget });
+        const mv = pick()!;
+        assert.ok(legal.includes(`${mv.pawnId}/${mv.direction}`), `budget ${budget}: illegal ${JSON.stringify(mv)}`);
+        assert.deepEqual(pick(), mv, 'the same position and dice must give the same move');
+      }
+      act(s, s.order[s.turn], { type: 'slide', ...chooseSlide(s, s.turn, rng, SHARP_PLAN)! });
+    }
+  }
 });
 
 test('thinking leaves the board exactly as it found it', () => {

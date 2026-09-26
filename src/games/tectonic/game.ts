@@ -367,173 +367,340 @@ function viewState(s: TState, seat: number | null): Record<string, unknown> {
   };
 }
 
-/** Everything needed to put a slide back. Cloning the whole board per node was the cost
- *  that kept this search shallow: a board is ~130 hexes, and copying all of them to try
- *  one move is far more work than the move itself. Playing the move on the real board and
- *  taking it back afterwards makes a node cheap enough to look further ahead. */
-interface Undo {
-  pawnId: number;
-  fromQ: number;
-  fromR: number;
-  toQ: number;
-  toR: number;
-  banked: number;
-  owner: number;
-  prevTurn: number;
-  prevAlive: boolean[];
+// ---------------------------------------------------------------------------
+// Bot engine — the board as flat arrays
+// ---------------------------------------------------------------------------
+
+/** The board as flat arrays, for thinking with. The rules keep hexes in a record keyed by
+ *  "q,r" strings, which suits the view and the tests but costs a string build and a hash
+ *  lookup for every step of every slide. Here a hex is a number, a neighbour is a table
+ *  lookup, and a move is played and taken back by flipping a few array slots. */
+interface Sim {
+  np: number;
+  nHex: number;
+  nPawn: number;
+  nb: Int16Array; // hex * 6 + direction → the neighbouring hex, or -1 past the edge
+  value: Int16Array;
+  present: Uint8Array;
+  pawnAt: Int16Array; // hex → the pawn standing on it, or -1
+  pos: Int16Array; // pawn → hex
+  owner: Uint8Array; // pawn → player-index
+  alive: Uint8Array;
+  scores: Float64Array;
 }
 
-/** The slide rule again: bank the hex you leave, travel to the last free hex, hand on. */
-function doSlide(s: TState, pawnId: number, direction: number): Undo {
-  const p = s.pawns.find((x) => x.id === pawnId)!;
-  const fromQ = p.q;
-  const fromR = p.r;
-  let q = p.q;
-  let r = p.r;
-  for (;;) {
-    const nq = q + DIRS[direction][0];
-    const nr = r + DIRS[direction][1];
-    const h = s.hexes[id(nq, nr)];
-    if (!h || h.state !== 'present' || h.pawn !== null) break;
-    q = nq;
-    r = nr;
-  }
-  const origin = s.hexes[id(fromQ, fromR)];
-  const undo: Undo = {
-    pawnId, fromQ, fromR, toQ: q, toR: r, banked: origin.value, owner: p.owner,
-    prevTurn: s.turn, prevAlive: s.pawns.map((x) => x.alive),
-  };
-  s.scores[p.owner] += origin.value;
-  origin.state = 'gap';
-  origin.pawn = null;
-  p.q = q;
-  p.r = r;
-  s.hexes[id(q, r)].pawn = p.id;
-  recomputeAlive(s);
-  for (let i = 1; i <= s.np; i++) {
-    const cand = (s.turn + i) % s.np;
-    if (s.pawns.some((x) => x.owner === cand && x.alive)) {
-      s.turn = cand;
-      break;
-    }
-  }
-  return undo;
-}
-
-function undoSlide(s: TState, u: Undo) {
-  const p = s.pawns.find((x) => x.id === u.pawnId)!;
-  s.hexes[id(u.toQ, u.toR)].pawn = null;
-  p.q = u.fromQ;
-  p.r = u.fromR;
-  const origin = s.hexes[id(u.fromQ, u.fromR)];
-  origin.state = 'present';
-  origin.pawn = p.id;
-  s.scores[u.owner] -= u.banked;
-  s.pawns.forEach((x, i) => { x.alive = u.prevAlive[i]; });
-  s.turn = u.prevTurn;
-}
-
-const CLAIM = 0.5; // of the land you hold, how much you actually get to bank
-const PAWN_WORTH = 0.5; // a living pawn, over and above the ground it is standing on
-
-/** What the board is worth to `me`: points banked, plus the land its pawns hold.
- *
- *  "Hold" is settled by a race. Every living pawn spreads out from where it stands at the
- *  same rate, each hex falls to whoever reaches it first, and a hex two players reach
- *  together falls to neither. That is the whole point of the change: the old version took
- *  each island's total and split it between the players by how many pawns they had on it,
- *  which cannot tell one pawn from another. Five pawns huddled in a corner scored exactly
- *  the same as five spread across the board, so moving the pawn already sitting on the
- *  best ground looked no worse than bringing up an idle one — and the bot would march a
- *  single pawn back and forth while the rest of its side never moved at all.
- *
- *  Reading the board this way, a pawn is worth the ground it is closest to. Spreading out
- *  claims more; leaving a pawn idle in territory a rival already dominates claims nothing;
- *  and walking a pawn away from land only it can reach visibly costs something. */
-function evalPosition(s: TState, me: number): number {
-  const owner: Record<string, number> = {}; // player-index, or -1 where two arrive together
-  const dist: Record<string, number> = {};
-  const queue: string[] = [];
-  for (const p of s.pawns) {
-    if (!p.alive) continue;
-    const k = id(p.q, p.r);
-    if (dist[k] === undefined) {
-      dist[k] = 0;
-      owner[k] = p.owner;
-      queue.push(k);
-    } else if (owner[k] !== p.owner) owner[k] = -1;
-  }
-  for (let head = 0; head < queue.length; head++) {
-    const k = queue[head];
+function toSim(s: TState): Sim {
+  const keys = Object.keys(s.hexes);
+  const index = new Map<string, number>();
+  keys.forEach((k, i) => index.set(k, i));
+  const nHex = keys.length;
+  const nb = new Int16Array(nHex * 6).fill(-1);
+  const value = new Int16Array(nHex);
+  const present = new Uint8Array(nHex);
+  const pawnAt = new Int16Array(nHex).fill(-1);
+  keys.forEach((k, i) => {
     const [q, r] = k.split(',').map(Number);
-    const d = dist[k];
-    const own = owner[k];
-    for (const [dq, dr] of DIRS) {
-      const nk = id(q + dq, r + dr);
-      const h = s.hexes[nk];
-      if (!h || h.state !== 'present') continue;
-      if (dist[nk] === undefined) {
-        dist[nk] = d + 1;
-        owner[nk] = own;
-        queue.push(nk);
-      } else if (dist[nk] === d + 1 && owner[nk] !== own) {
-        owner[nk] = -1; // a dead heat — neither side can count on it
-      }
-    }
-  }
+    for (let d = 0; d < 6; d++) nb[i * 6 + d] = index.get(id(q + DIRS[d][0], r + DIRS[d][1])) ?? -1;
+    value[i] = s.hexes[k].value;
+    present[i] = s.hexes[k].state === 'present' ? 1 : 0;
+  });
+  const nPawn = s.pawns.length;
+  const pos = new Int16Array(nPawn);
+  const owner = new Uint8Array(nPawn);
+  s.pawns.forEach((p, i) => {
+    pos[i] = index.get(id(p.q, p.r))!;
+    owner[i] = p.owner;
+    pawnAt[pos[i]] = i;
+  });
+  const sim: Sim = {
+    np: s.np, nHex, nPawn, nb, value, present, pawnAt, pos, owner,
+    alive: new Uint8Array(nPawn), scores: Float64Array.from(s.scores),
+  };
+  refreshAlive(sim);
+  return sim;
+}
 
-  const territory = new Array(s.np).fill(0);
-  for (const k of Object.keys(s.hexes)) {
-    if (s.hexes[k].state !== 'present') continue;
-    const o = owner[k];
-    if (o !== undefined && o >= 0) territory[o] += s.hexes[k].value;
+/** A pawn lives while it has an open neighbour to slide into. */
+function canSlide(sim: Sim, pawn: number): number {
+  const { nb, present, pawnAt } = sim;
+  for (let k = sim.pos[pawn] * 6, end = k + 6; k < end; k++) {
+    const n = nb[k];
+    if (n >= 0 && present[n] && pawnAt[n] < 0) return 1;
   }
-  const alive = new Array(s.np).fill(0);
-  for (const p of s.pawns) if (p.alive) alive[p.owner]++;
+  return 0;
+}
 
-  const worth = (pid: number) => s.scores[pid] + territory[pid] * CLAIM + alive[pid] * PAWN_WORTH;
-  let rival = -Infinity;
-  for (let pid = 0; pid < s.np; pid++) if (pid !== me) rival = Math.max(rival, worth(pid));
-  return worth(me) - rival;
+function refreshAlive(sim: Sim) {
+  for (let p = 0; p < sim.nPawn; p++) sim.alive[p] = canSlide(sim, p);
+}
+
+/** After a slide, or taking one back, only two things can have changed who is alive: the
+ *  pawn that moved, and the pawns beside the hex it landed on, which just gained or lost
+ *  an open neighbour. The hex it left is no help to anyone either way — occupied before,
+ *  a gap after. Checking those few rather than every pawn is most of the cost of a node. */
+function touchUp(sim: Sim, pawn: number, landed: number) {
+  const { nb, pawnAt, alive } = sim;
+  alive[pawn] = canSlide(sim, pawn);
+  for (let k = landed * 6, end = k + 6; k < end; k++) {
+    const n = nb[k];
+    if (n >= 0 && pawnAt[n] >= 0) alive[pawnAt[n]] = canSlide(sim, pawnAt[n]);
+  }
+}
+
+/** Where a slide ends: the last open hex before the first gap, pawn or edge. */
+function landing(sim: Sim, pawn: number, dir: number): number {
+  const { nb, present, pawnAt } = sim;
+  let h = sim.pos[pawn];
+  for (;;) {
+    const n = nb[h * 6 + dir];
+    if (n < 0 || !present[n] || pawnAt[n] >= 0) return h;
+    h = n;
+  }
+}
+
+/** The slide rule on the flat board: bank the hex you leave, and it is gone. */
+function play(sim: Sim, pawn: number, to: number) {
+  const from = sim.pos[pawn];
+  sim.scores[sim.owner[pawn]] += sim.value[from];
+  sim.present[from] = 0;
+  sim.pawnAt[from] = -1;
+  sim.pawnAt[to] = pawn;
+  sim.pos[pawn] = to;
+  touchUp(sim, pawn, to);
+}
+
+function unplay(sim: Sim, pawn: number, from: number) {
+  const to = sim.pos[pawn];
+  sim.pawnAt[to] = -1;
+  sim.pos[pawn] = from;
+  sim.present[from] = 1;
+  sim.pawnAt[from] = pawn;
+  sim.scores[sim.owner[pawn]] -= sim.value[from];
+  touchUp(sim, pawn, to);
+}
+
+function canMove(sim: Sim, pid: number): boolean {
+  for (let p = 0; p < sim.nPawn; p++) if (sim.alive[p] && sim.owner[p] === pid) return true;
+  return false;
+}
+function rivalsCanMove(sim: Sim, me: number): boolean {
+  for (let p = 0; p < sim.nPawn; p++) if (sim.alive[p] && sim.owner[p] !== me) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
-// Bot — looks a move ahead and plays for territory, not for the next hex.
-//
-// The old bot banked whichever hex it happened to be standing on that was worth most,
-// and never looked at where the slide put it. That loses two ways: it strands pawns on
-// good land, and it opens islands for the other side to harvest. This one plays the move
-// out, lets the next player answer it, and scores the board that results — so it will
-// take a cheap hex now to seal an island only its own pawns can reach.
+// Evaluation
 // ---------------------------------------------------------------------------
 
-// Counted in nodes, not milliseconds: a clock would make the bot play differently
-// depending on what else the server is doing. 350 buys about 14ms a move, which is what a
-// complete two-ply search cost before — so the depth below is paid for, not added on top.
-const NODE_BUDGET = 350;
+/** How much of each kind of ground a player can expect to turn into points. */
+export interface Weights {
+  stand: number; // the hex under a living pawn — banked the moment it moves
+  sealed: number; // land only one player's pawns can still reach
+  claim: number; // shared land that player gets to first
+  pawn: number; // a living pawn, over and above where it stands
+  focus: number; // 1 = measure yourself against the leading rival only, 0 = against their average
+}
 
-/** Minimax with alpha-beta, from `me`'s side. Every other player is treated as trying to
- *  hold `me` down, which is the right reading in a two-player game and a sound pessimism
- *  in a four-player one. Depth counts single slides. */
-function search(s: TState, me: number, depth: number, alpha: number, beta: number, ctl: { nodes: number }): number {
-  ctl.nodes += 1;
-  if (depth === 0 || ctl.nodes > NODE_BUDGET) return evalPosition(s, me);
-  if (s.pawns.every((p) => !p.alive)) return evalPosition(s, me);
-  const moves = legalMoves(s);
-  if (!moves.length) return evalPosition(s, me);
-  // Try the fattest hexes first: good ordering is most of what makes the cutoffs work.
-  moves.sort((a, b) => {
-    const pa = s.pawns.find((x) => x.id === a.pawnId)!;
-    const pb = s.pawns.find((x) => x.id === b.pawnId)!;
-    return s.hexes[id(pb.q, pb.r)].value - s.hexes[id(pa.q, pa.r)].value;
-  });
+interface Engine {
+  sim: Sim;
+  me: number;
+  w: Weights;
+  budget: number;
+  nodes: number;
+  aborted: boolean;
+  horizon: boolean; // did the last iteration stop anywhere short of the end of the game?
+  moves: Int32Array[]; // per ply
+  keys: Float64Array[]; // per ply, move-ordering scores
+  history: Float64Array; // (hex * 6 + direction) → how often that slide refuted something
+  dist: Int16Array;
+  claim: Int8Array;
+  comp: Int16Array;
+  queue: Int16Array;
+  mask: Int32Array; // component → which players' living pawns border it
+  worth: Float64Array;
+}
 
-  const maximising = s.turn === me;
+/** What the board is worth to `me`: banked points plus the land each side can expect to
+ *  bank, less the rivals' same totals.
+ *
+ *  Land is read in two ways. Free land is split into islands: a pawn's own hex is never
+ *  land for anyone else (it is a gap the moment it is left), so an island is a region of
+ *  open hexes, and the players who own it are those with a living pawn on its shore. An
+ *  island with one owner is SEALED — nobody else can ever touch it — and is counted at a
+ *  high rate. Shared islands are settled by a race: every living pawn spreads out at the
+ *  same speed, a hex goes to whoever reaches it first, and a dead heat goes to nobody. */
+function evaluate(e: Engine): number {
+  const { sim, w, dist, claim, comp, queue, mask, worth } = e;
+  const { nb, present, pawnAt, value, pos, owner, alive, nPawn, nHex, np } = sim;
+  for (let pid = 0; pid < np; pid++) worth[pid] = sim.scores[pid];
+  dist.fill(-1);
+
+  // Islands, and who borders each. This pass is a third of the evaluation's cost, and
+  // it was tried without: at an equal number of positions searched, counting sealed and
+  // shared land alike lost 4 points of win share in both 2- and 4-player games.
+  comp.fill(-1);
+  let nComp = 0;
+  for (let p = 0; p < nPawn; p++) {
+    if (!alive[p]) continue;
+    const bit = 1 << owner[p];
+    for (let k = pos[p] * 6, end = k + 6; k < end; k++) {
+      const start = nb[k];
+      if (start < 0 || !present[start] || pawnAt[start] >= 0) continue;
+      if (comp[start] < 0) {
+        const c = nComp++;
+        mask[c] = 0;
+        comp[start] = c;
+        let tail = 0;
+        queue[tail++] = start;
+        for (let head = 0; head < tail; head++) {
+          const h = queue[head];
+          for (let j = h * 6, e2 = j + 6; j < e2; j++) {
+            const n = nb[j];
+            if (n >= 0 && present[n] && pawnAt[n] < 0 && comp[n] < 0) {
+              comp[n] = c;
+              queue[tail++] = n;
+            }
+          }
+        }
+      }
+      mask[comp[start]] |= bit;
+    }
+  }
+
+  // The race over shared ground.
+  let tail = 0;
+  for (let p = 0; p < nPawn; p++) {
+    if (!alive[p]) continue;
+    const h = pos[p];
+    worth[owner[p]] += value[h] * w.stand + w.pawn;
+    dist[h] = 0;
+    claim[h] = owner[p];
+    queue[tail++] = h;
+  }
+  for (let head = 0; head < tail; head++) {
+    const h = queue[head];
+    const d = dist[h] + 1;
+    const c = claim[h];
+    for (let k = h * 6, end = k + 6; k < end; k++) {
+      const n = nb[k];
+      if (n < 0 || !present[n] || pawnAt[n] >= 0) continue;
+      if (dist[n] < 0) {
+        dist[n] = d;
+        claim[n] = c;
+        queue[tail++] = n;
+      } else if (dist[n] === d && claim[n] !== c) claim[n] = -1;
+    }
+  }
+
+  for (let i = 0; i < tail; i++) {
+    const h = queue[i];
+    if (pawnAt[h] >= 0) continue; // a pawn's own hex, already counted
+    const m = mask[comp[h]];
+    if ((m & (m - 1)) === 0) worth[31 - Math.clz32(m)] += value[h] * w.sealed;
+    else if (claim[h] >= 0) worth[claim[h]] += value[h] * w.claim;
+  }
+
+  // Only first place wins, which argues for measuring yourself against the leader alone.
+  // In a 4-player game that turned out to be too narrow: a bot that only watches the
+  // leader lets the other two walk off with land. Half leader, half field finished a
+  // place higher on average (2.32 → 2.16 over 640 games) and won more.
+  let lead = -Infinity;
+  let sum = 0;
+  for (let pid = 0; pid < np; pid++) {
+    if (pid === e.me) continue;
+    sum += worth[pid];
+    if (worth[pid] > lead) lead = worth[pid];
+  }
+  return worth[e.me] - (w.focus * lead + (1 - w.focus) * (sum / (np - 1)));
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+// Best-reply search. With three or four players, following the real turn order spends
+// nearly the whole lookahead on other people's moves: four plies is one move of your own
+// and three replies, and you never see your own follow-up. So the rivals are merged into
+// one layer — after each of your moves, ONE of them answers, whichever answer hurts you
+// most — and then it is your turn again. Two plies now reach your own next move. It is a
+// deliberate fiction (the others do all get a turn), and it measured better than the
+// honest version: 69% against 58% over 80 four-player games each, at the same budget,
+// against the old bot. With two players it is ordinary alpha-beta.
+const ANY = -1; // whichever rival hurts most moves next
+const NONE = -2; // nobody can move — the game is over
+
+/** Who moves after `mover`. Only ever names a side that has a move to make. */
+function after(e: Engine, mover: number): number {
+  const { sim, me } = e;
+  const mine = canMove(sim, me);
+  const theirs = rivalsCanMove(sim, me);
+  if (mover === me) return theirs ? ANY : mine ? me : NONE;
+  return mine ? me : theirs ? ANY : NONE;
+}
+
+function generate(e: Engine, mover: number, out: Int32Array): number {
+  const { sim, me } = e;
+  const { nb, present, pawnAt, pos, owner, alive } = sim;
+  let n = 0;
+  for (let p = 0; p < sim.nPawn; p++) {
+    if (!alive[p]) continue;
+    if (mover === ANY ? owner[p] === me : owner[p] !== me) continue;
+    const base = pos[p] * 6;
+    for (let d = 0; d < 6; d++) {
+      const h = nb[base + d];
+      if (h >= 0 && present[h] && pawnAt[h] < 0) out[n++] = p * 6 + d;
+    }
+  }
+  return n;
+}
+
+/** Fattest hex first, then whatever has refuted things before: good ordering is most of
+ *  what makes the cutoffs work. */
+function order(e: Engine, moves: Int32Array, n: number, keys: Float64Array) {
+  const { sim, history } = e;
+  for (let i = 0; i < n; i++) {
+    const pawn = (moves[i] / 6) | 0;
+    const from = sim.pos[pawn];
+    keys[i] = sim.value[from] * 1e6 + history[from * 6 + moves[i] - pawn * 6];
+  }
+  for (let i = 1; i < n; i++) {
+    const mv = moves[i];
+    const k = keys[i];
+    let j = i - 1;
+    while (j >= 0 && keys[j] < k) {
+      moves[j + 1] = moves[j];
+      keys[j + 1] = keys[j];
+      j--;
+    }
+    moves[j + 1] = mv;
+    keys[j + 1] = k;
+  }
+}
+
+function search(e: Engine, depth: number, alpha: number, beta: number, mover: number, ply: number): number {
+  if (++e.nodes > e.budget) {
+    e.aborted = true;
+    return 0;
+  }
+  if (mover === NONE) return evaluate(e);
+  if (depth === 0) {
+    e.horizon = true;
+    return evaluate(e);
+  }
+  const sim = e.sim;
+  const moves = e.moves[ply];
+  const n = generate(e, mover, moves);
+  order(e, moves, n, e.keys[ply]);
+  const maximising = mover === e.me;
   let best = maximising ? -Infinity : Infinity;
-  for (const m of moves) {
-    const u = doSlide(s, m.pawnId, m.direction);
-    const v = search(s, me, depth - 1, alpha, beta, ctl);
-    undoSlide(s, u);
+  for (let i = 0; i < n; i++) {
+    const pawn = (moves[i] / 6) | 0;
+    const dir = moves[i] - pawn * 6;
+    const from = sim.pos[pawn];
+    play(sim, pawn, landing(sim, pawn, dir));
+    const v = search(e, depth - 1, alpha, beta, after(e, mover), ply + 1);
+    unplay(sim, pawn, from);
+    if (e.aborted) return 0;
     if (maximising) {
       if (v > best) best = v;
       if (best > alpha) alpha = best;
@@ -541,10 +708,112 @@ function search(s: TState, me: number, depth: number, alpha: number, beta: numbe
       if (v < best) best = v;
       if (best < beta) beta = best;
     }
-    if (alpha >= beta) break; // already refuted
+    if (alpha >= beta) {
+      e.history[from * 6 + dir] += depth * depth;
+      break;
+    }
   }
   return best;
 }
+
+/** How a skill level thinks. */
+export interface Plan {
+  budget: number; // positions examined per move — a count, never a clock
+  maxDepth: number; // slides of lookahead at most
+  band: number; // points: moves this close to the best are all fair game
+  w: Weights;
+}
+
+const MAX_PLY = 64;
+
+/** The move `me` should play: iterative deepening, one full ply at a time, keeping the
+ *  last depth that was finished (or the part of an unfinished one that started from the
+ *  previous best, which is the one comparison that is still fair). */
+export function chooseSlide(s: TState, me: number, rng: Rng, plan: Plan): { pawnId: number; direction: number; distance: number } | null {
+  const sim = toSim(s);
+  const e: Engine = {
+    sim, me, w: plan.w, budget: plan.budget, nodes: 0, aborted: false, horizon: false,
+    moves: Array.from({ length: MAX_PLY }, () => new Int32Array(sim.nPawn * 6)),
+    keys: Array.from({ length: MAX_PLY }, () => new Float64Array(sim.nPawn * 6)),
+    history: new Float64Array(sim.nHex * 6),
+    dist: new Int16Array(sim.nHex), claim: new Int8Array(sim.nHex), comp: new Int16Array(sim.nHex),
+    queue: new Int16Array(sim.nHex + sim.nPawn), mask: new Int32Array(sim.nHex), worth: new Float64Array(sim.np),
+  };
+  const rootBuf = new Int32Array(sim.nPawn * 6);
+  const n = generate(e, me, rootBuf);
+  if (!n) return null;
+  order(e, rootBuf, n, new Float64Array(n));
+  let ranked = Array.from(rootBuf.subarray(0, n), (mv) => ({ mv, v: 0 }));
+
+  for (let depth = 1; depth <= Math.min(plan.maxDepth, MAX_PLY - 1); depth++) {
+    e.horizon = false;
+    const done: { mv: number; v: number }[] = [];
+    let best = -Infinity;
+    for (const { mv } of ranked) {
+      const pawn = (mv / 6) | 0;
+      const from = sim.pos[pawn];
+      play(sim, pawn, landing(sim, pawn, mv - pawn * 6));
+      const v = search(e, depth - 1, best - plan.band, Infinity, after(e, me), 1);
+      unplay(sim, pawn, from);
+      if (e.aborted) break;
+      done.push({ mv, v });
+      if (v > best) best = v;
+    }
+    if (done.length) {
+      // An unfinished depth still settles every move it reached, and it reached the old
+      // favourite first; the ones it never got to were already behind.
+      const rest = ranked.filter((r) => !done.some((d) => d.mv === r.mv)).map((r) => ({ mv: r.mv, v: -Infinity }));
+      ranked = [...done.sort((a, b) => b.v - a.v), ...rest];
+    }
+    if (e.aborted || !e.horizon) break; // out of budget, or already seen to the end
+  }
+
+  const top = ranked[0].v;
+  let pick = ranked[0];
+  let pickScore = -Infinity;
+  for (const r of ranked) {
+    if (r !== ranked[0] && !(r.v > top - plan.band)) continue;
+    const score = r.v + rng() * plan.band;
+    if (score > pickScore) {
+      pickScore = score;
+      pick = r;
+    }
+  }
+  const pawn = (pick.mv / 6) | 0;
+  const dir = pick.mv - pawn * 6;
+  let distance = 0;
+  for (let h = sim.pos[pawn], to = landing(sim, pawn, dir); h !== to; distance++) h = sim.nb[h * 6 + dir];
+  return { pawnId: s.pawns[pawn].id, direction: dir, distance };
+}
+
+// ---------------------------------------------------------------------------
+// Bot
+//
+// The previous Sharp bot searched three slides deep inside a 350-position budget, with no
+// iterative deepening. The budget ran out part-way down the list of candidate moves, and
+// every move after that point was judged on the board straight after it — nobody allowed
+// to reply. About two thirds of the candidates were scored that way, so the comparison
+// was between moves looked at pessimistically and moves looked at optimistically, and the
+// optimistic ones won: in practice the bot mostly played whichever moves it happened to
+// list last. Deepening one full ply at a time, and only ever comparing moves searched to
+// the same depth, is the largest single part of what changed.
+//
+// Measured against that bot, with seats rotated and each board dealt at random: one new
+// Sharp wins 72% of four-player games against three old ones (fair share 25%), 87% of
+// three-player games, and all but one of 200 two-player games. The other way round, a
+// player exactly as strong as the old bot, facing three new ones, wins 2.4% of games.
+// ---------------------------------------------------------------------------
+
+// Standing on a hex is as good as having banked it, near enough, because you bank the hex
+// you LEAVE. The old weighting (half) taught the bot to cash in rather than to land on
+// rich ground; counting it in full, with shared land trimmed to match, lifted the average
+// 4-player finish from 2.41 to 1.92 against the untuned version (320 games).
+const WEIGHTS: Weights = { stand: 1, sealed: 0.5, claim: 0.35, pawn: 0.5, focus: 0.5 };
+// Steady judges the board its move leaves; Sharp searches. 12,000 positions is about 22ms
+// a move on a laptop, 41ms at worst in 95 moves of 100 — in line with Quoridor's Sharp.
+// A third of that, the same bot lost 70% of 2-player games to this one.
+export const STEADY_PLAN: Plan = { budget: Infinity, maxDepth: 1, band: 0.3, w: WEIGHTS };
+export const SHARP_PLAN: Plan = { budget: 12000, maxDepth: 40, band: 0.3, w: WEIGHTS };
 
 function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.over) return null;
@@ -569,30 +838,10 @@ function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | n
     return { type: 'slide', pawnId: pick.pawnId, direction: pick.direction, distance: pick.distance };
   }
 
-  // Steady judges the board it just made. Sharp looks three slides on — the reply, and
-  // its own answer to that.
-  //
-  // Depth genuinely pays in this game, unlike in Quoridor where four separate experiments
-  // put it at neutral: a truncated three-ply search beats a complete two-ply one 56-44
-  // over 400 games at the same time per move (2.2 sigma). Playing moves on the board and
-  // taking them back, rather than copying it, is what made the third ply affordable.
-  const depth = s.skill <= STEADY ? 1 : 3;
-  const ctl = { nodes: 0 };
-  let best = moves[0];
-  let bestValue = -Infinity;
-  for (const m of moves) {
-    const u = doSlide(s, m.pawnId, m.direction);
-    const v = search(s, pid, depth - 1, -Infinity, Infinity, ctl) + rng() * 0.3;
-    undoSlide(s, u);
-    if (v > bestValue) {
-      bestValue = v;
-      best = m;
-    }
-  }
-  return { type: 'slide', pawnId: best.pawnId, direction: best.direction, distance: best.distance };
+  const plan = s.skill <= STEADY ? STEADY_PLAN : SHARP_PLAN;
+  const mv = chooseSlide(s, pid, rng, plan);
+  return mv && { type: 'slide', ...mv };
 }
-
-
 
 // ---------------------------------------------------------------------------
 // GameDef factory (board config injected; no data bank needed)
