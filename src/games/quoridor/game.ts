@@ -117,7 +117,7 @@ function wallConflicts(walls: Wall[], r: number, c: number, o: Orient): boolean 
 }
 
 // ---------------------------------------------------------------------------
-// Pathfinding (no-trap rule) + bot distances
+// Pathfinding (no-trap rule)
 // ---------------------------------------------------------------------------
 
 function bfsCanReach(bs: Blocked, start: Cell, goal: Goal): boolean {
@@ -144,35 +144,6 @@ function bfsCanReach(bs: Blocked, start: Cell, goal: Goal): boolean {
     }
   }
   return false;
-}
-
-/** Distance from every cell to the nearest goal-edge cell (walls block; pawns ignored). */
-function distToGoal(bs: Blocked, goal: Goal): number[][] {
-  const dist = Array.from({ length: N }, () => new Array(N).fill(Infinity));
-  const queue = new Int16Array(N * N);
-  let head = 0;
-  let tail = 0;
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      if (isGoal(goal, r, c)) {
-        dist[r][c] = 0;
-        queue[tail++] = r * N + c;
-      }
-    }
-  }
-  while (head < tail) {
-    const cell = queue[head++];
-    const r = (cell / N) | 0;
-    const c = cell % N;
-    for (const [dr, dc] of DIRS4) {
-      const nr = r + dr;
-      const nc = c + dc;
-      if (!onBoard(nr, nc) || isEdgeBlocked(bs, r, c, nr, nc) || dist[nr][nc] < Infinity) continue;
-      dist[nr][nc] = dist[r][c] + 1;
-      queue[tail++] = nr * N + nc;
-    }
-  }
-  return dist;
 }
 
 function everyoneHasPath(walls: Wall[], s: QState): boolean {
@@ -349,17 +320,28 @@ function viewState(s: QState, seat: number | null): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Bot — races AND walls, searching its own turn and the reply to it.
+// Bot — races AND walls, searching whole turns.
 //
-// The old bot only ever walked its shortest path and never placed a wall, which throws
-// away half of Quoridor: a player who never walls loses the race to anyone who does.
-// This one scores positions by the classic measure — how much further the opposition has
-// to walk than you do — counting walls still in hand, since spending your last one ends
-// your leverage.
+// Positions are scored by the classic measure — how much further the opposition has to
+// walk than you do — plus the walls still in hand. Walls are not enumerated blindly (128
+// slots, each needing a path check for every player): only a wall lying across a rival's
+// shortest route can cost them a step, so those are the only ones worth searching.
 //
-// Walls are not enumerated blindly (128 slots, each needing a path check for every
-// player). Only a wall lying across the opponent's current shortest route can cost them
-// a step, so those are the only ones worth searching.
+// What the previous version got wrong, each measured before it was changed:
+//
+//   • It spent its walls in the opening. A wall in hand was worth a fifth of a step, so
+//     any wall that cost the opponent one step read as a gain. See WALL_WORTH.
+//   • With three or four players it only ever walled the NEXT player in turn order — not
+//     whoever was about to win. Walls now go on the rival nearest to arriving.
+//   • It chose its step assuming no wall would follow it, then chose the wall afterwards.
+//     A turn is now searched whole: a step, a step and a wall, or a wall alone.
+//   • It rebuilt the wall map and allocated fresh distance tables for every position.
+//     The board is now flat arrays, played and taken back in place, and a step with no
+//     wall reuses the distances it already has.
+//
+// Measured against it, seats rotated: the new Sharp wins 98.5% of 2-player games, 95% of
+// 3-player games against two old bots, and 91% of 4-player games against three. A player
+// as strong as the old bot, facing three new ones, wins 6.6%.
 // ---------------------------------------------------------------------------
 
 // --- turn timer: signature of the current turn, and the auto-move on timeout ---
@@ -372,149 +354,26 @@ function qForceTimeout(s: QState, rng: Rng) {
   else if (mv.type === 'endTurn') endTurn(s, pid);
 }
 
-/** The part of a position the search moves around. */
-interface QSim {
-  pawns: Cell[];
-  walls: Wall[];
-  wallsLeft: number[];
-  goals: Goal[];
-  np: number;
-}
-const simOf = (s: QState): QSim => ({ pawns: s.pawns.map((p) => [...p] as Cell), walls: [...s.walls], wallsLeft: [...s.wallsLeft], goals: [...s.goals], np: s.np });
-const distOf = (sim: QSim, pid: number, bs: Blocked) => distToGoal(bs, sim.goals[pid])[sim.pawns[pid][0]][sim.pawns[pid][1]];
+// ---------------------------------------------------------------------------
+// Bot engine — the board as flat arrays
+// ---------------------------------------------------------------------------
 
 const WIN = 10000;
-
 const STEP = 100; // one step of the race, in evaluation points
-const WALL_WORTH = 22; // a wall still in hand, in the same units (~a fifth of a step)
+// A wall still in hand, in the same units. It was a fifth of a step (22), and the bot spent
+// its walls in the opening, a step at a time, because any wall that cost the opponent one
+// step read as a gain. Played out, holding them is worth far more. Against the old bot:
+// 22 won 65% of 2-player games, 100 won 85%, 130 won 94%. Head to head, 250 beat 170 and
+// 200 (61%, 61%), and neither 300 nor 350 beat it. At this value a wall is spent on a long
+// detour, or on a race it decides — never on a single step.
+const WALL_WORTH = 250;
+// How far from home a walk must be for walls held against it to count in full. Measured
+// on the rival's walk: 4 and 6 steps played alike, 8 lost (45%).
+const ROOM_STEPS = 6;
 
-/** How far ahead `me` is, counted in steps of the race — and crucially, WHO IS TO MOVE.
- *
- *  Once the walls are gone the game is a pure race, and its result is exact: the player
- *  to move gets home first whenever their walk is no longer than their opponent's. So a
- *  turn-blind evaluation is not merely imprecise, it is wrong by a whole step half the
- *  time, and it is wrong in ALTERNATING directions as the search goes deeper — which is
- *  what made searching further play worse rather than better. The half-step of tempo
- *  below puts the boundary in exactly the right place for both sides to move, so the sign
- *  of this function predicts a walls-free race outright.
- *
- *  TRIED AND REJECTED — a corridor term. The obvious next thing this function is missing
- *  is that it measures a route's LENGTH but not how easily one wall could cut it, so a
- *  nine-step walk down open board and a nine-step walk down a channel read alike. Scoring
- *  the narrowest point of each player's route (counting cells within a couple of steps of
- *  optimal, since with a whole row as the goal no strict shortest path ever steps sideways)
- *  worked exactly as intended on test positions — and lost games: 37% at an equal node
- *  count, 22% once its two extra path searches per leaf were paid for out of the same
- *  clock. It is not a calibration problem; the bot simply plays worse when it shies away
- *  from narrow ground it usually has to cross anyway. Left out on the evidence. */
-function evalSim(sim: QSim, me: number, toMove: number): number {
-  const bs = blockedEdges(sim.walls);
-  const mine = distOf(sim, me, bs);
-  if (mine === 0) return WIN;
-  let best = Infinity;
-  for (let pid = 0; pid < sim.np; pid++) {
-    if (pid === me) continue;
-    const d = distOf(sim, pid, bs);
-    if (d === 0) return -WIN;
-    best = Math.min(best, d);
-  }
-  const tempo = toMove === me ? 0.5 : -0.5;
-  const rivalWalls = Math.max(...sim.wallsLeft.filter((_, i) => i !== me));
-  // Walls in hand are only worth something while there is still a race to shape: with the
-  // opponent one step from home, a wall you are still holding has no time left to be used.
-  const room = Math.min(1, Math.min(mine, best) / 6);
-  return (best - mine + tempo) * STEP + (sim.wallsLeft[me] - rivalWalls) * WALL_WORTH * room;
-}
-
-/** The evaluation, on a real game state — exposed so the position suite can pin it down. */
-export function evaluatePosition(s: QState, me: number, toMove: number): number {
-  return evalSim(simOf(s), me, toMove);
-}
-
-/** Legal pawn steps for `pid` on a sim board — reuses the real rules, jumps included. */
-function simMoves(sim: QSim, pid: number): Cell[] {
-  return legalMoves({ pawns: sim.pawns, walls: sim.walls, turn: pid } as unknown as QState);
-}
-
-/** Walls worth considering: those lying across `target`'s shortest route. A wall anywhere
- *  else cannot lengthen their walk at all, so it cannot be this turn's best move. */
-let WALL_CANDIDATES = 8; // per node; walls further along their route rarely matter yet
-function candidateWalls(sim: QSim, placer: number, target: number): Wall[] {
-  if (sim.wallsLeft[placer] <= 0) return [];
-  const bs = blockedEdges(sim.walls);
-  const dist = distToGoal(bs, sim.goals[target]);
-  const slots = new Map<string, Wall>();
-  let [r, c] = sim.pawns[target];
-  if (!Number.isFinite(dist[r][c])) return [];
-  for (let step = 0; step < N * 2 && dist[r][c] > 0; step++) {
-    let nr = r;
-    let nc = c;
-    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const ar = r + dr;
-      const ac = c + dc;
-      if (!onBoard(ar, ac) || isEdgeBlocked(bs, r, c, ar, ac)) continue;
-      if (dist[ar][ac] === dist[r][c] - 1) { nr = ar; nc = ac; break; }
-    }
-    if (nr === r && nc === c) break;
-    const vertical = nr !== r; // a step between rows is cut by a HORIZONTAL wall
-    for (const off of [0, -1]) {
-      const wr = vertical ? Math.min(r, nr) : r + off;
-      const wc = vertical ? c + off : Math.min(c, nc);
-      if (wr < 0 || wc < 0 || wr >= N - 1 || wc >= N - 1) continue;
-      const o: Orient = vertical ? 'H' : 'V';
-      slots.set(`${wr},${wc},${o}`, { r: wr, c: wc, o });
-    }
-    r = nr;
-    c = nc;
-  }
-  // Insertion order is path order — the stops nearest their pawn come first, and those
-  // are the walls that bite soonest. Cap the list BEFORE the legality check, because
-  // `everyoneHasPath` is a BFS per player and it is the most expensive thing here.
-  const fake = { pawns: sim.pawns, goals: sim.goals, np: sim.np } as unknown as QState;
-  const out: Wall[] = [];
-  for (const w of slots.values()) {
-    if (out.length >= WALL_CANDIDATES) break;
-    if (!wallConflicts(sim.walls, w.r, w.c, w.o) && everyoneHasPath([...sim.walls, w], fake)) out.push(w);
-  }
-  return out;
-}
-
-/** A whole turn. In this rule set a turn is a step and, optionally, a wall on top of it —
- *  or a wall on its own. Searching single actions instead (as this bot used to) quietly
- *  models the opponent replying to your step before you have finished your own turn. */
-interface QTurn {
-  move?: Cell;
-  wall?: Wall;
-}
-
-function applyTurn(sim: QSim, pid: number, t: QTurn): QSim {
-  const next: QSim = { pawns: sim.pawns.map((p) => [...p] as Cell), walls: [...sim.walls], wallsLeft: [...sim.wallsLeft], goals: sim.goals, np: sim.np };
-  if (t.move) next.pawns[pid] = [...t.move] as Cell;
-  if (t.wall) {
-    next.walls.push(t.wall);
-    next.wallsLeft[pid] -= 1;
-  }
-  return next;
-}
-
-/** Turns worth searching, best-looking first — alpha-beta lives or dies on this ordering.
- *  Steps come first (sorted by the ground they gain), then walls paired with the single
- *  best step, then walls alone. Pairing every wall with every step would square the
- *  branching for almost no gain: the two choices barely interact within one turn. */
-function candidateTurns(sim: QSim, pid: number, foe: number): QTurn[] {
-  const bs = blockedEdges(sim.walls);
-  const dist = distToGoal(bs, sim.goals[pid]);
-  const moves = simMoves(sim, pid).sort((a, b) => dist[a[0]][a[1]] - dist[b[0]][b[1]]);
-  const walls = candidateWalls(sim, pid, foe); // already in "bites soonest" order
-  const out: QTurn[] = moves.map((move) => ({ move }));
-  if (moves.length) for (const wall of walls) out.push({ move: moves[0], wall });
-  for (const wall of walls) out.push({ wall });
-  return out;
-}
-
-// --- transposition table -----------------------------------------------------
-// Quoridor transposes heavily: the same position is reached by many orders of the same
-// walls, so without this the search re-solves identical boards over and over.
+// --- Zobrist keys --------------------------------------------------------------
+// Quoridor transposes heavily: the same walls arrive in many orders, so without a table
+// the search re-solves identical boards over and over.
 const ZOB_SEED = 0x9e3779b9;
 function zobRand(n: number): number[] {
   // A fixed, cheap PRNG — the table only has to be consistent within a process.
@@ -533,109 +392,584 @@ const ZOB_PAWN = zobRand(4 * N * N);
 const ZOB_LEFT = zobRand(4 * 32);
 const ZOB_SIDE = zobRand(4);
 const ZOB_GOAL = zobRand(4 * 4);
-const GOAL_INDEX: Record<Goal, number> = { top: 0, bottom: 1, left: 2, right: 3 };
 
-function hashOf(sim: QSim, toMove: number, me: number): number {
-  // Three things beyond the board itself have to be in this key, because the table now
-  // outlives a single decision:
-  //   • `me` — a stored value is scored from ONE player's side. Reusing player 0's number
-  //     for player 1 reads every evaluation with its sign flipped, which measurably lost
-  //     games before it was keyed in.
-  //   • the goals and the player count — the same pawns behind the same walls mean
-  //     something else entirely in a 4-player game, or with the goals dealt the other way.
-  let h = (ZOB_SIDE[toMove] ^ ZOB_SIDE[me] * 0x27d4eb2d ^ sim.np * 0x85ebca6b) >>> 0;
-  for (let pid = 0; pid < sim.np; pid++) h = (h ^ ZOB_GOAL[pid * 4 + GOAL_INDEX[sim.goals[pid]]]) >>> 0;
-  for (const w of sim.walls) h = (h ^ ZOB_WALL[(w.r * (N - 1) + w.c) * 2 + (w.o === 'H' ? 0 : 1)]) >>> 0;
-  for (let pid = 0; pid < sim.np; pid++) {
-    h = (h ^ ZOB_PAWN[pid * N * N + sim.pawns[pid][0] * N + sim.pawns[pid][1]]) >>> 0;
-    h = (h ^ ZOB_LEFT[pid * 32 + Math.min(31, sim.wallsLeft[pid])]) >>> 0;
+const CELLS = N * N;
+const SLOTS = (N - 1) * (N - 1);
+const NOMOVE = 255; // a turn that leaves the pawn where it is
+const NOWALL = 255; // a turn with no wall in it
+
+/** cell * 4 + direction → the neighbouring cell (-1 off the board), and the edge crossed. */
+const NB_CELL = new Int16Array(CELLS * 4).fill(-1);
+const NB_EDGE = new Int16Array(CELLS * 4).fill(-1);
+for (let r = 0; r < N; r++) {
+  for (let c = 0; c < N; c++) {
+    for (let d = 0; d < 4; d++) {
+      const nr = r + DIRS4[d][0];
+      const nc = c + DIRS4[d][1];
+      if (!onBoard(nr, nc)) continue;
+      NB_CELL[(r * N + c) * 4 + d] = nr * N + nc;
+      NB_EDGE[(r * N + c) * 4 + d] = edgeIndex(r, c, nr, nc);
+    }
   }
-  return h >>> 0;
 }
+const GOALS: Goal[] = ['top', 'bottom', 'right', 'left'];
+const GOAL_CELLS: number[][] = GOALS.map((g) => {
+  const out: number[] = [];
+  for (let cell = 0; cell < CELLS; cell++) if (isGoal(g, (cell / N) | 0, cell % N)) out.push(cell);
+  return out;
+});
+const IS_GOAL = new Uint8Array(4 * CELLS);
+GOAL_CELLS.forEach((cells, g) => cells.forEach((cell) => { IS_GOAL[g * CELLS + cell] = 1; }));
+
+// A wall is a number: slot * 2 + (0 horizontal | 1 vertical), slot = r * (N - 1) + c —
+// the same numbering as the Zobrist table below. These are the two edges each one blocks,
+// and, the other way round, the (up to) two walls that can block each edge.
+const WALL_E1 = new Int16Array(SLOTS * 2);
+const WALL_E2 = new Int16Array(SLOTS * 2);
+const EDGE_WALLS = new Int16Array(EDGE_COUNT * 2).fill(-1);
+for (let slot = 0; slot < SLOTS; slot++) {
+  const r = (slot / (N - 1)) | 0;
+  const c = slot % (N - 1);
+  const edges = [
+    [r * N + c, r * N + c + 1], // H
+    [V_EDGES + r * (N - 1) + c, V_EDGES + (r + 1) * (N - 1) + c], // V
+  ];
+  for (let o = 0; o < 2; o++) {
+    const w = slot * 2 + o;
+    [WALL_E1[w], WALL_E2[w]] = edges[o];
+    for (const e of edges[o]) EDGE_WALLS[e * 2 + (EDGE_WALLS[e * 2] < 0 ? 0 : 1)] = w;
+  }
+}
+const wallOf = (w: number): Wall => ({ r: ((w >> 1) / (N - 1)) | 0, c: (w >> 1) % (N - 1), o: w & 1 ? 'V' : 'H' });
+
+interface QBoard {
+  np: number;
+  pawn: Int16Array; // pid → cell
+  goal: Uint8Array; // pid → index into GOALS
+  left: Int8Array; // pid → walls in hand
+  blocked: Uint8Array; // edge → 1 when walled
+  slot: Uint8Array; // slot → 0 free, 1 horizontal, 2 vertical
+  hash: number; // Zobrist over pawns, walls and supplies; the side to move is added on lookup
+}
+
+function boardOf(s: { np: number; pawns: Cell[]; goals: Goal[]; wallsLeft: number[]; walls: Wall[] }): QBoard {
+  const b: QBoard = {
+    np: s.np,
+    pawn: Int16Array.from(s.pawns, ([r, c]) => r * N + c),
+    goal: Uint8Array.from(s.goals, (g) => GOALS.indexOf(g)),
+    left: Int8Array.from(s.wallsLeft),
+    blocked: blockedEdges(s.walls),
+    slot: new Uint8Array(SLOTS),
+    hash: 0,
+  };
+  for (const w of s.walls) b.slot[w.r * (N - 1) + w.c] = w.o === 'H' ? 1 : 2;
+  for (const w of s.walls) b.hash ^= ZOB_WALL[(w.r * (N - 1) + w.c) * 2 + (w.o === 'H' ? 0 : 1)];
+  for (let pid = 0; pid < b.np; pid++) {
+    b.hash ^= ZOB_PAWN[pid * CELLS + b.pawn[pid]] ^ ZOB_LEFT[pid * 32 + b.left[pid]] ^ ZOB_GOAL[pid * 4 + b.goal[pid]];
+  }
+  b.hash >>>= 0;
+  return b;
+}
+
+function occupied(b: QBoard, cell: number): boolean {
+  for (let pid = 0; pid < b.np; pid++) if (b.pawn[pid] === cell) return true;
+  return false;
+}
+/** Free of every wall it would overlap or cross. (Overlapping a wall in line means
+ *  sharing an edge with it, so the edge check is the overlap rule.) */
+const wallFits = (b: QBoard, w: number) => !b.slot[w >> 1] && !b.blocked[WALL_E1[w]] && !b.blocked[WALL_E2[w]];
+
+function putWall(b: QBoard, pid: number, w: number) {
+  b.slot[w >> 1] = (w & 1) + 1;
+  b.blocked[WALL_E1[w]] = 1;
+  b.blocked[WALL_E2[w]] = 1;
+  b.hash = (b.hash ^ ZOB_WALL[w] ^ ZOB_LEFT[pid * 32 + b.left[pid]] ^ ZOB_LEFT[pid * 32 + b.left[pid] - 1]) >>> 0;
+  b.left[pid] -= 1;
+}
+function takeWall(b: QBoard, pid: number, w: number) {
+  b.slot[w >> 1] = 0;
+  b.blocked[WALL_E1[w]] = 0;
+  b.blocked[WALL_E2[w]] = 0;
+  b.hash = (b.hash ^ ZOB_WALL[w] ^ ZOB_LEFT[pid * 32 + b.left[pid]] ^ ZOB_LEFT[pid * 32 + b.left[pid] + 1]) >>> 0;
+  b.left[pid] += 1;
+}
+function stepPawn(b: QBoard, pid: number, to: number) {
+  b.hash = (b.hash ^ ZOB_PAWN[pid * CELLS + b.pawn[pid]] ^ ZOB_PAWN[pid * CELLS + to]) >>> 0;
+  b.pawn[pid] = to;
+}
+
+/** Every cell's walk to goal `g`, pawns ignored; -1 where there is none. */
+function goalMap(b: QBoard, g: number, out: Int8Array, queue: Int16Array) {
+  out.fill(-1);
+  let tail = 0;
+  for (const cell of GOAL_CELLS[g]) {
+    out[cell] = 0;
+    queue[tail++] = cell;
+  }
+  for (let head = 0; head < tail; head++) {
+    const cell = queue[head];
+    const d = out[cell] + 1;
+    for (let k = cell * 4, end = k + 4; k < end; k++) {
+      const n = NB_CELL[k];
+      if (n < 0 || out[n] >= 0 || b.blocked[NB_EDGE[k]]) continue;
+      out[n] = d;
+      queue[tail++] = n;
+    }
+  }
+}
+
+/** One player's walk home, stopping the moment it is known; -1 if they are walled off. */
+function walk(b: QBoard, pid: number, seen: Int8Array, queue: Int16Array): number {
+  const start = b.pawn[pid];
+  const g = b.goal[pid] * CELLS;
+  if (IS_GOAL[g + start]) return 0;
+  seen.fill(-1);
+  seen[start] = 0;
+  let tail = 0;
+  queue[tail++] = start;
+  for (let head = 0; head < tail; head++) {
+    const cell = queue[head];
+    const d = seen[cell] + 1;
+    for (let k = cell * 4, end = k + 4; k < end; k++) {
+      const n = NB_CELL[k];
+      if (n < 0 || seen[n] >= 0 || b.blocked[NB_EDGE[k]]) continue;
+      if (IS_GOAL[g + n]) return d;
+      seen[n] = d;
+      queue[tail++] = n;
+    }
+  }
+  return -1;
+}
+
+/** Legal pawn steps, jumps included — the same rules as `legalMoves`. */
+function pawnSteps(b: QBoard, pid: number, out: Int16Array): number {
+  const from = b.pawn[pid];
+  let n = 0;
+  const push = (cell: number) => {
+    for (let i = 0; i < n; i++) if (out[i] === cell) return;
+    out[n++] = cell;
+  };
+  for (let d = 0; d < 4; d++) {
+    const k = from * 4 + d;
+    const next = NB_CELL[k];
+    if (next < 0 || b.blocked[NB_EDGE[k]]) continue;
+    if (!occupied(b, next)) {
+      push(next);
+      continue;
+    }
+    const k2 = next * 4 + d;
+    const beyond = NB_CELL[k2];
+    if (beyond >= 0 && !b.blocked[NB_EDGE[k2]] && !occupied(b, beyond)) {
+      push(beyond);
+      continue;
+    }
+    // Straight on is blocked: either side of the pawn being jumped. Directions come in
+    // pairs (up/down, right/left), so the perpendicular pair is the other one.
+    for (const side of d < 2 ? [2, 3] : [0, 1]) {
+      const k3 = next * 4 + side;
+      const diag = NB_CELL[k3];
+      if (diag >= 0 && !b.blocked[NB_EDGE[k3]] && !occupied(b, diag)) push(diag);
+    }
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
+
+/** How far ahead `me` is, counted in steps of the race — and crucially, WHO IS TO MOVE.
+ *
+ *  Once the walls are gone the game is a pure race, and its result is exact: each player
+ *  gets home on the turn their walk runs out, and turns go round in order. So the player
+ *  `k` seats after the one to move, `d` steps from home, arrives at time d·np + k; the
+ *  lowest time wins. The difference between our arrival and the first rival's, in rounds,
+ *  is the race. With two players that is the old "their walk minus ours, plus half a step
+ *  to whoever holds the move" exactly — the position suite pins it — and with three or
+ *  four it puts each rival's half-step in the right place, which the old two-player rule
+ *  applied to everyone at once did not.
+ *
+ *  TRIED AND REJECTED — a corridor term (see eval.test.ts): scoring how easily one wall
+ *  could cut a route worked on test positions and lost games, 37% at an equal node count. */
+function raceValue(b: QBoard, me: number, toMove: number, dist: Int16Array): number {
+  const np = b.np;
+  const mine = dist[me];
+  const myTime = mine * np + ((me - toMove + np) % np);
+  let first = Infinity;
+  let nearest = Infinity;
+  // Every rival's walls count against us, not just the best-stocked rival's. Counting only
+  // the most, a rival with fewer could spend walls on us for free — so the search expected
+  // to be walled the moment it pulled ahead, stepped back rather than lead, and three bots
+  // doing that at once never finished the game (92 of 400 four-player matches; 47 with
+  // this change). With two players the two readings are the same.
+  let rivalWalls = 0;
+  for (let pid = 0; pid < np; pid++) {
+    if (pid === me) continue;
+    first = Math.min(first, dist[pid] * np + ((pid - toMove + np) % np));
+    nearest = Math.min(nearest, dist[pid]);
+    rivalWalls += b.left[pid];
+  }
+  // A wall in hand is worth what it can still cost the other side, so each side's walls
+  // fade as the walk they would lengthen runs out: ours with the leading rival's, theirs
+  // with ours. The first version faded both with one shared factor — the shorter walk, and
+  // later the rival's — and that shared factor had a perverse edge: whenever the rivals
+  // held more walls between them, slowing the leader INCREASED what their walls read as
+  // worth, so walling a rival about to win scored as a loss. Separate fades fixed that at
+  // no cost in 2-player play (52%, 400 games).
+  const mineCount = Math.min(1, nearest / ROOM_STEPS);
+  const theirsCount = Math.min(1, mine / ROOM_STEPS);
+  return ((first - myTime) / np) * STEP + (b.left[me] * mineCount - rivalWalls * theirsCount) * WALL_WORTH;
+}
+
+/** The evaluation, on a real game state — exposed so the position suite can pin it down. */
+export function evaluatePosition(s: QState, me: number, toMove: number): number {
+  const b = boardOf(s);
+  const seen = new Int8Array(CELLS);
+  const queue = new Int16Array(CELLS);
+  const dist = Int16Array.from({ length: b.np }, (_, pid) => walk(b, pid, seen, queue));
+  if (dist[me] === 0) return WIN;
+  for (let pid = 0; pid < b.np; pid++) if (pid !== me && dist[pid] === 0) return -WIN;
+  return raceValue(b, me, toMove, dist);
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
 
 interface TTEntry {
   depth: number;
   value: number;
-  flag: 'exact' | 'lower' | 'upper';
+  flag: 0 | 1 | 2; // exact, lower bound, upper bound
+  best: number; // the turn that was best (or refuted), tried first next time
 }
 
-// Scoped to a single decision, deliberately. A process-wide table was tried and measured
-// no better, and it is not free: it couples every room on the server to one mutable cache
-// and every field that distinguishes two positions has to be in the key or the search
-// reads someone else's numbers. Not worth it for a wash.
+/** A search in progress: the board it plays on, what it may spend, and its scratch. */
+interface QEngine {
+  b: QBoard;
+  me: number;
+  budget: number;
+  nodes: number;
+  aborted: boolean;
+  wallCap: number;
+  tt: Map<number, TTEntry>;
+  ply: {
+    map: Int8Array; // the mover's walk from every cell
+    target: Int8Array; // the victim's walk from every cell, for choosing walls
+    dist: Int16Array; // every player's walk after each child turn
+    turns: Int32Array;
+    steps: Int16Array;
+  }[];
+  seen: Int8Array;
+  queue: Int16Array;
+  mark: Uint32Array; // wall → stamp, to list each candidate once
+  stamp: number;
+}
 
-/** Alpha-beta over whole turns, with the table above. The node budget keeps a deep search
- *  from stalling the server — every room shares one thread, so this must stay bounded.
- *  `ctl.aborted` records that the budget cut the search short: nothing computed after that
- *  point may be filed in the table, because it is a stand-pat guess wearing the depth it
- *  never actually searched. Storing those poisons every later search that reads them. */
-function search(sim: QSim, me: number, toMove: number, depth: number, alpha: number, beta: number, tt: Map<number, TTEntry>, ctl: { aborted: boolean; nodes: number; budget: number }): number {
-  // The budget is counted in NODES, not milliseconds. A wall-clock limit makes the bot
-  // play differently depending on what else the server is doing — strength that varies
-  // with load, and tests that pass alone and fail in a full run.
-  //
-  // Count LEAVES as well as interior nodes: a leaf still costs two path searches, and
-  // there are twenty of them per interior node, so counting only the interior ones left
-  // the budget measuring about 5% of the actual work.
-  //
-  // There is no wall-clock cap alongside it. The node count already bounds the work, and
-  // a clock on top only puts the load-dependence back — with both, the same position
-  // played out differently from one run to the next.
-  ctl.nodes += 1;
-  if (depth === 0) return evalSim(sim, me, toMove);
-  if (ctl.nodes > ctl.budget) {
-    ctl.aborted = true;
-    return evalSim(sim, me, toMove);
+const MAX_PLY = 40;
+const MAX_TURNS = 8 + 2 * 128;
+
+function engineFor(b: QBoard, me: number, plan: QPlan): QEngine {
+  return {
+    b, me, budget: plan.budget, nodes: 0, aborted: false, wallCap: plan.wallCap, tt: new Map(),
+    ply: Array.from({ length: MAX_PLY }, () => ({
+      map: new Int8Array(CELLS), target: new Int8Array(CELLS), dist: new Int16Array(b.np),
+      turns: new Int32Array(MAX_TURNS), steps: new Int16Array(8),
+    })),
+    seen: new Int8Array(CELLS), queue: new Int16Array(CELLS), mark: new Uint32Array(SLOTS * 2), stamp: 0,
+  };
+}
+
+/** Who a wall from `pid` is aimed at: whoever, apart from them, is nearest to winning.
+ *  That goes for the rivals as well as the bot. Assuming every rival walls the bot
+ *  whatever the board says is the textbook pessimism, and in a race it backfires: out in
+ *  front, the bot expects all three to turn on it, so it would rather not be in front.
+ *  Modelled as they actually play — on the leader — stalled matches fell again (47 → 34
+ *  of 400), and a player of the old bot's strength won less against three of it. */
+function victim(e: QEngine, pid: number, toMove: number, dist: Int16Array): number {
+  const np = e.b.np;
+  let who = -1;
+  let soonest = Infinity;
+  for (let q = 0; q < np; q++) {
+    if (q === pid) continue;
+    const t = dist[q] * np + ((q - toMove + np) % np);
+    if (t < soonest) {
+      soonest = t;
+      who = q;
+    }
   }
-  const key = hashOf(sim, toMove, me);
-  const hit = tt.get(key);
+  return who;
+}
+
+/** Walls worth trying against `target`: those across their shortest route, nearest their
+ *  pawn first — a wall anywhere else cannot lengthen their walk at all. */
+function candidateWallsFor(e: QEngine, target: number, map: Int8Array, out: Int32Array, n: number, move: number): number {
+  const b = e.b;
+  let cur = b.pawn[target];
+  if (map[cur] < 0) return n;
+  const stamp = ++e.stamp;
+  let found = 0;
+  while (map[cur] > 0 && found < e.wallCap) {
+    let next = -1;
+    let edge = -1;
+    for (let k = cur * 4, end = k + 4; k < end; k++) {
+      const c = NB_CELL[k];
+      if (c >= 0 && !b.blocked[NB_EDGE[k]] && map[c] === map[cur] - 1) {
+        next = c;
+        edge = NB_EDGE[k];
+        break;
+      }
+    }
+    if (next < 0) break;
+    for (let j = 0; j < 2 && found < e.wallCap; j++) {
+      const w = EDGE_WALLS[edge * 2 + j];
+      if (w < 0 || e.mark[w] === stamp || !wallFits(b, w)) continue;
+      e.mark[w] = stamp;
+      out[n++] = (move << 8) | w;
+      found++;
+    }
+    cur = next;
+  }
+  return n;
+}
+
+/** Every turn worth searching for `pid`, best-looking first — alpha-beta lives or dies on
+ *  this ordering. Steps come first (by the ground they gain), then walls played on top of
+ *  the best step. A wall on its own is only offered when no step makes ground: stepping
+ *  and then walling is otherwise the same wall with a free step thrown in. */
+function genTurns(e: QEngine, pid: number, toMove: number, ply: number, dist: Int16Array): number {
+  const b = e.b;
+  const P = e.ply[ply];
+  goalMap(b, b.goal[pid], P.map, e.queue);
+  const ns = pawnSteps(b, pid, P.steps);
+  const steps = P.steps;
+  for (let i = 1; i < ns; i++) {
+    const s = steps[i];
+    let j = i - 1;
+    while (j >= 0 && P.map[steps[j]] > P.map[s]) {
+      steps[j + 1] = steps[j];
+      j--;
+    }
+    steps[j + 1] = s;
+  }
+  let n = 0;
+  for (let i = 0; i < ns; i++) P.turns[n++] = (steps[i] << 8) | NOWALL;
+  if (b.left[pid] > 0) {
+    const target = victim(e, pid, toMove, dist);
+    goalMap(b, b.goal[target], P.target, e.queue);
+    if (ns) n = candidateWallsFor(e, target, P.target, P.turns, n, steps[0]);
+    if (!ns || P.map[steps[0]] >= P.map[b.pawn[pid]]) n = candidateWallsFor(e, target, P.target, P.turns, n, NOMOVE);
+  }
+  return n;
+}
+
+/** Play turn `t` for `pid` (whose pawn stands on `from`) and work out everyone's walk
+ *  afterwards into `after`. A wall that would leave anyone with no way home is illegal:
+ *  the turn is taken back and `false` returned. Checking here rather than when listing
+ *  walls costs nothing extra — these walks are needed for the evaluation anyway. */
+function playTurn(e: QEngine, pid: number, t: number, from: number, map: Int8Array, before: Int16Array, after: Int16Array): boolean {
+  const b = e.b;
+  const move = t >> 8;
+  const wall = t & 255;
+  if (move !== NOMOVE) stepPawn(b, pid, move);
+  if (wall === NOWALL) {
+    after.set(before);
+    // Walls are unchanged, so the mover's new walk is read straight off their map.
+    if (move !== NOMOVE) after[pid] = map[move];
+    return true;
+  }
+  putWall(b, pid, wall);
+  for (let q = 0; q < b.np; q++) {
+    after[q] = walk(b, q, e.seen, e.queue);
+    if (after[q] < 0) {
+      undoTurn(e, pid, t, from);
+      return false;
+    }
+  }
+  return true;
+}
+
+function undoTurn(e: QEngine, pid: number, t: number, from: number) {
+  if ((t & 255) !== NOWALL) takeWall(e.b, pid, t & 255);
+  if (t >> 8 !== NOMOVE) stepPawn(e.b, pid, from);
+}
+
+/** Alpha-beta over whole turns, in turn order, everyone else playing against the bot. The
+ *  budget is counted in positions, never milliseconds, so play cannot depend on load.
+ *  Anything computed after the budget runs out is thrown away rather than filed in the
+ *  table: it is a guess wearing a depth it never searched. */
+function search(e: QEngine, depth: number, alpha: number, beta: number, toMove: number, ply: number, dist: Int16Array): number {
+  if (++e.nodes > e.budget) {
+    e.aborted = true;
+    return 0;
+  }
+  const b = e.b;
+  if (depth === 0 || ply >= MAX_PLY - 1) return raceValue(b, e.me, toMove, dist);
+  const key = (b.hash ^ ZOB_SIDE[toMove]) >>> 0;
+  const hit = e.tt.get(key);
+  const alpha0 = alpha;
+  const beta0 = beta;
   if (hit && hit.depth >= depth) {
-    if (hit.flag === 'exact') return hit.value;
-    if (hit.flag === 'lower' && hit.value > alpha) alpha = hit.value;
-    else if (hit.flag === 'upper' && hit.value < beta) beta = hit.value;
+    if (hit.flag === 0) return hit.value;
+    if (hit.flag === 1 && hit.value > alpha) alpha = hit.value;
+    else if (hit.flag === 2 && hit.value < beta) beta = hit.value;
     if (alpha >= beta) return hit.value;
   }
 
-  const foe = toMove === me ? (me + 1) % sim.np : me;
-  const turns = candidateTurns(sim, toMove, foe);
-  if (!turns.length) return evalSim(sim, me, toMove);
-
-  const maximising = toMove === me;
-  const alpha0 = alpha;
-  const beta0 = beta;
-  let best = maximising ? -Infinity : Infinity;
-  for (const t of turns) {
-    let v: number;
-    if (t.move && isGoal(sim.goals[toMove], t.move[0], t.move[1])) v = maximising ? WIN : -WIN;
-    else v = search(applyTurn(sim, toMove, t), me, (toMove + 1) % sim.np, depth - 1, alpha, beta, tt, ctl);
-    if (maximising) {
-      if (v > best) best = v;
-      if (best > alpha) alpha = best;
-    } else {
-      if (v < best) best = v;
-      if (best < beta) beta = best;
+  const P = e.ply[ply];
+  const n = genTurns(e, toMove, toMove, ply, dist);
+  if (hit) {
+    // The table's best turn from last time goes first; most of the time it still is.
+    for (let i = 1; i < n; i++) {
+      if (P.turns[i] === hit.best) {
+        P.turns[i] = P.turns[0];
+        P.turns[0] = hit.best;
+        break;
+      }
     }
-    if (alpha >= beta) break; // this line is already refuted
   }
-
-  if (!ctl.aborted) {
-    const flag: TTEntry['flag'] = best <= alpha0 ? 'upper' : best >= beta0 ? 'lower' : 'exact';
-    tt.set(key, { depth, value: best, flag });
+  const maximising = toMove === e.me;
+  const next = (toMove + 1) % b.np;
+  const from = b.pawn[toMove];
+  const home = b.goal[toMove] * CELLS;
+  let best = maximising ? -Infinity : Infinity;
+  let bestTurn = -1;
+  for (let i = 0; i < n; i++) {
+    const t = P.turns[i];
+    if (!playTurn(e, toMove, t, from, P.map, dist, P.dist)) continue;
+    const move = t >> 8;
+    const v = move !== NOMOVE && IS_GOAL[home + move]
+      ? (maximising ? WIN - ply : ply - WIN) // a win sooner beats a win later
+      : search(e, depth - 1, alpha, beta, next, ply + 1, P.dist);
+    undoTurn(e, toMove, t, from);
+    if (e.aborted) return 0;
+    if (maximising ? v > best : v < best) {
+      best = v;
+      bestTurn = t;
+    }
+    if (maximising) {
+      if (best > alpha) alpha = best;
+    } else if (best < beta) beta = best;
+    if (alpha >= beta) break; // already refuted
   }
+  if (bestTurn < 0) return raceValue(b, e.me, toMove, dist); // boxed in with no wall to play
+  e.tt.set(key, { depth, value: best, flag: best <= alpha0 ? 2 : best >= beta0 ? 1 : 0, best: bestTurn });
   return best;
 }
 
-const NODE_BUDGET = 5000; // per decision — deterministic, so play never depends on load
-const OPENING_TURNS = 6; // three turns each, while a lost tempo is still recoverable
-// (5000 rather than the old 800: numbering the edges made a node roughly nine times
-// cheaper, and the budget was raised to spend that back on the search.)
+/** How a skill level thinks. */
+export interface QPlan {
+  budget: number; // positions per decision — a count, never a clock
+  maxDepth: number; // whole turns of lookahead at most, counting its own
+  wallCap: number; // walls tried per turn, nearest the victim's pawn first
+}
 
-function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | null {
+/** The turn `pid` should play, by iterative deepening: one whole turn deeper at a time,
+ *  keeping the last depth that finished — or the part of an unfinished one that began
+ *  with the previous best, which is the one comparison that is still fair. Any turn
+ *  within `spread` of the best is taken at random among them. */
+function chooseTurn(s: QState, pid: number, rng: Rng, plan: QPlan, spread: number, hurry = false): number | null {
+  const b = boardOf(s);
+  const e = engineFor(b, pid, plan);
+  const dist = Int16Array.from({ length: b.np }, (_, q) => walk(b, q, e.seen, e.queue));
+  const P = e.ply[0];
+  let n: number;
+  if (s.turnStage === 'moved') {
+    // The step is taken; what is left is whether a wall is worth one of ours.
+    goalMap(b, b.goal[pid], P.map, e.queue);
+    P.turns[0] = (NOMOVE << 8) | NOWALL;
+    const target = victim(e, pid, pid, dist);
+    goalMap(b, b.goal[target], P.target, e.queue);
+    n = candidateWallsFor(e, target, P.target, P.turns, 1, NOMOVE);
+  } else n = genTurns(e, pid, pid, 0, dist);
+
+  const from = b.pawn[pid];
+  const home = b.goal[pid] * CELLS;
+  const next = (pid + 1) % b.np;
+  // Ground made breaks exact ties: there is no repetition rule in this game, and a bot
+  // with nothing to separate two squares would otherwise step between them forever.
+  const progress = (t: number) => -P.map[t >> 8 === NOMOVE ? from : t >> 8] * 0.001;
+  // Only legal turns go forward: a wall may never leave anyone without a way home.
+  const legal = (turns: Int32Array) => {
+    const out: { t: number; v: number }[] = [];
+    for (const t of turns) {
+      if (!playTurn(e, pid, t, from, P.map, dist, P.dist)) continue;
+      undoTurn(e, pid, t, from);
+      out.push({ t, v: 0 });
+    }
+    return out;
+  };
+  let ranked = legal(P.turns.subarray(0, n));
+  if (!ranked.length && s.turnStage === 'start' && b.left[pid] > 0) {
+    // Boxed in by other pawns, and no wall across a rival's route will fit. The rules
+    // still allow any legal wall, and something has to be played — so consider them all.
+    let m = 0;
+    for (let w = 0; w < SLOTS * 2; w++) if (wallFits(b, w)) P.turns[m++] = (NOMOVE << 8) | w;
+    ranked = legal(P.turns.subarray(0, m));
+  }
+  if (!ranked.length) return null;
+  if (hurry) {
+    // Far past any normal match: only steps that shorten our walk (with or without a
+    // wall on top), unless there are none. See LONG_MATCH.
+    const onward = ranked.filter((r) => r.t >> 8 !== NOMOVE && P.map[r.t >> 8] < P.map[from]);
+    if (onward.length) ranked = onward;
+  }
+  let settled: { t: number; v: number }[] | null = null;
+  for (let depth = 1; depth <= Math.min(plan.maxDepth, MAX_PLY - 2); depth++) {
+    const done: { t: number; v: number }[] = [];
+    let best = -Infinity;
+    for (const r of ranked) {
+      playTurn(e, pid, r.t, from, P.map, dist, P.dist);
+      const move = r.t >> 8;
+      const v = move !== NOMOVE && IS_GOAL[home + move] ? WIN : search(e, depth - 1, best - spread, Infinity, next, 1, P.dist);
+      undoTurn(e, pid, r.t, from);
+      if (e.aborted) break;
+      done.push({ t: r.t, v: v + progress(r.t) });
+      if (v > best) best = v;
+    }
+    if (done.length) {
+      // An unfinished depth still settles every turn it reached, and it reached the old
+      // favourite first; the ones it never got to were already behind.
+      const rest = ranked.filter((r) => !done.some((d) => d.t === r.t)).map((r) => ({ t: r.t, v: -Infinity }));
+      ranked = [...done.sort((x, y) => y.v - x.v), ...rest];
+    }
+    if (!e.aborted && depth % b.np === 0) settled = ranked; // a complete round
+    if (e.aborted || ranked[0].v >= WIN - MAX_PLY) break; // out of budget, or a forced win found
+  }
+  // Improvising (the opening, or a lower level) means choosing among near-equals, and that
+  // is only fair among turns compared at one depth — the deepest COMPLETE ROUND finished,
+  // where everyone has answered. An unfinished depth that only reached the favourite would
+  // quietly narrow the choice to it; a depth that ends on the bot's own move hands it a
+  // turn nobody answers, which made the step forward look two and a half steps better than
+  // a sidestep instead of one. Playing it straight, the unfinished depth is the better
+  // guide: it is what catches a favourite that has just been refuted.
+  const pool = spread > STEP / 2 && settled ? settled : ranked;
+  const top = pool[0].v;
+  const band = pool.filter((r) => r === pool[0] || r.v > top - spread);
+  return band[Math.floor(rng() * band.length)].t;
+}
+
+const OPENING_TURNS = 6; // three turns each, while a lost tempo is still recoverable
+// There is no repetition rule in Quoridor, and bots that each prefer to let someone else
+// lead can wait on one another indefinitely — 34 of 400 four-player matches did, even
+// after the fixes above. A match this long (a normal one is 15–30 turns each) is stuck,
+// so from here a bot's pawn only moves forward. Walls are finite, so every walk then
+// runs out and the match ends.
+const LONG_MATCH = 40; // turns each
+// Steady judges the turn it is about to play and nothing past it — one move of thought.
+// That is still enough to beat the old Sharp bot 74% of the time, because it values walls
+// properly; Sharp beats it 89% of the time in 2-player games.
+export const STEADY_PLAN: QPlan = { budget: 400, maxDepth: 1, wallCap: 3 };
+// Sharp searches as deep as 20,000 positions allow: about 13ms a decision with two players
+// and 18ms with four on a laptop, and its slowest are quicker than the old bot's were.
+// With four players, capping it at one round played level against copies of itself but
+// beat three old bots less often (85% against 91%) — the extra depth is what punishes
+// weaker play, and weaker play is what it will meet.
+export const SHARP_PLAN: QPlan = { budget: 20000, maxDepth: 20, wallCap: 18 };
+
+function botMove(s: QState, seat: number, rng: Rng, plan?: QPlan): Record<string, unknown> | null {
   if (s.over) return null;
   const pid = s.order.indexOf(seat);
   if (pid !== s.turn) return null;
-  const sim = simOf(s);
-  const foe = (pid + 1) % s.np;
   // How near to the best a move has to be before this bot will consider it just as good,
   // and pick between them at random. The search is deterministic, so without something
   // here every match is the identical game and a human who beat it once could replay the
@@ -655,103 +989,49 @@ function botMove(s: QState, seat: number, rng: Rng): Record<string, unknown> | n
     : s.skill <= STEADY
       ? STEP * 0.55
       : opening ? STEP * 1.05 : STEP * 0.06;
-  /** Everything within `spread` of the best, one of them at random. */
-  const pickNear = <T,>(scored: { item: T; value: number }[]): T => {
-    const best = Math.max(...scored.map((x) => x.value));
-    const band = scored.filter((x) => x.value >= best - spread);
-    return band[Math.floor(rng() * band.length)].item;
-  };
 
-  // Casual never walls at all — it just races, which is exactly the beginner's mistake
-  // and exactly what this bot used to do at every level.
-  if (s.skill <= CASUAL) {
+  // Casual never walls at all — it just races, which is exactly the beginner's mistake.
+  // Walking the shortest path is a UNIQUE move most of the time, so judging steps on the
+  // same scale as everything else lets the wide Casual band take a sidestep now and then:
+  // varied, a little careless, and about right for the level.
+  if (s.skill <= CASUAL && !plan) {
     if (s.turnStage === 'moved') return { type: 'endTurn' };
-    const dist = distToGoal(blockedEdges(s.walls), s.goals[pid]);
-    const moves = simMoves(sim, pid);
-    if (!moves.length) return null;
-    // Walking the shortest path is a UNIQUE move most of the time, so a beginner bot doing
-    // exactly that plays the identical game every time — which it did. Judging steps on the
-    // same scale as everything else lets the wide Casual band take a sidestep now and then:
-    // varied, a little careless, and about right for the level.
-    return { type: 'movePawn', toCell: pickNear(moves.map((m) => ({ item: m, value: -dist[m[0]][m[1]] * STEP }))) };
-  }
-
-  // Search COMPLETE ROUNDS only. A depth here is one player's whole turn, so stopping on
-  // an odd one hands the bot a turn the opponent never gets to answer — it then rates the
-  // position as if it moved twice in a row.
-  //
-  // ONE round, for both levels. Depth has been measured four separate ways here and it
-  // simply is not the lever: it lost outright while the evaluation was turn-blind (38%),
-  // and once that was fixed and the edge lookups made ~9x cheaper — so a second round
-  // became genuinely affordable — it settled at neutral (51% at matched time, 90 games).
-  // Compute is far better spent on BREADTH, which measured 62% for the same clock.
-  //
-  // The position suite in eval.test.ts exists to make the next attempt here measurable
-  // rather than hopeful, whichever direction it goes in.
-  const maxDepth = 2;
-  // Weighing more walls per turn is what the speed-up bought: 18 beats 8 by 62% for the
-  // same time. Not unbounded, though — taking every wall along their route instead was no
-  // better (48%), because the far ones cannot bite yet and only dilute the search.
-  WALL_CANDIDATES = s.skill <= STEADY ? 3 : 18;
-  const budget = s.skill <= STEADY ? 150 : NODE_BUDGET;
-  const tt = new Map<number, TTEntry>();
-  const ctl = { aborted: false, nodes: 0, budget };
-  if (s.turnStage === 'moved') {
-    // The step is taken; all that is left is whether a wall is worth one of ours.
-    const walls = candidateWalls(sim, pid, foe);
-    if (!walls.length) return { type: 'endTurn' };
-    let best: Wall | null = null;
-    for (let depth = 2; depth <= maxDepth; depth += 2) {
-      if (ctl.aborted) break;
-      // Holding on to the wall is one of the options, not a separate question.
-      const scored: { item: Wall | null; value: number }[] = [
-        { item: null, value: search(sim, pid, foe, depth, -Infinity, Infinity, tt, ctl) },
-      ];
-      for (const wall of walls) {
-        scored.push({ item: wall, value: search(applyTurn(sim, pid, { wall }), pid, foe, depth, -Infinity, Infinity, tt, ctl) });
-      }
-      best = pickNear(scored);
+    const b = boardOf(s);
+    const map = new Int8Array(CELLS);
+    goalMap(b, b.goal[pid], map, new Int16Array(CELLS));
+    const steps = new Int16Array(8);
+    const n = pawnSteps(b, pid, steps);
+    if (!n) {
+      // Boxed in by other pawns: even a beginner has to play a wall rather than stall.
+      const walls = legalWalls(s);
+      if (!walls.length) return null;
+      const w = walls[Math.floor(rng() * walls.length)];
+      return { type: 'placeWall', slot: [w.r, w.c], orientation: w.o };
     }
-    return best ? { type: 'placeWall', slot: [best.r, best.c], orientation: best.o } : { type: 'endTurn' };
+    const scored = Array.from(steps.subarray(0, n), (cell) => ({ cell, value: -map[cell] * STEP }));
+    const top = Math.max(...scored.map((x) => x.value));
+    const band = scored.filter((x) => x.value >= top - spread);
+    const cell = band[Math.floor(rng() * band.length)].cell;
+    return { type: 'movePawn', toCell: [(cell / N) | 0, cell % N] };
   }
 
-  let moves = simMoves(sim, pid);
-  if (!moves.length) return null; // no-trap guarantees this won't happen
-  for (const m of moves) if (isGoal(s.goals[pid], m[0], m[1])) return { type: 'movePawn', toCell: m }; // take the win
-
-  // Iterative deepening: each pass reuses the table the last one filled, so the deeper
-  // search is far cheaper than it looks, and we always have a finished answer in hand.
-  //
-  // Ties are broken toward the square nearer our own goal, and that is not cosmetic:
-  // there is no repetition rule in this game, and two squares an equal walk from the goal
-  // evaluate identically, so a bot with nothing else to separate them will step between
-  // the pair forever. Preferring progress guarantees it always has a reason to move on.
-  const myDist = distToGoal(blockedEdges(sim.walls), sim.goals[pid]);
-  const closeness = (m: Cell) => -myDist[m[0]][m[1]];
-  // There was a rule here restricting the pawn to forward steps. It existed because two
-  // bots could otherwise shuffle between the same squares forever — this game has no
-  // repetition rule — and it worked, at the cost of the opening: only one move reduces the
-  // distance from the starting square, so the bot played the identical first move in every
-  // game it ever played, and could never sidestep.
-  //
-  // The shuffling was the turn-blind evaluation, not the missing rule. With the tempo term
-  // in `evalSim` it does not happen: 25 bot matches finish, including with a constant rng,
-  // where tie-break jitter cannot rescue a standoff. So the restriction is gone, the
-  // opening varies again, and the full-match test guards the behaviour it was protecting.
-  let best = moves[0];
-  for (let depth = 2; depth <= maxDepth; depth += 2) {
-    if (ctl.aborted) break;
-    const scored = moves.map((move) => ({
-      item: move,
-      // Ground made toward the goal breaks exact ties, so a bot with nothing to choose
-      // between two squares still gets on with the race rather than drifting sideways.
-      value: search(applyTurn(sim, pid, { move }), pid, foe, depth, -Infinity, Infinity, tt, ctl) + closeness(move) * 0.001,
-    }));
-    best = pickNear(scored);
+  const hurry = s.turnsPlayed >= LONG_MATCH * s.np;
+  const t = chooseTurn(s, pid, rng, plan ?? (s.skill <= STEADY ? STEADY_PLAN : SHARP_PLAN), spread, hurry);
+  if (t === null) return s.turnStage === 'moved' ? { type: 'endTurn' } : null;
+  const move = t >> 8;
+  const wall = t & 255;
+  if (move !== NOMOVE) return { type: 'movePawn', toCell: [(move / N) | 0, move % N] };
+  if (wall !== NOWALL) {
+    const w = wallOf(wall);
+    return { type: 'placeWall', slot: [w.r, w.c], orientation: w.o };
   }
-  return { type: 'movePawn', toCell: best };
+  return { type: 'endTurn' };
 }
 
+/** The bot at a chosen plan, for measuring one against another. */
+export function botWith(s: QState, seat: number, rng: Rng, plan: QPlan): Record<string, unknown> | null {
+  return botMove(s, seat, rng, plan);
+}
 
 // ---------------------------------------------------------------------------
 // GameDef plugin

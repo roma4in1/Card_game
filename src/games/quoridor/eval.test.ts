@@ -89,17 +89,25 @@ test('being on the move never hurts, and the two players see the same race', () 
 // What a wall is worth
 // ---------------------------------------------------------------------------
 
-test('a wall that lengthens their route is worth about the steps it costs them', () => {
-  // A runs up column 0; B runs down from (5,4). The wall lies under B and nowhere near A,
-  // so it costs B ground and costs A nothing. (Putting it between two adjacent pawns —
-  // the obvious-looking test — blocks BOTH routes and proves nothing.)
+test('a wall is worth spending only on a detour longer than it is worth keeping', () => {
+  // This used to say the opposite — that any wall costing them a step reads as progress —
+  // and a bot built on it spent its walls in the opening, a step at a time. Measured in
+  // play, a wall in hand is worth about two and a half steps (see WALL_WORTH), so the one-
+  // step detour is a waste and the one that sends them the long way round is the point.
+  //
+  // A runs up column 0, well out of the way. The wall lies across B's route only.
+  const short = { pawns: [[0, 0], [7, 4]] as [Cell, Cell], wall: { r: 6, c: 4, o: 'H' } as Wall };
+  const holdShort = evaluatePosition(position({ pawns: short.pawns, wallsLeft: [1, 0] }), 0, 0);
+  const spendShort = evaluatePosition(position({ pawns: short.pawns, walls: [short.wall], wallsLeft: [0, 0] }), 0, 0);
+  assert.ok(spendShort < holdShort, `a one-step detour is not worth a wall (${holdShort.toFixed(0)} → ${spendShort.toFixed(0)})`);
+
+  // B inside a channel: walls either side of column 4. Capping it sends B back out and
+  // round, five steps or so — worth the wall and then some.
+  const channel: Wall[] = [{ r: 3, c: 3, o: 'V' }, { r: 3, c: 4, o: 'V' }, { r: 5, c: 3, o: 'V' }, { r: 5, c: 4, o: 'V' }];
   const pawns: [Cell, Cell] = [[0, 0], [5, 4]];
-  const wall: Wall = { r: 4, c: 4, o: 'H' };
-  const before = evaluatePosition(position({ pawns, wallsLeft: [1, 0] }), 0, 0);
-  const after = evaluatePosition(position({ pawns, walls: [wall], wallsLeft: [0, 0] }), 0, 0);
-  assert.ok(after > before, `a wall in their way should read as progress (${before.toFixed(0)} → ${after.toFixed(0)})`);
-  // And the gain should be of the order of the detour it forces, not wildly beyond it.
-  assert.ok(after - before < 3 * STEP_TOLERANCE * 5, 'but not read as a rout');
+  const hold = evaluatePosition(position({ pawns, walls: channel, wallsLeft: [1, 0] }), 0, 0);
+  const spend = evaluatePosition(position({ pawns, walls: [...channel, { r: 4, c: 4, o: 'H' }], wallsLeft: [0, 0] }), 0, 0);
+  assert.ok(spend > hold, `a long detour is worth the wall (${hold.toFixed(0)} → ${spend.toFixed(0)})`);
 });
 
 test('a wall that costs us more than them is never an improvement', () => {
@@ -109,18 +117,21 @@ test('a wall that costs us more than them is never an improvement', () => {
   assert.ok(evaluatePosition(selfHarm, 0, 0) < evaluatePosition(open, 0, 0), 'walling your own path must score worse');
 });
 
-test('walls in hand are worth something early and nothing at the death', () => {
-  // Same one-wall advantage, but in the second position the race is already over next move.
+test('walls in hand are worth most while the rival has far to go', () => {
+  // Same three-wall advantage twice: once with B seven steps from home, once with B one
+  // step away. A wall's worth is what it can still cost them, and a rival about to arrive
+  // has little left to lose — so the advantage must fade, though not to nothing: one step
+  // out is exactly when a wall across the last step decides the game.
   const early = position({ pawns: [[1, 4], [7, 4]], wallsLeft: [3, 0] });
   const earlyNone = position({ pawns: [[1, 4], [7, 4]], wallsLeft: [0, 0] });
-  assert.ok(evaluatePosition(early, 0, 0) > evaluatePosition(earlyNone, 0, 0), 'held walls count while there is a race to shape');
+  const earlyGap = evaluatePosition(early, 0, 0) - evaluatePosition(earlyNone, 0, 0);
+  assert.ok(earlyGap > 0, 'held walls count while there is a race to shape');
 
   const late = position({ pawns: [[7, 4], [1, 4]], wallsLeft: [3, 0] });
   const lateNone = position({ pawns: [[7, 4], [1, 4]], wallsLeft: [0, 0] });
-  const gap = evaluatePosition(late, 0, 0) - evaluatePosition(lateNone, 0, 0);
-  assert.ok(gap < STEP_TOLERANCE, `with both pawns one step from home a spare wall is worth almost nothing, got ${gap.toFixed(1)}`);
+  const lateGap = evaluatePosition(late, 0, 0) - evaluatePosition(lateNone, 0, 0);
+  assert.ok(lateGap > 0 && lateGap < earlyGap / 4, `and fade as the rival nears home (${earlyGap.toFixed(0)} → ${lateGap.toFixed(0)})`);
 });
-const STEP_TOLERANCE = 20; // well under one step, which is worth 100
 
 // ---------------------------------------------------------------------------
 // The opening

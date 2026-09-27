@@ -2,7 +2,7 @@
 // deterministic. The weight is on movement + jump rules and the no-trap wall check.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { quoridor, type QState } from './game.ts';
+import { quoridor, botWith, SHARP_PLAN, type QState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const seeded = (n: number) => { let a = n; return () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648); };
@@ -314,4 +314,78 @@ test('the bot answers a wall rather than replaying the same game every time', ()
     return JSON.stringify({ walls: s.walls, pawns: s.pawns, winner: s.winner });
   };
   assert.notEqual(play(11), play(77), 'two matches should not be move-for-move identical');
+});
+
+/** A player's walk home on the real board, by plain BFS — independent of the bot's engine. */
+function walkHome(s: QState, pid: number): number {
+  const cut = new Set<string>();
+  const edge = (a: number, b: number, c: number, d: number) => (a * 9 + b < c * 9 + d ? `${a},${b}|${c},${d}` : `${c},${d}|${a},${b}`);
+  for (const w of s.walls) {
+    if (w.o === 'H') cut.add(edge(w.r, w.c, w.r + 1, w.c)).add(edge(w.r, w.c + 1, w.r + 1, w.c + 1));
+    else cut.add(edge(w.r, w.c, w.r, w.c + 1)).add(edge(w.r + 1, w.c, w.r + 1, w.c + 1));
+  }
+  const home = (r: number, c: number) => ({ top: r === 8, bottom: r === 0, right: c === 8, left: c === 0 })[s.goals[pid]];
+  const seen = new Map([[s.pawns[pid].join(), 0]]);
+  const queue = [s.pawns[pid]];
+  while (queue.length) {
+    const [r, c] = queue.shift()!;
+    const d = seen.get(`${r},${c}`)!;
+    if (home(r, c)) return d;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nr = r + dr;
+      const nc = c + dc;
+      if (nr < 0 || nc < 0 || nr > 8 || nc > 8 || cut.has(edge(r, c, nr, nc)) || seen.has(`${nr},${nc}`)) continue;
+      seen.set(`${nr},${nc}`, d + 1);
+      queue.push([nr, nc]);
+    }
+  }
+  return -1;
+}
+
+test('with three or four players, the wall goes on whoever is about to win', () => {
+  // The old bot only ever walled the NEXT player in turn order. Here the next player (P1)
+  // is eight steps from home, and the one after (P2) is two: walling P1 hands P2 the game.
+  const s = newQ(4);
+  s.pawns = [[0, 4], [8, 4], [4, 6], [2, 8]]; // P2 heads right
+  s.skill = 3;
+  const before = [0, 1, 2, 3].map((pid) => walkHome(s, pid));
+  while (s.turn === 0) act(s, 0, quoridor.bot!(s, 0, ctx)!);
+  const after = [0, 1, 2, 3].map((pid) => walkHome(s, pid));
+  assert.ok(after[2] > before[2], `P2 should have been slowed: ${before} → ${after}`);
+  assert.equal(after[1], before[1], 'and the harmless next player left alone');
+});
+
+test('every level plays only legal turns, with two, three or four players', () => {
+  // The bot thinks on its own flat copy of the board, with its own move and wall rules.
+  // Any drift from the real rules shows up here as a rejected action.
+  for (const np of [2, 3, 4]) {
+    for (const skill of [1, 2, 3]) {
+      const ctx: GameContext = { rng: seeded(np * 31 + skill), now: 0 };
+      const s = newQ(np);
+      s.skill = skill;
+      for (let n = 0; n < 160 && !s.over; n++) {
+        const seat = s.order[s.turn];
+        const mv = skill === 3 ? botWith(s, seat, ctx.rng, { ...SHARP_PLAN, budget: 1500 }) : quoridor.bot!(s, seat, ctx);
+        assert.ok(mv, `${np}p skill ${skill}: the bot on turn had nothing to do`);
+        assert.equal((quoridor.act(s, seat, mv!, ctx) ?? {}).error, undefined, `${np}p skill ${skill}: ${JSON.stringify(mv)}`);
+      }
+    }
+  }
+});
+
+test('a pawn boxed in by other pawns still plays its turn, as a wall', () => {
+  // P3 sits in the corner: the square below is walled off, and the pawn beside it cannot
+  // be jumped (another pawn stands behind it, and the diagonal is walled). No step is
+  // legal, but a wall is. The old bot returned nothing here and the match stalled.
+  for (const skill of [1, 2, 3]) {
+    const s = newQ(4);
+    s.pawns = [[1, 5], [8, 6], [8, 7], [8, 8]];
+    s.walls = [{ r: 7, c: 7, o: 'H' }];
+    s.turn = 3;
+    s.skill = skill;
+    assert.equal(quoridor.view(s, 3).legal.moves.length, 0, 'the position really is boxed in');
+    const mv = quoridor.bot!(s, 3, ctx);
+    assert.equal(mv?.type, 'placeWall', `skill ${skill} should wall, got ${JSON.stringify(mv)}`);
+    assert.equal(act(s, 3, mv!).error, undefined);
+  }
 });
