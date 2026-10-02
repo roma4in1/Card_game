@@ -85,10 +85,13 @@ async function main() {
   if (!mixed.length) console.log('  nothing yet — needs matches with both a person and a bot in them');
   else {
     console.log('  ' + pad('skill', 10) + num('matches', 9) + num('human wins', 13));
-    for (const skill of [1, 2, 3]) {
-      const at = mixed.filter((m) => (m.options.skill ?? 3) === skill);
+    // A room always records the skill for a game that has the setting, so a record without
+    // one is a game whose bots have no levels at all — not a Sharp match, and not counted as one.
+    for (const skill of [1, 2, 3, null]) {
+      const at = mixed.filter((m) => (m.options.skill ?? null) === skill);
+      if (skill === null && !at.length) continue;
       const humanWon = at.filter((m) => m.seats.some((s) => !s.bot && s.won)).length;
-      console.log('  ' + pad(SKILL_NAME[skill], 10) + num(String(at.length), 9) + num(withCount(humanWon, at.length), 13));
+      console.log('  ' + pad(skill ? SKILL_NAME[skill] : 'no levels', 10) + num(String(at.length), 9) + num(withCount(humanWon, at.length), 13));
     }
   }
 

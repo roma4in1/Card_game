@@ -145,7 +145,9 @@ async function smokeIceGames(browser, errors) {
 (async () => {
   const server = spawn('node', ['src/server.ts'], {
     cwd: `${__dirname}/..`,
-    env: { ...process.env, PORT: String(PORT) },
+    // Telemetry off: a smoke run's bot-filled, unplayed matches are not play data, and with
+    // a DATABASE_URL in .env they would otherwise land in the production records.
+    env: { ...process.env, PORT: String(PORT), TELEMETRY: 'off' },
     stdio: 'ignore',
   });
   try {
