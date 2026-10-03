@@ -2,7 +2,7 @@
 // hand-built minimal boards; the default board's value map + central hole are checked too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTectonic, decideWinners, recomputeAlive, chooseSlide, SHARP_PLAN, DIRS, type TState } from './game.ts';
+import { createTectonic, decideWinners, recomputeAlive, chooseSlide, SHARP_PLAN, GRANDMASTER_PLAN, DIRS, type TState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const ctx: GameContext = { rng: () => 0.5, now: 0 };
@@ -337,18 +337,21 @@ test('a threat from any rival counts, not only from the next player to move', ()
   steady.skill = 2;
   assert.equal((def.bot!(steady, 0, ctx) as any).direction, east, 'on the board alone, the 5 is the best landing');
 
-  const sharp = board();
-  sharp.skill = 3;
-  assert.notEqual((def.bot!(sharp, 0, ctx) as any).direction, east, 'Sharp sees P3 waiting and stays out');
+  // Sharp, and the levels above it — Grandmaster's remembered positions included.
+  for (const skill of [3, 4, 5]) {
+    const sharp = board();
+    sharp.skill = skill;
+    assert.notEqual((def.bot!(sharp, 0, ctx) as any).direction, east, `skill ${skill} sees P3 waiting and stays out`);
 
-  // The control: move P3 away, and the same slide becomes the right one again.
-  const clear = board();
-  clear.skill = 3;
-  clear.hexes['1,-2'] = { value: 0, state: 'gap', pawn: null };
-  clear.hexes['2,5'].pawn = 3;
-  Object.assign(clear.pawns[3], { q: 2, r: 5 });
-  recomputeAlive(clear);
-  assert.equal((def.bot!(clear, 0, ctx) as any).direction, east, 'with nobody to spring it, the 5 is simply good');
+    // The control: move P3 away, and the same slide becomes the right one again.
+    const clear = board();
+    clear.skill = skill;
+    clear.hexes['1,-2'] = { value: 0, state: 'gap', pawn: null };
+    clear.hexes['2,5'].pawn = 3;
+    Object.assign(clear.pawns[3], { q: 2, r: 5 });
+    recomputeAlive(clear);
+    assert.equal((def.bot!(clear, 0, ctx) as any).direction, east, `skill ${skill}: with nobody to spring it, the 5 is simply good`);
+  }
 });
 
 test('a search cut short still plays a legal move, and the same one every time', () => {
@@ -362,11 +365,13 @@ test('a search cut short still plays a legal move, and the same one every time',
     const s = def.create({ seats, players: seats.map((i) => ({ seat: i, name: 'P' + i })) }, { rng, now: 0 }) as TState;
     for (let n = 0; n < 40 && !s.over; n++) {
       const legal = view(s, s.order[s.turn]).legal.map((m: any) => `${m.pawnId}/${m.direction}`);
-      for (const budget of [5, 60, 400]) {
-        const pick = () => chooseSlide(s, s.turn, () => 0.25, { ...SHARP_PLAN, budget });
-        const mv = pick()!;
-        assert.ok(legal.includes(`${mv.pawnId}/${mv.direction}`), `budget ${budget}: illegal ${JSON.stringify(mv)}`);
-        assert.deepEqual(pick(), mv, 'the same position and dice must give the same move');
+      for (const plan of [SHARP_PLAN, GRANDMASTER_PLAN]) {
+        for (const budget of [5, 60, 400]) {
+          const pick = () => chooseSlide(s, s.turn, () => 0.25, { ...plan, budget });
+          const mv = pick()!;
+          assert.ok(legal.includes(`${mv.pawnId}/${mv.direction}`), `budget ${budget}: illegal ${JSON.stringify(mv)}`);
+          assert.deepEqual(pick(), mv, 'the same position and dice must give the same move');
+        }
       }
       act(s, s.order[s.turn], { type: 'slide', ...chooseSlide(s, s.turn, rng, SHARP_PLAN)! });
     }
@@ -381,6 +386,8 @@ test('thinking leaves the board exactly as it found it', () => {
   for (let n = 0; n < 12 && !s.over; n++) {
     const seat = s.order[s.turn];
     const before = JSON.stringify(s);
+    chooseSlide(s, s.turn, ctx.rng, { ...GRANDMASTER_PLAN, budget: 5000 }); // the table search too
+    assert.equal(JSON.stringify(s), before, 'the table search mutated the game while thinking about it');
     const mv = def.bot!(s, seat, ctx);
     assert.equal(JSON.stringify(s), before, 'the bot mutated the game while thinking about it');
     if (!mv) break;

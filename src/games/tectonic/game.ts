@@ -11,7 +11,7 @@
 // hex you LEAVE is removed (becomes a gap) and its value banked to you.
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
-import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
+import { initSkill, GRANDMASTER_SKILL_OPTION, CASUAL, STEADY, SHARP, MASTER, GRANDMASTER } from '../../platform/skill.ts';
 
 export const DIRS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
@@ -63,7 +63,7 @@ export interface TState {
   winner: number | null; // player-index, or null when shared
   winners: number[]; // seats on the winning side
   over: boolean;
-  skill: number; // how hard the bots play (1 casual … 3 sharp)
+  skill: number; // how hard the bots play (1 casual … 5 grandmaster)
   log: string[];
 }
 
@@ -518,6 +518,88 @@ interface Engine {
   queue: Int16Array;
   mask: Int32Array; // component → which players' living pawns border it
   worth: Float64Array;
+  tt: Map<number, TTEntry> | null; // positions already searched, when the plan keeps them
+  zob: Zobrist | null;
+  hash: number; // the board's key, kept up to date move by move — two halves, see keyOf
+  check: number;
+}
+
+// --- Transposition table -------------------------------------------------------
+// Slides by different pawns mostly commute: move A then B, or B then A, and the board is
+// the same. Without a table the search solves every such board once per order it can be
+// reached in. The table also remembers which slide was best at each board, and trying
+// that one first on the next, deeper pass is what makes the cutoffs bite.
+
+interface TTEntry {
+  depth: number;
+  value: number;
+  flag: 0 | 1 | 2; // exact, lower bound, upper bound
+  best: number; // (from hex * 6 + direction) of the best slide — by square, not by pawn,
+  // because two of one player's pawns that have swapped places are the same position
+  horizon: boolean; // did anything below this stop short of the end of the game?
+}
+
+/** Random keys for everything a position is made of. Who has banked what is part of it:
+ *  two orders of play can reach the same board with the points split differently. */
+interface Zobrist {
+  gone: Uint32Array[]; // [half][hex] — the hex has been taken off the board
+  pawn: Uint32Array[]; // [half][owner * nHex + hex]
+  score: Uint32Array[]; // [half][owner * SCORE_CAP + score]
+  mover: Uint32Array[]; // [half][player-index, or np for "any rival"]
+}
+const SCORE_CAP = 1024; // more points than any board holds
+
+function zobristFor(sim: Sim): Zobrist {
+  let x = 0x9e3779b9;
+  const table = (n: number) => {
+    const out = new Uint32Array(n);
+    for (let i = 0; i < n; i++) {
+      x ^= x << 13; x >>>= 0;
+      x ^= x >>> 17;
+      x ^= x << 5; x >>>= 0;
+      out[i] = x;
+    }
+    return out;
+  };
+  const both = (n: number) => [table(n), table(n)];
+  return { gone: both(sim.nHex), pawn: both(sim.np * sim.nHex), score: both(sim.np * SCORE_CAP), mover: both(sim.np + 1) };
+}
+
+/** The key of the board as it stands, worked out from scratch (once, at the root). Two
+ *  32-bit halves: one alone would collide a few times in a search this size. */
+function keyOf(sim: Sim, z: Zobrist, half: number): number {
+  let h = 0;
+  for (let i = 0; i < sim.nHex; i++) if (!sim.present[i]) h ^= z.gone[half][i];
+  for (let p = 0; p < sim.nPawn; p++) h ^= z.pawn[half][sim.owner[p] * sim.nHex + sim.pos[p]];
+  for (let pid = 0; pid < sim.np; pid++) h ^= z.score[half][pid * SCORE_CAP + sim.scores[pid]];
+  return h >>> 0;
+}
+
+/** What a slide from `from` to `to` does to one half of the key — the same change undoes it. */
+function slideKey(sim: Sim, z: Zobrist, half: number, pawn: number, from: number, to: number): number {
+  const o = sim.owner[pawn];
+  const before = sim.scores[o];
+  return (z.gone[half][from] ^ z.pawn[half][o * sim.nHex + from] ^ z.pawn[half][o * sim.nHex + to] ^
+    z.score[half][o * SCORE_CAP + before] ^ z.score[half][o * SCORE_CAP + before + sim.value[from]]) >>> 0;
+}
+
+/** Play a slide in the search, keeping the key in step when there is a table. */
+function enter(e: Engine, pawn: number, to: number) {
+  if (e.zob) {
+    const from = e.sim.pos[pawn];
+    e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
+    e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
+  }
+  play(e.sim, pawn, to);
+}
+
+function leave(e: Engine, pawn: number, from: number) {
+  const to = e.sim.pos[pawn];
+  unplay(e.sim, pawn, from);
+  if (e.zob) {
+    e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
+    e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
+  }
 }
 
 /** What the board is worth to `me`: banked points plus the land each side can expect to
@@ -688,31 +770,67 @@ function search(e: Engine, depth: number, alpha: number, beta: number, mover: nu
     return evaluate(e);
   }
   const sim = e.sim;
+  let key = 0;
+  let hit: TTEntry | undefined;
+  if (e.tt) {
+    // Both halves of the key, folded into one exact Map key (53 bits).
+    const m = mover === ANY ? sim.np : mover;
+    key = ((e.hash ^ e.zob!.mover[0][m]) >>> 0) * 2097152 + (((e.check ^ e.zob!.mover[1][m]) >>> 0) & 0x1fffff);
+    hit = e.tt.get(key);
+    // A subtree that played out to the end everywhere holds at any depth.
+    if (hit && (hit.depth >= depth || !hit.horizon)) {
+      if (hit.horizon) e.horizon = true;
+      if (hit.flag === 0) return hit.value;
+      if (hit.flag === 1 && hit.value > alpha) alpha = hit.value;
+      else if (hit.flag === 2 && hit.value < beta) beta = hit.value;
+      if (alpha >= beta) return hit.value;
+    }
+  }
+  // The window this node is actually searched in, which is what its result is a bound of.
+  const alpha0 = alpha;
+  const beta0 = beta;
   const moves = e.moves[ply];
   const n = generate(e, mover, moves);
   order(e, moves, n, e.keys[ply]);
+  if (hit) {
+    // Last time's best slide goes first; most of the time it still is.
+    for (let i = 1; i < n; i++) {
+      const pawn = (moves[i] / 6) | 0;
+      if (sim.pos[pawn] * 6 + moves[i] - pawn * 6 !== hit.best) continue;
+      const mv = moves[i];
+      moves.copyWithin(1, 0, i);
+      moves[0] = mv;
+      break;
+    }
+  }
+  const outer = e.horizon;
+  e.horizon = false;
   const maximising = mover === e.me;
   let best = maximising ? -Infinity : Infinity;
+  let bestSlide = -1;
   for (let i = 0; i < n; i++) {
     const pawn = (moves[i] / 6) | 0;
     const dir = moves[i] - pawn * 6;
     const from = sim.pos[pawn];
-    play(sim, pawn, landing(sim, pawn, dir));
+    enter(e, pawn, landing(sim, pawn, dir));
     const v = search(e, depth - 1, alpha, beta, after(e, mover), ply + 1);
-    unplay(sim, pawn, from);
+    leave(e, pawn, from);
     if (e.aborted) return 0;
-    if (maximising) {
-      if (v > best) best = v;
-      if (best > alpha) alpha = best;
-    } else {
-      if (v < best) best = v;
-      if (best < beta) beta = best;
+    if (maximising ? v > best : v < best) {
+      best = v;
+      bestSlide = from * 6 + dir;
     }
+    if (maximising) {
+      if (best > alpha) alpha = best;
+    } else if (best < beta) beta = best;
     if (alpha >= beta) {
       e.history[from * 6 + dir] += depth * depth;
       break;
     }
   }
+  const horizon = e.horizon;
+  e.horizon = outer || horizon;
+  if (e.tt) e.tt.set(key, { depth, value: best, flag: best <= alpha0 ? 2 : best >= beta0 ? 1 : 0, best: bestSlide, horizon });
   return best;
 }
 
@@ -722,6 +840,7 @@ export interface Plan {
   maxDepth: number; // slides of lookahead at most
   band: number; // points: moves this close to the best are all fair game
   w: Weights;
+  table?: boolean; // remember positions already searched (see TTEntry)
 }
 
 const MAX_PLY = 64;
@@ -738,7 +857,13 @@ export function chooseSlide(s: TState, me: number, rng: Rng, plan: Plan): { pawn
     history: new Float64Array(sim.nHex * 6),
     dist: new Int16Array(sim.nHex), claim: new Int8Array(sim.nHex), comp: new Int16Array(sim.nHex),
     queue: new Int16Array(sim.nHex + sim.nPawn), mask: new Int32Array(sim.nHex), worth: new Float64Array(sim.np),
+    tt: plan.table ? new Map() : null, zob: null, hash: 0, check: 0,
   };
+  if (plan.table) {
+    e.zob = zobristFor(sim);
+    e.hash = keyOf(sim, e.zob, 0);
+    e.check = keyOf(sim, e.zob, 1);
+  }
   const rootBuf = new Int32Array(sim.nPawn * 6);
   const n = generate(e, me, rootBuf);
   if (!n) return null;
@@ -752,9 +877,9 @@ export function chooseSlide(s: TState, me: number, rng: Rng, plan: Plan): { pawn
     for (const { mv } of ranked) {
       const pawn = (mv / 6) | 0;
       const from = sim.pos[pawn];
-      play(sim, pawn, landing(sim, pawn, mv - pawn * 6));
+      enter(e, pawn, landing(sim, pawn, mv - pawn * 6));
       const v = search(e, depth - 1, best - plan.band, Infinity, after(e, me), 1);
-      unplay(sim, pawn, from);
+      leave(e, pawn, from);
       if (e.aborted) break;
       done.push({ mv, v });
       if (v > best) best = v;
@@ -814,6 +939,16 @@ const WEIGHTS: Weights = { stand: 1, sealed: 0.5, claim: 0.35, pawn: 0.5, focus:
 // A third of that, the same bot lost 70% of 2-player games to this one.
 export const STEADY_PLAN: Plan = { budget: Infinity, maxDepth: 1, band: 0.3, w: WEIGHTS };
 export const SHARP_PLAN: Plan = { budget: 12000, maxDepth: 40, band: 0.3, w: WEIGHTS };
+// Master searches five times as far, and always plays the move it rates best — the board
+// is dealt afresh every match, so there is no need to buy variety with strength. About
+// 120ms a move (210ms at worst in 95 of 100). Against Sharp it wins 79% of 2-player games
+// (160, ±3); one Master among three Sharps wins a third of 4-player games (60, fair share
+// a quarter), finishing 2.08th on average.
+export const MASTER_PLAN: Plan = { budget: 60000, maxDepth: 40, band: 0, w: WEIGHTS };
+// Grandmaster remembers what it has searched (see TTEntry). At Master's own budget that
+// alone won 67.5% of 2-player games against it (120); with two and a half times the
+// budget it wins 78% (120, ±4). About 270ms a move, 530ms at worst in 95 of 100.
+export const GRANDMASTER_PLAN: Plan = { budget: 150000, maxDepth: 40, band: 0, w: WEIGHTS, table: true };
 
 function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | null {
   if (s.over) return null;
@@ -838,7 +973,7 @@ function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | n
     return { type: 'slide', pawnId: pick.pawnId, direction: pick.direction, distance: pick.distance };
   }
 
-  const plan = s.skill <= STEADY ? STEADY_PLAN : SHARP_PLAN;
+  const plan = s.skill <= STEADY ? STEADY_PLAN : s.skill <= SHARP ? SHARP_PLAN : s.skill <= MASTER ? MASTER_PLAN : GRANDMASTER_PLAN;
   const mv = chooseSlide(s, pid, rng, plan);
   return mv && { type: 'slide', ...mv };
 }
@@ -862,7 +997,7 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
     blurb: 'Slide pawns across a shrinking hex board, banking the tiles you leave. Isolate land, harvest the most.',
     minPlayers: 2,
     maxPlayers: 4,
-    options: [SKILL_OPTION],
+    options: [GRANDMASTER_SKILL_OPTION],
 
     validateStart(seats) {
       return seats.length >= 2 && seats.length <= 4 ? null : 'Tectonic Shift is for 2 to 4 players.';
@@ -934,7 +1069,7 @@ export function createTectonic(config: TectonicConfig = {}): GameDef<TState> {
         winner: null,
         winners: [],
         over: false,
-        skill: initSkill(setup.options?.skill),
+        skill: initSkill(setup.options?.skill, GRANDMASTER),
         log: [],
       };
       recomputeAlive(s);

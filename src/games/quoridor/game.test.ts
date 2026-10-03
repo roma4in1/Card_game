@@ -2,7 +2,7 @@
 // deterministic. The weight is on movement + jump rules and the no-trap wall check.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { quoridor, botWith, SHARP_PLAN, type QState } from './game.ts';
+import { quoridor, botWith, SHARP_PLAN, MASTER_PLAN, GRANDMASTER_PLAN, type QState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const seeded = (n: number) => { let a = n; return () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648); };
@@ -284,6 +284,11 @@ test('every level varies its opening, and Sharp tightens up once past it', () =>
 
   // Past the opening the band closes: the same position, played straight, every time.
   assert.equal(firstMoves(3, 30).size, 1, 'Sharp should stop improvising once the game is under way');
+
+  // Master and above spend nothing on variety: they were asked to be as strong as they
+  // can, and a tempo given away in the opening is strength. (Repeat games still diverge
+  // the moment the person across the board plays differently.)
+  assert.equal(firstMoves(4).size, 1, 'Master plays its best opening move every game');
 });
 
 test('a varied opening is still a sensible one — never a step backwards', () => {
@@ -359,13 +364,15 @@ test('every level plays only legal turns, with two, three or four players', () =
   // The bot thinks on its own flat copy of the board, with its own move and wall rules.
   // Any drift from the real rules shows up here as a rejected action.
   for (const np of [2, 3, 4]) {
-    for (const skill of [1, 2, 3]) {
+    for (const skill of [1, 2, 3, 4, 5]) {
       const ctx: GameContext = { rng: seeded(np * 31 + skill), now: 0 };
       const s = newQ(np);
       s.skill = skill;
+      // The searching levels on a small budget: legality does not depend on how far it looks.
+      const plan = [SHARP_PLAN, MASTER_PLAN, GRANDMASTER_PLAN][skill - 3];
       for (let n = 0; n < 160 && !s.over; n++) {
         const seat = s.order[s.turn];
-        const mv = skill === 3 ? botWith(s, seat, ctx.rng, { ...SHARP_PLAN, budget: 1500 }) : quoridor.bot!(s, seat, ctx);
+        const mv = plan ? botWith(s, seat, ctx.rng, { ...plan, budget: 1500 }) : quoridor.bot!(s, seat, ctx);
         assert.ok(mv, `${np}p skill ${skill}: the bot on turn had nothing to do`);
         assert.equal((quoridor.act(s, seat, mv!, ctx) ?? {}).error, undefined, `${np}p skill ${skill}: ${JSON.stringify(mv)}`);
       }
@@ -377,7 +384,7 @@ test('a pawn boxed in by other pawns still plays its turn, as a wall', () => {
   // P3 sits in the corner: the square below is walled off, and the pawn beside it cannot
   // be jumped (another pawn stands behind it, and the diagonal is walled). No step is
   // legal, but a wall is. The old bot returned nothing here and the match stalled.
-  for (const skill of [1, 2, 3]) {
+  for (const skill of [1, 2, 3, 4, 5]) {
     const s = newQ(4);
     s.pawns = [[1, 5], [8, 6], [8, 7], [8, 8]];
     s.walls = [{ r: 7, c: 7, o: 'H' }];

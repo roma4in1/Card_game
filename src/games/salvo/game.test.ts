@@ -3,7 +3,7 @@
 // and a bot that must hunt without peeking at the board it is shooting into.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { salvo, FLEET, type SVState } from './game.ts';
+import { salvo, FLEET, fleetSamples, type SVState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 // A seeded rng, so a "random" fleet is varied but reproducible across a test.
@@ -282,29 +282,91 @@ test('the bot readies up, then finishes a ship it has wounded', () => {
   act(s, 1, { type: 'ready' }, ctx);
   assert.equal(def.bot!(s, 1, ctx), null, 'and then waits');
 
-  const built = mk(oneShip(0, 0), [['Cruiser', 3, 4, 4, true]]);
-  built.s.turn = 1;
-  built.s.shots[1][0 * built.s.size + 3] = 'hit'; // B has wounded something at (3,0)
-  const mv = def.bot!(built.s, 1, built.ctx) as any;
-  const adjacent = [[2, 0], [4, 0], [3, 1]];
-  assert.ok(adjacent.some(([x, y]) => mv.x === x && mv.y === y), `expected a follow-up shot next to (3,0), got ${mv.x},${mv.y}`);
+  for (const skill of [3, 4]) {
+    const built = mk(oneShip(0, 0), [['Cruiser', 3, 4, 4, true]]);
+    built.s.turn = 1;
+    built.s.skill = skill;
+    built.s.shots[1][0 * built.s.size + 3] = 'hit'; // B has wounded something at (3,0)
+    const mv = def.bot!(built.s, 1, built.ctx) as any;
+    const adjacent = [[2, 0], [4, 0], [3, 1]];
+    assert.ok(adjacent.some(([x, y]) => mv.x === x && mv.y === y), `skill ${skill}: expected a follow-up shot next to (3,0), got ${mv.x},${mv.y}`);
+  }
 });
 
 test('the bot only ever fires at squares it has not tried', () => {
-  const rng = seeded(3);
-  const ctx = mkCtx(rng);
-  const s = def.create(setup, ctx) as SVState;
-  act(s, 0, { type: 'ready' }, ctx);
-  act(s, 1, { type: 'ready' }, ctx);
-  for (let guard = 0; guard < 400 && !s.over; guard++) {
-    const seat = s.order[s.turn];
-    const mv = def.bot!(s, seat, ctx) as any;
-    assert.ok(mv, 'a bot on turn always has a shot');
-    assert.equal(s.shots[s.turn][mv.y * s.size + mv.x], null, 'never fires into a square it has already tried');
-    assert.equal(act(s, seat, mv, ctx).error, undefined, JSON.stringify(mv));
+  for (const skill of [3, 4]) {
+    const rng = seeded(3);
+    const ctx = mkCtx(rng);
+    const s = def.create(setup, ctx) as SVState;
+    s.skill = skill;
+    act(s, 0, { type: 'ready' }, ctx);
+    act(s, 1, { type: 'ready' }, ctx);
+    for (let guard = 0; guard < 400 && !s.over; guard++) {
+      const seat = s.order[s.turn];
+      const mv = def.bot!(s, seat, ctx) as any;
+      assert.ok(mv, 'a bot on turn always has a shot');
+      assert.equal(s.shots[s.turn][mv.y * s.size + mv.x], null, 'never fires into a square it has already tried');
+      assert.equal(act(s, seat, mv, ctx).error, undefined, JSON.stringify(mv));
+    }
+    assert.equal(s.over, true, 'bot v bot always reaches a sinking');
+    assert.equal(def.result(s).winners.length, 1);
   }
-  assert.equal(s.over, true, 'bot v bot always reaches a sinking');
-  assert.equal(def.result(s).winners.length, 1);
+});
+
+test('Master’s odds match an exact count of the fleets that still fit', () => {
+  // Late in a game there are few enough fleets left to count them all, which makes the
+  // sampler checkable. This is the bug it guards: moving one ship at a time, a hit under
+  // one ship could never pass to another, so which ship explained it was frozen at the
+  // chain's start — and the odds on some squares were out by over 50 points.
+  let checked = 0;
+  for (let seed = 1; seed <= 40 && checked < 6; seed++) {
+    const ctx = mkCtx(seeded(seed * 97 + 3));
+    const s = def.create(setup, ctx) as SVState;
+    act(s, 0, { type: 'ready' }, ctx);
+    act(s, 1, { type: 'ready' }, ctx);
+    const N = s.size;
+    const cellsOf = (sh: { x: number; y: number; size: number; horiz: boolean }) =>
+      Array.from({ length: sh.size }, (_, i) => (sh.horiz ? sh.y * N + sh.x + i : (sh.y + i) * N + sh.x));
+    while (!s.over) {
+      // Only A fires (at Sharp), until three of B's ships are down and one is wounded.
+      s.turn = 0;
+      const mine = s.shots[0];
+      const down = s.fleets[1].filter((sh) => sh.hits >= sh.size);
+      const sunk = new Set(down.flatMap(cellsOf));
+      const open = mine.flatMap((v, i) => (v === 'hit' && !sunk.has(i) ? [i] : []));
+      if (down.length === 3 && open.length) {
+        const afloat = s.fleets[1].filter((sh) => sh.hits < sh.size).map((sh) => sh.size);
+        const lines = (size: number) => {
+          const out: number[][] = [];
+          for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) for (const horiz of [true, false]) {
+            if (horiz ? x + size > N : y + size > N) continue;
+            const c = cellsOf({ x, y, size, horiz });
+            if (c.some((i) => mine[i] === 'miss' || sunk.has(i)) || c.every((i) => mine[i] === 'hit')) continue;
+            out.push(c);
+          }
+          return out;
+        };
+        const exact = new Array(N * N).fill(0);
+        let fleets = 0;
+        for (const a of lines(afloat[0])) for (const b of lines(afloat[1])) {
+          if (a.some((i) => b.includes(i)) || !open.every((i) => a.includes(i) || b.includes(i))) continue;
+          fleets++;
+          for (const i of [...a, ...b]) exact[i]++;
+        }
+        const counts = fleetSamples(N, mine, sunk, afloat, seeded(seed))!;
+        const samples = counts.reduce((x, y) => x + y, 0) / (afloat[0] + afloat[1]);
+        for (let i = 0; i < N * N; i++) {
+          if (mine[i] !== null) continue;
+          const gap = Math.abs(counts[i] / samples - exact[i] / fleets);
+          assert.ok(gap < 0.06, `seed ${seed}, square ${i}: sampled ${(counts[i] / samples).toFixed(2)}, exact ${(exact[i] / fleets).toFixed(2)}`);
+        }
+        checked++;
+        break;
+      }
+      act(s, 0, def.bot!(s, 0, ctx)!, ctx);
+    }
+  }
+  assert.ok(checked >= 4, `only found ${checked} positions to check`);
 });
 
 test('a bot-played match never takes more shots than there are squares', () => {

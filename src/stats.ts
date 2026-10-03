@@ -11,7 +11,7 @@ import type { MatchRecord } from './platform/telemetry.ts';
 import { postgresQuery, SELECT_ALL } from './platform/telemetry-db.ts';
 
 const FILE = process.argv[2] || process.env.TELEMETRY_FILE || 'data/matches.jsonl';
-const SKILL_NAME = ['', 'Casual', 'Steady', 'Sharp'];
+const SKILL_NAME = ['', 'Casual', 'Steady', 'Sharp', 'Master', 'Grandmaster'];
 
 const pct = (part: number, whole: number) => (whole ? `${((part / whole) * 100).toFixed(0)}%` : '—');
 const pad = (s: string, n: number) => s.padEnd(n);
@@ -84,14 +84,15 @@ async function main() {
   console.log(`\nHUMANS v BOTS  (${mixed.length} mixed matches)`);
   if (!mixed.length) console.log('  nothing yet — needs matches with both a person and a bot in them');
   else {
-    console.log('  ' + pad('skill', 10) + num('matches', 9) + num('human wins', 13));
+    console.log('  ' + pad('skill', 12) + num('matches', 9) + num('human wins', 13));
     // A room always records the skill for a game that has the setting, so a record without
     // one is a game whose bots have no levels at all — not a Sharp match, and not counted as one.
-    for (const skill of [1, 2, 3, null]) {
+    for (const skill of [1, 2, 3, 4, 5, null]) {
       const at = mixed.filter((m) => (m.options.skill ?? null) === skill);
       if (skill === null && !at.length) continue;
       const humanWon = at.filter((m) => m.seats.some((s) => !s.bot && s.won)).length;
-      console.log('  ' + pad(skill ? SKILL_NAME[skill] : 'no levels', 10) + num(String(at.length), 9) + num(withCount(humanWon, at.length), 13));
+      if (skill && skill > 3 && !at.length) continue; // levels only a few games have: shown once played
+      console.log('  ' + pad(skill ? SKILL_NAME[skill] : 'no levels', 12) + num(String(at.length), 9) + num(withCount(humanWon, at.length), 13));
     }
   }
 

@@ -2,7 +2,7 @@
 // clamped defensively; the levels themselves are exercised in each game's own tests.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initSkill, SKILL_OPTION, SKILL_LABELS, CASUAL, SHARP } from './skill.ts';
+import { initSkill, SKILL_OPTION, MASTER_SKILL_OPTION, GRANDMASTER_SKILL_OPTION, SKILL_LABELS, CASUAL, SHARP, MASTER, GRANDMASTER } from './skill.ts';
 import { GAMES } from './registry.ts';
 
 test('the host’s choice is clamped, and anything unusable falls back to the strongest', () => {
@@ -16,10 +16,22 @@ test('the host’s choice is clamped, and anything unusable falls back to the st
   assert.equal(initSkill('sharp'), SHARP, 'and so does junk');
 });
 
+test('a game with stronger levels can be asked for them, and only up to what it has', () => {
+  assert.equal(initSkill(4), SHARP, 'a game without Master tops out at Sharp');
+  assert.equal(initSkill(4, MASTER), MASTER);
+  assert.equal(initSkill(5, MASTER), MASTER, 'above its ceiling');
+  assert.equal(initSkill(5, GRANDMASTER), GRANDMASTER);
+  assert.equal(initSkill(undefined, GRANDMASTER), SHARP, 'unset is still Sharp, not the slowest level');
+});
+
 test('the option names each step, so the lobby shows words rather than a bare number', () => {
-  assert.equal(SKILL_OPTION.labels?.length, SKILL_OPTION.max - SKILL_OPTION.min + 1);
-  assert.deepEqual(SKILL_OPTION.labels, SKILL_LABELS);
-  assert.equal(SKILL_OPTION.default, SHARP);
+  for (const opt of [SKILL_OPTION, MASTER_SKILL_OPTION, GRANDMASTER_SKILL_OPTION]) {
+    assert.equal(opt.labels?.length, opt.max - opt.min + 1);
+    assert.deepEqual(opt.labels?.slice(0, 3), SKILL_LABELS, 'the levels every game shares read the same everywhere');
+    assert.equal(opt.default, SHARP, 'the stronger levels are opt-in');
+  }
+  assert.equal(MASTER_SKILL_OPTION.labels?.at(-1), 'Master');
+  assert.equal(GRANDMASTER_SKILL_OPTION.labels?.at(-1), 'Grandmaster');
 });
 
 test('every game that ships a bot lets the host pick its strength', () => {
@@ -33,4 +45,12 @@ test('every game that ships a bot lets the host pick its strength', () => {
     const keys = (GAMES[id].options ?? []).map((o) => o.key);
     assert.ok(keys.includes('skill'), `${id} should expose the bot-skill setting`);
   }
+});
+
+test('the stronger levels are offered exactly where a game has them', () => {
+  const top = (id: string) => GAMES[id].options!.find((o) => o.key === 'skill')!.max;
+  assert.equal(top('quoridor'), GRANDMASTER);
+  assert.equal(top('tectonic'), GRANDMASTER);
+  assert.equal(top('salvo'), MASTER);
+  for (const id of ['sealed-bids', 'three-fronts', 'manhunt', 'volley-fire']) assert.equal(top(id), SHARP, `${id} has no level above Sharp`);
 });

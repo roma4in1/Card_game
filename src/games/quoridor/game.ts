@@ -14,7 +14,7 @@
 
 import type { GameContext, GameDef, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
 import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
-import { initSkill, SKILL_OPTION, CASUAL, STEADY } from '../../platform/skill.ts';
+import { initSkill, GRANDMASTER_SKILL_OPTION, CASUAL, STEADY, SHARP, MASTER, GRANDMASTER } from '../../platform/skill.ts';
 
 export const N = 9; // board size
 export type Cell = [number, number];
@@ -51,7 +51,7 @@ export interface QState {
   winner: number | null; // player-index
   over: boolean;
   timer: Timer; // opt-in per-turn countdown
-  skill: number; // how hard the bots play (1 casual … 3 sharp)
+  skill: number; // how hard the bots play (1 casual … 5 grandmaster)
   moveLog: string[];
   log: string[];
 }
@@ -965,6 +965,19 @@ export const STEADY_PLAN: QPlan = { budget: 400, maxDepth: 1, wallCap: 3 };
 // beat three old bots less often (85% against 91%) — the extra depth is what punishes
 // weaker play, and weaker play is what it will meet.
 export const SHARP_PLAN: QPlan = { budget: 20000, maxDepth: 20, wallCap: 18 };
+// Master searches five times as far and plays its best move from the first turn — no
+// tempo spent on variety (see `spread`). About 70ms a decision. Against Sharp it wins
+// 82.5% of 2-player games (240, seats rotated). With four players it does not: one Master
+// among three Sharps won its fair quarter and no more (80 games), with or without the
+// varied opening. There, whoever leads is walled by everyone else, and that decides more
+// than how far ahead anyone looks.
+export const MASTER_PLAN: QPlan = { budget: 100000, maxDepth: 20, wallCap: 18 };
+// Grandmaster searches four times as far again, about 230ms a decision. The return on depth
+// is flattening: it beats Master in 59% of 2-player games (120, ±4.5).
+export const GRANDMASTER_PLAN: QPlan = { budget: 400000, maxDepth: 24, wallCap: 18 };
+
+const planFor = (skill: number): QPlan =>
+  skill <= STEADY ? STEADY_PLAN : skill <= SHARP ? SHARP_PLAN : skill <= MASTER ? MASTER_PLAN : GRANDMASTER_PLAN;
 
 function botMove(s: QState, seat: number, rng: Rng, plan?: QPlan): Record<string, unknown> | null {
   if (s.over) return null;
@@ -983,12 +996,15 @@ function botMove(s: QState, seat: number, rng: Rng, plan?: QPlan): Record<string
   // and a game that always begins the same way is worth less than the tempo it costs, with
   // a whole match left to recover in. Past the opening it tightens again, because a
   // middlegame given away does not get recovered.
+  //
+  // Master and Grandmaster never widen it. Someone who picks them has asked for the
+  // strongest game going, and the tempo is part of that.
   const opening = s.turnsPlayed < OPENING_TURNS;
   const spread = s.skill <= CASUAL
     ? STEP * 1.2
     : s.skill <= STEADY
       ? STEP * 0.55
-      : opening ? STEP * 1.05 : STEP * 0.06;
+      : opening && s.skill <= SHARP ? STEP * 1.05 : STEP * 0.06;
 
   // Casual never walls at all — it just races, which is exactly the beginner's mistake.
   // Walking the shortest path is a UNIQUE move most of the time, so judging steps on the
@@ -1016,7 +1032,7 @@ function botMove(s: QState, seat: number, rng: Rng, plan?: QPlan): Record<string
   }
 
   const hurry = s.turnsPlayed >= LONG_MATCH * s.np;
-  const t = chooseTurn(s, pid, rng, plan ?? (s.skill <= STEADY ? STEADY_PLAN : SHARP_PLAN), spread, hurry);
+  const t = chooseTurn(s, pid, rng, plan ?? planFor(s.skill), spread, hurry);
   if (t === null) return s.turnStage === 'moved' ? { type: 'endTurn' } : null;
   const move = t >> 8;
   const wall = t & 255;
@@ -1043,7 +1059,7 @@ export const quoridor: GameDef<QState> = {
   blurb: 'Race your pawn to the far side — or wall off your rivals. Pure strategy, no luck.',
   minPlayers: 2,
   maxPlayers: 4,
-  options: [SKILL_OPTION, TIMER_OPTION],
+  options: [GRANDMASTER_SKILL_OPTION, TIMER_OPTION],
 
   validateStart(seats) {
     return seats.length === 2 || seats.length === 3 || seats.length === 4 ? null : 'Quoridor is for 2, 3 or 4 players.';
@@ -1069,7 +1085,7 @@ export const quoridor: GameDef<QState> = {
       winner: null,
       over: false,
       timer: initTimer(setup.options?.timer),
-      skill: initSkill(setup.options?.skill),
+      skill: initSkill(setup.options?.skill, GRANDMASTER),
       moveLog: [],
       log: [],
     };
