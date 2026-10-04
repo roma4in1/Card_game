@@ -369,9 +369,19 @@ const STEP = 100; // one step of the race, in evaluation points
 // 200 (61%, 61%), and neither 300 nor 350 beat it. At this value a wall is spent on a long
 // detour, or on a race it decides — never on a single step.
 const WALL_WORTH = 250;
-// How far from home a walk must be for walls held against it to count in full. Measured
-// on the rival's walk: 4 and 6 steps played alike, 8 lost (45%).
-const ROOM_STEPS = 6;
+// How far from home a walk must be for walls held against it to count in full. With the
+// old bot, 4 and 6 steps played alike and 8 lost (45%). Once pawns stopped shuffling, 4
+// was clearly better: Master at 4 beat Master at 6 in 57% of 400 games (±2.5); 3 and 5
+// came in at 52.5% and 56% (200 each), and every one of these was a 2-player game.
+// (WALL_WORTH was checked again alongside it: 200 and 320 both lost, 40.5% and 42%.)
+//
+// HOW THESE ARE MEASURED. Master and Grandmaster play their best move from the first one,
+// and every match starts from the same square, so two of them meeting replay nearly the
+// same game: 60 matches held only 11 distinct openings over the first 20 actions, and win
+// rates read off them swung by 20 points. Every comparison between them here comes from
+// random openings — three turns a side of sensible random play — each played twice with
+// the bots swapping seats.
+const ROOM_STEPS = 4;
 
 // --- Zobrist keys --------------------------------------------------------------
 // Quoridor transposes heavily: the same walls arrive in many orders, so without a table
@@ -1074,18 +1084,19 @@ export const STEADY_PLAN: QPlan = { budget: 400, maxDepth: 1, wallCap: 3 };
 // beat three old bots less often (85% against 91%) — the extra depth is what punishes
 // weaker play, and weaker play is what it will meet.
 export const SHARP_PLAN: QPlan = { budget: 20000, maxDepth: 20, wallCap: 18 };
-// Master searches five times as far and plays its best move from the first turn — no
-// tempo spent on variety (see `spread`). About 20ms a decision. Against Sharp it wins
-// 84% of 2-player games (240, seats rotated). With four players it does not: one Master
-// among three Sharps won its fair quarter and no more (80 games), with or without the
-// varied opening. There, whoever leads is walled by everyone else, and that decides more
-// than how far ahead anyone looks.
-export const MASTER_PLAN: QPlan = { budget: 100000, maxDepth: 20, wallCap: 18 };
-// Grandmaster searches four times as far again, about 65ms a decision. Before the step-back
-// cost it beat Master in 59% of 2-player games (120, ±4.5); the cost made Master far
-// stronger (64% against its old self) and Grandmaster hardly at all (52%), and the two
-// now play level (48%, 160 games, ±4). Depth alone has stopped paying here.
-export const GRANDMASTER_PLAN: QPlan = { budget: 400000, maxDepth: 24, wallCap: 18 };
+// Master searches ten times as far as Sharp and plays its best move from the first turn —
+// no tempo spent on variety (see `spread`). Doubling its budget (the bitboards made the
+// room, at about 40ms a decision) won 58.5% against the old one (200 games, ±3.5). Against
+// Sharp it wins 69.5% of 2-player games from random openings (200, ±3.3) — more from the
+// usual start, where Sharp gives up a tempo to vary its opening (84% at the old budget).
+// With four players it is not stronger: one Master among three Sharps won its fair
+// quarter and no more (80 games). There, whoever leads is walled by everyone else, and
+// that decides more than how far ahead anyone looks.
+export const MASTER_PLAN: QPlan = { budget: 200000, maxDepth: 20, wallCap: 18 };
+// Grandmaster searches five times as far as Master, about 200ms a decision (360ms at worst
+// in 95 of 100). Each step up has paid in 2-player games: 1,000,000 positions beat 400,000
+// in 60% (200, ±3.5), and against today's Master it wins 71.5% (200, ±3.2).
+export const GRANDMASTER_PLAN: QPlan = { budget: 1000000, maxDepth: 24, wallCap: 18 };
 
 const planFor = (skill: number): QPlan =>
   skill <= STEADY ? STEADY_PLAN : skill <= SHARP ? SHARP_PLAN : skill <= MASTER ? MASTER_PLAN : GRANDMASTER_PLAN;

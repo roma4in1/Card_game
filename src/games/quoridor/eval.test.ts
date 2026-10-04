@@ -130,7 +130,8 @@ test('walls in hand are worth most while the rival has far to go', () => {
   const late = position({ pawns: [[7, 4], [1, 4]], wallsLeft: [3, 0] });
   const lateNone = position({ pawns: [[7, 4], [1, 4]], wallsLeft: [0, 0] });
   const lateGap = evaluatePosition(late, 0, 0) - evaluatePosition(lateNone, 0, 0);
-  assert.ok(lateGap > 0 && lateGap < earlyGap / 4, `and fade as the rival nears home (${earlyGap.toFixed(0)} → ${lateGap.toFixed(0)})`);
+  // One step out they keep 1/ROOM_STEPS of their worth: a quarter.
+  assert.ok(lateGap > 0 && lateGap <= earlyGap / 4, `and fade as the rival nears home (${earlyGap.toFixed(0)} → ${lateGap.toFixed(0)})`);
 });
 
 // ---------------------------------------------------------------------------

@@ -967,15 +967,18 @@ const WEIGHTS: Weights = { stand: 1, sealed: 0.5, claim: 0.35, pawn: 0.5, focus:
 // A third of that, the same bot lost 70% of 2-player games to this one.
 export const STEADY_PLAN: Plan = { budget: Infinity, maxDepth: 1, band: 0.3, w: WEIGHTS };
 export const SHARP_PLAN: Plan = { budget: 12000, maxDepth: 40, band: 0.3, w: WEIGHTS };
-// Master searches five times as far, and always plays the move it rates best — the board
-// is dealt afresh every match, so there is no need to buy variety with strength. About
-// 50ms a move (95ms at worst in 95 of 100). Against Sharp it wins 79% of 2-player games
-// (160, ±3); one Master among three Sharps wins a third of 4-player games (60, fair share
-// a quarter), finishing 2.08th on average.
-export const MASTER_PLAN: Plan = { budget: 60000, maxDepth: 40, band: 0, w: WEIGHTS };
-// Grandmaster remembers what it has searched (see TTEntry). At Master's own budget that
-// alone won 67.5% of 2-player games against it (120); with two and a half times the
-// budget it wins 78% (120, ±4). About 150ms a move, 300ms at worst in 95 of 100.
+// Master searches five times as far, remembers what it has searched (see TTEntry), and
+// always plays the move it rates best — the board is dealt afresh every match, so there
+// is no need to buy variety with strength. Without the table it beat Sharp in 79% of
+// 2-player games (160, ±3); the table alone, at the same budget, then won 67.5% against
+// that (120, ±4.3). (One table-less Master among three Sharps won a third of 4-player
+// games, fair share a quarter.) The evaluation's weights were checked for 1-against-1
+// play as well — they were tuned on 4-player games — and every change tried lost or tied:
+// shared land at 0.25 or 0.5, sealed land at 0.35 or 0.7, a living pawn at 0.25 or 1.
+export const MASTER_PLAN: Plan = { budget: 60000, maxDepth: 40, band: 0, w: WEIGHTS, table: true };
+// Grandmaster searches two and a half times as far again. Against the table-less Master it
+// won 78% of 2-player games (120, ±4); against today's Master, 66% (160, ±3.7). About
+// 150ms a move, 300ms at worst in 95 of 100.
 export const GRANDMASTER_PLAN: Plan = { budget: 150000, maxDepth: 40, band: 0, w: WEIGHTS, table: true };
 
 function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | null {
