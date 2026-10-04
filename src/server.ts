@@ -71,23 +71,36 @@ function broadcast(room: Room) {
 
 // If a bot-controlled seat has a move pending, play it after a short, human-like
 // delay, then broadcast (which may schedule the following bot move, and so on).
+//
+// The bot's thinking comes out of that delay rather than on top of it: one that takes
+// 200ms to decide still answers in the same 0.65–1.15s as one that decides at once. And
+// it thinks on the next turn of the event loop, so the views just sent go out first.
 function scheduleBots(room: Room) {
   if (botTimers.has(room.code) || !rooms.has(room.code)) return;
   if (!hasConnectedHumans(room)) return; // don't burn cycles playing to an empty room
-  if (!botMove(room)) return;
-  const timer = setTimeout(() => {
+  const delay = 650 + Math.floor(Math.random() * 500);
+  const think = setTimeout(() => {
     botTimers.delete(room.code);
     if (!rooms.has(room.code)) return;
-    const mv = botMove(room);
-    if (!mv) return;
-    const res = act(room, mv.seat, mv.msg);
-    if (res?.error) {
-      console.warn('bot move rejected:', res.error, mv.msg);
-      return; // stop the chain rather than loop on a bad move
-    }
-    broadcast(room);
-  }, 650 + Math.floor(Math.random() * 500));
-  botTimers.set(room.code, timer);
+    const started = Date.now();
+    const planned = botMove(room); // worked out once here; the room hands the same answer back below
+    if (!planned) return;
+    const wait = room.game?.def.botPause?.(room.game.state, planned.msg) ?? delay;
+    const timer = setTimeout(() => {
+      botTimers.delete(room.code);
+      if (!rooms.has(room.code)) return;
+      const mv = botMove(room);
+      if (!mv) return;
+      const res = act(room, mv.seat, mv.msg);
+      if (res?.error) {
+        console.warn('bot move rejected:', res.error, mv.msg);
+        return; // stop the chain rather than loop on a bad move
+      }
+      broadcast(room);
+    }, Math.max(0, wait - (Date.now() - started)));
+    botTimers.set(room.code, timer);
+  }, 0);
+  botTimers.set(room.code, think);
 }
 
 function dropRoom(code: string) {

@@ -2,7 +2,7 @@
 // deterministic. The weight is on movement + jump rules and the no-trap wall check.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { quoridor, botWith, SHARP_PLAN, MASTER_PLAN, GRANDMASTER_PLAN, type QState } from './game.ts';
+import { quoridor, botWith, shortestWalks, SHARP_PLAN, MASTER_PLAN, GRANDMASTER_PLAN, type QState } from './game.ts';
 import type { GameContext } from '../../platform/types.ts';
 
 const seeded = (n: number) => { let a = n; return () => ((a = (a * 1103515245 + 12345) % 2147483648) / 2147483648); };
@@ -395,4 +395,121 @@ test('a pawn boxed in by other pawns still plays its turn, as a wall', () => {
     assert.equal(mv?.type, 'placeWall', `skill ${skill} should wall, got ${JSON.stringify(mv)}`);
     assert.equal(act(s, 3, mv!).error, undefined);
   }
+});
+
+// ---------------------------------------------------------------------------
+// The bot's own path search, and how it chooses among moves it rates alike
+// ---------------------------------------------------------------------------
+
+/** A plain breadth-first walk home, square by square — what the bitboards must agree with. */
+function plainWalk(s: QState, pid: number): number {
+  const blocked = new Set<string>();
+  for (const w of s.walls) {
+    if (w.o === 'H') { blocked.add(`${w.r},${w.c}^`); blocked.add(`${w.r},${w.c + 1}^`); }
+    else { blocked.add(`${w.r},${w.c}>`); blocked.add(`${w.r + 1},${w.c}>`); }
+  }
+  const open = (r: number, c: number, dr: number, dc: number) =>
+    dr === 1 ? !blocked.has(`${r},${c}^`) : dr === -1 ? !blocked.has(`${r - 1},${c}^`) : dc === 1 ? !blocked.has(`${r},${c}>`) : !blocked.has(`${r},${c - 1}>`);
+  const goal = s.goals[pid];
+  const home = (r: number, c: number) => (goal === 'top' ? r === 8 : goal === 'bottom' ? r === 0 : goal === 'left' ? c === 0 : c === 8);
+  const dist = new Map([[s.pawns[pid].join(), 0]]);
+  const queue = [s.pawns[pid]];
+  while (queue.length) {
+    const [r, c] = queue.shift()!;
+    const d = dist.get(`${r},${c}`)!;
+    if (home(r, c)) return d;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const [nr, nc] = [r + dr, c + dc];
+      if (nr < 0 || nr > 8 || nc < 0 || nc > 8 || dist.has(`${nr},${nc}`) || !open(r, c, dr, dc)) continue;
+      dist.set(`${nr},${nc}`, d + 1);
+      queue.push([nr, nc]);
+    }
+  }
+  return -1;
+}
+
+test('the bot’s bitboard path search agrees with a plain one on any board', () => {
+  // The bot measures every walk on bitboards — three words of three rows, a whole frontier
+  // moved per step. Rows meet across word boundaries, so that is where it would go wrong.
+  const rng = seeded(99);
+  for (let board = 0; board < 300; board++) {
+    const np = [2, 3, 4][board % 3];
+    const s = newQ(np);
+    const want = Math.floor(rng() * 20);
+    for (let tries = 0; s.walls.length < want && tries < 400; tries++) {
+      const w = { r: Math.floor(rng() * 8), c: Math.floor(rng() * 8), o: rng() < 0.5 ? 'H' : 'V' } as const;
+      s.turn = 0;
+      s.turnStage = 'start';
+      s.wallsLeft[0] = 10;
+      quoridor.act(s, 0, { type: 'placeWall', slot: [w.r, w.c], orientation: w.o }, ctx);
+    }
+    s.pawns = s.pawns.map(() => [Math.floor(rng() * 9), Math.floor(rng() * 9)]);
+    assert.deepEqual(shortestWalks(s), s.pawns.map((_, pid) => plainWalk(s, pid)), `board ${board}: ${JSON.stringify(s.walls)}`);
+  }
+});
+
+test('with no walls left on either side, every level walks a shortest path home', () => {
+  // A pure race: nothing anyone does can change it, so every move rates alike once the
+  // result is settled — and picking among them blind used to send pawns wandering, even
+  // back and forth on their own home row. Of moves rated alike, it now takes the one
+  // that makes ground.
+  for (const skill of [3, 4, 5]) {
+    for (let seed = 0; seed < 4; seed++) {
+      const ctx: GameContext = { rng: seeded(seed * 37 + skill), now: 0 };
+      const s = newQ(2);
+      s.skill = skill;
+      s.turnsPlayed = 20; // past the opening, where Sharp varies its play on purpose
+      s.walls = [{ r: 3, c: 3, o: 'H' }, { r: 3, c: 5, o: 'H' }, { r: 5, c: 1, o: 'V' }];
+      s.wallsLeft = [0, 0];
+      s.pawns = [[2, seed], [6, 8 - seed]];
+      for (let n = 0; n < 12 && !s.over; n++) {
+        const pid = s.turn;
+        const before = plainWalk(s, pid);
+        const mv = quoridor.bot!(s, s.order[pid], ctx)!;
+        assert.equal(act(s, s.order[pid], mv).error, undefined);
+        if (!s.over) assert.equal(plainWalk(s, pid), before - 1, `skill ${skill}: ${JSON.stringify(mv)} did not shorten the walk`);
+      }
+    }
+  }
+});
+
+test('pawns do not shuffle back and forth for nothing', () => {
+  // Nothing in the rules forbids stepping off a square and straight back onto it, and the
+  // search often rated that a tempo better. Two turns for no ground is the shuffle people
+  // notice: before the step back carried a cost, it was 8% of Sharp's moves against Sharp
+  // and 4% of Master's. A step back that finds a shorter way round a new wall is fine.
+  for (const [mine, theirs] of [[3, 3], [4, 3]]) {
+    let turns = 0;
+    let aimless = 0;
+    for (let g = 0; g < 6; g++) {
+      const ctx: GameContext = { rng: seeded(g * 7 + mine), now: 0 };
+      const s = newQ(2);
+      for (let n = 0; n < 600 && !s.over; n++) {
+        const pid = s.turn;
+        s.skill = pid === 0 ? mine : theirs;
+        const stage = s.turnStage;
+        const walkBefore = plainWalk(s, pid);
+        const cameFrom = s.cameFrom[pid];
+        const mv = quoridor.bot!(s, s.order[pid], ctx)!;
+        act(s, s.order[pid], mv);
+        if (pid !== 0 || stage !== 'start') continue;
+        turns++;
+        const steppedBack = mv.type === 'movePawn' && cameFrom && (mv.toCell as number[]).join() === cameFrom.join();
+        if (steppedBack && plainWalk(s, pid) >= walkBefore) aimless++;
+      }
+    }
+    assert.ok(aimless / turns < 0.025, `skill ${mine} v ${theirs}: ${aimless} of ${turns} turns stepped back for nothing`);
+  }
+});
+
+test('moving records the square a pawn left, for the bots to read', () => {
+  const s = newQ(2);
+  act(s, 0, { type: 'movePawn', toCell: [1, 4] });
+  assert.deepEqual(s.cameFrom, [[0, 4], null]);
+});
+
+test('a bot ending its turn without a wall does not sit through a thinking pause', () => {
+  const s = newQ(2);
+  assert.equal(quoridor.botPause!(s, { type: 'endTurn' }), 0);
+  assert.equal(quoridor.botPause!(s, { type: 'movePawn', toCell: [1, 4] }), undefined, 'a real move keeps the usual pause');
 });

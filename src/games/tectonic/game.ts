@@ -380,8 +380,10 @@ interface Sim {
   nHex: number;
   nPawn: number;
   nb: Int16Array; // hex * 6 + direction → the neighbouring hex, or -1 past the edge
+  nbo: Int16Array; // the same, but past the edge is nHex — a hex that is never open
   value: Int16Array;
   present: Uint8Array;
+  open: Uint8Array; // hex → 1 when it can be slid onto: present, nobody on it (nHex: 0)
   pawnAt: Int16Array; // hex → the pawn standing on it, or -1
   pos: Int16Array; // pawn → hex
   owner: Uint8Array; // pawn → player-index
@@ -412,8 +414,13 @@ function toSim(s: TState): Sim {
     owner[i] = p.owner;
     pawnAt[pos[i]] = i;
   });
+  // "Present and empty" is what nearly every question about a hex comes down to, so it
+  // is kept as one flag; and a sentinel past the edge saves checking for the edge at all.
+  const nbo = nb.map((n) => (n < 0 ? nHex : n));
+  const open = new Uint8Array(nHex + 1);
+  for (let i = 0; i < nHex; i++) open[i] = present[i] && pawnAt[i] < 0 ? 1 : 0;
   const sim: Sim = {
-    np: s.np, nHex, nPawn, nb, value, present, pawnAt, pos, owner,
+    np: s.np, nHex, nPawn, nb, nbo, value, present, open, pawnAt, pos, owner,
     alive: new Uint8Array(nPawn), scores: Float64Array.from(s.scores),
   };
   refreshAlive(sim);
@@ -422,11 +429,8 @@ function toSim(s: TState): Sim {
 
 /** A pawn lives while it has an open neighbour to slide into. */
 function canSlide(sim: Sim, pawn: number): number {
-  const { nb, present, pawnAt } = sim;
-  for (let k = sim.pos[pawn] * 6, end = k + 6; k < end; k++) {
-    const n = nb[k];
-    if (n >= 0 && present[n] && pawnAt[n] < 0) return 1;
-  }
+  const { nbo, open } = sim;
+  for (let k = sim.pos[pawn] * 6, end = k + 6; k < end; k++) if (open[nbo[k]]) return 1;
   return 0;
 }
 
@@ -449,11 +453,11 @@ function touchUp(sim: Sim, pawn: number, landed: number) {
 
 /** Where a slide ends: the last open hex before the first gap, pawn or edge. */
 function landing(sim: Sim, pawn: number, dir: number): number {
-  const { nb, present, pawnAt } = sim;
+  const { nbo, open } = sim;
   let h = sim.pos[pawn];
   for (;;) {
-    const n = nb[h * 6 + dir];
-    if (n < 0 || !present[n] || pawnAt[n] >= 0) return h;
+    const n = nbo[h * 6 + dir];
+    if (!open[n]) return h;
     h = n;
   }
 }
@@ -465,6 +469,7 @@ function play(sim: Sim, pawn: number, to: number) {
   sim.present[from] = 0;
   sim.pawnAt[from] = -1;
   sim.pawnAt[to] = pawn;
+  sim.open[to] = 0; // `from` was never open: a pawn stood on it, and now it is gone
   sim.pos[pawn] = to;
   touchUp(sim, pawn, to);
 }
@@ -472,6 +477,7 @@ function play(sim: Sim, pawn: number, to: number) {
 function unplay(sim: Sim, pawn: number, from: number) {
   const to = sim.pos[pawn];
   sim.pawnAt[to] = -1;
+  sim.open[to] = 1;
   sim.pos[pawn] = from;
   sim.present[from] = 1;
   sim.pawnAt[from] = pawn;
@@ -519,9 +525,10 @@ interface Engine {
   mask: Int32Array; // component → which players' living pawns border it
   worth: Float64Array;
   tt: Map<number, TTEntry> | null; // positions already searched, when the plan keeps them
-  zob: Zobrist | null;
+  zob: Zobrist;
   hash: number; // the board's key, kept up to date move by move — two halves, see keyOf
   check: number;
+  run: number; // which decision this is, for the evaluation cache
 }
 
 // --- Transposition table -------------------------------------------------------
@@ -549,7 +556,14 @@ interface Zobrist {
 }
 const SCORE_CAP = 1024; // more points than any board holds
 
+const zobristCache = new Map<string, Zobrist>();
 function zobristFor(sim: Sim): Zobrist {
+  const k = `${sim.np}:${sim.nHex}`;
+  let z = zobristCache.get(k);
+  if (!z) zobristCache.set(k, (z = makeZobrist(sim)));
+  return z;
+}
+function makeZobrist(sim: Sim): Zobrist {
   let x = 0x9e3779b9;
   const table = (n: number) => {
     const out = new Uint32Array(n);
@@ -583,23 +597,42 @@ function slideKey(sim: Sim, z: Zobrist, half: number, pawn: number, from: number
     z.score[half][o * SCORE_CAP + before] ^ z.score[half][o * SCORE_CAP + before + sim.value[from]]) >>> 0;
 }
 
-/** Play a slide in the search, keeping the key in step when there is a table. */
+// --- Evaluation cache ------------------------------------------------------------
+// The evaluation is nearly all of the bot's time, and a quarter to a third of the boards
+// it is asked about it has already seen this decision — the same slides in another order.
+// It is a pure function of the board, so the answer is kept. The table belongs to one
+// decision at a time (hex values differ from match to match), which a stamp per slot
+// takes care of without ever clearing it.
+const EVAL_SLOTS = 1 << 18;
+const evalKey = new Float64Array(EVAL_SLOTS);
+const evalValue = new Float64Array(EVAL_SLOTS);
+const evalRun = new Uint32Array(EVAL_SLOTS);
+let runs = 0;
+
+function evaluateCached(e: Engine): number {
+  const key = e.hash * 2097152 + (e.check & 0x1fffff); // both halves of the key, 53 bits
+  const slot = (e.hash ^ (e.check >>> 13)) & (EVAL_SLOTS - 1);
+  if (evalRun[slot] === e.run && evalKey[slot] === key) return evalValue[slot];
+  const v = evaluate(e);
+  evalRun[slot] = e.run;
+  evalKey[slot] = key;
+  evalValue[slot] = v;
+  return v;
+}
+
+/** Play a slide in the search, keeping the key in step. */
 function enter(e: Engine, pawn: number, to: number) {
-  if (e.zob) {
-    const from = e.sim.pos[pawn];
-    e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
-    e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
-  }
+  const from = e.sim.pos[pawn];
+  e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
+  e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
   play(e.sim, pawn, to);
 }
 
 function leave(e: Engine, pawn: number, from: number) {
   const to = e.sim.pos[pawn];
   unplay(e.sim, pawn, from);
-  if (e.zob) {
-    e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
-    e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
-  }
+  e.hash = (e.hash ^ slideKey(e.sim, e.zob, 0, pawn, from, to)) >>> 0;
+  e.check = (e.check ^ slideKey(e.sim, e.zob, 1, pawn, from, to)) >>> 0;
 }
 
 /** What the board is worth to `me`: banked points plus the land each side can expect to
@@ -613,21 +646,22 @@ function leave(e: Engine, pawn: number, from: number) {
  *  same speed, a hex goes to whoever reaches it first, and a dead heat goes to nobody. */
 function evaluate(e: Engine): number {
   const { sim, w, dist, claim, comp, queue, mask, worth } = e;
-  const { nb, present, pawnAt, value, pos, owner, alive, nPawn, nHex, np } = sim;
+  const { nbo, open, value, pos, owner, alive, nPawn, np } = sim;
   for (let pid = 0; pid < np; pid++) worth[pid] = sim.scores[pid];
   dist.fill(-1);
 
   // Islands, and who borders each. This pass is a third of the evaluation's cost, and
   // it was tried without: at an equal number of positions searched, counting sealed and
-  // shared land alike lost 4 points of win share in both 2- and 4-player games.
+  // shared land alike lost 4 points of win share in both 2- and 4-player games. Folding
+  // it into the race below, as waves merged by union-find, was tried too — and was slower.
   comp.fill(-1);
   let nComp = 0;
   for (let p = 0; p < nPawn; p++) {
     if (!alive[p]) continue;
     const bit = 1 << owner[p];
     for (let k = pos[p] * 6, end = k + 6; k < end; k++) {
-      const start = nb[k];
-      if (start < 0 || !present[start] || pawnAt[start] >= 0) continue;
+      const start = nbo[k];
+      if (!open[start]) continue;
       if (comp[start] < 0) {
         const c = nComp++;
         mask[c] = 0;
@@ -637,8 +671,8 @@ function evaluate(e: Engine): number {
         for (let head = 0; head < tail; head++) {
           const h = queue[head];
           for (let j = h * 6, e2 = j + 6; j < e2; j++) {
-            const n = nb[j];
-            if (n >= 0 && present[n] && pawnAt[n] < 0 && comp[n] < 0) {
+            const n = nbo[j];
+            if (open[n] && comp[n] < 0) {
               comp[n] = c;
               queue[tail++] = n;
             }
@@ -659,13 +693,14 @@ function evaluate(e: Engine): number {
     claim[h] = owner[p];
     queue[tail++] = h;
   }
+  const sources = tail;
   for (let head = 0; head < tail; head++) {
     const h = queue[head];
     const d = dist[h] + 1;
     const c = claim[h];
     for (let k = h * 6, end = k + 6; k < end; k++) {
-      const n = nb[k];
-      if (n < 0 || !present[n] || pawnAt[n] >= 0) continue;
+      const n = nbo[k];
+      if (!open[n]) continue;
       if (dist[n] < 0) {
         dist[n] = d;
         claim[n] = c;
@@ -674,9 +709,8 @@ function evaluate(e: Engine): number {
     }
   }
 
-  for (let i = 0; i < tail; i++) {
+  for (let i = sources; i < tail; i++) { // past the pawns' own hexes, already counted
     const h = queue[i];
-    if (pawnAt[h] >= 0) continue; // a pawn's own hex, already counted
     const m = mask[comp[h]];
     if ((m & (m - 1)) === 0) worth[31 - Math.clz32(m)] += value[h] * w.sealed;
     else if (claim[h] >= 0) worth[claim[h]] += value[h] * w.claim;
@@ -722,16 +756,13 @@ function after(e: Engine, mover: number): number {
 
 function generate(e: Engine, mover: number, out: Int32Array): number {
   const { sim, me } = e;
-  const { nb, present, pawnAt, pos, owner, alive } = sim;
+  const { nbo, open, pos, owner, alive } = sim;
   let n = 0;
   for (let p = 0; p < sim.nPawn; p++) {
     if (!alive[p]) continue;
     if (mover === ANY ? owner[p] === me : owner[p] !== me) continue;
     const base = pos[p] * 6;
-    for (let d = 0; d < 6; d++) {
-      const h = nb[base + d];
-      if (h >= 0 && present[h] && pawnAt[h] < 0) out[n++] = p * 6 + d;
-    }
+    for (let d = 0; d < 6; d++) if (open[nbo[base + d]]) out[n++] = p * 6 + d;
   }
   return n;
 }
@@ -764,10 +795,10 @@ function search(e: Engine, depth: number, alpha: number, beta: number, mover: nu
     e.aborted = true;
     return 0;
   }
-  if (mover === NONE) return evaluate(e);
+  if (mover === NONE) return evaluateCached(e);
   if (depth === 0) {
     e.horizon = true;
-    return evaluate(e);
+    return evaluateCached(e);
   }
   const sim = e.sim;
   let key = 0;
@@ -775,7 +806,7 @@ function search(e: Engine, depth: number, alpha: number, beta: number, mover: nu
   if (e.tt) {
     // Both halves of the key, folded into one exact Map key (53 bits).
     const m = mover === ANY ? sim.np : mover;
-    key = ((e.hash ^ e.zob!.mover[0][m]) >>> 0) * 2097152 + (((e.check ^ e.zob!.mover[1][m]) >>> 0) & 0x1fffff);
+    key = ((e.hash ^ e.zob.mover[0][m]) >>> 0) * 2097152 + (((e.check ^ e.zob.mover[1][m]) >>> 0) & 0x1fffff);
     hit = e.tt.get(key);
     // A subtree that played out to the end everywhere holds at any depth.
     if (hit && (hit.depth >= depth || !hit.horizon)) {
@@ -857,13 +888,10 @@ export function chooseSlide(s: TState, me: number, rng: Rng, plan: Plan): { pawn
     history: new Float64Array(sim.nHex * 6),
     dist: new Int16Array(sim.nHex), claim: new Int8Array(sim.nHex), comp: new Int16Array(sim.nHex),
     queue: new Int16Array(sim.nHex + sim.nPawn), mask: new Int32Array(sim.nHex), worth: new Float64Array(sim.np),
-    tt: plan.table ? new Map() : null, zob: null, hash: 0, check: 0,
+    tt: plan.table ? new Map() : null, zob: zobristFor(sim), hash: 0, check: 0, run: ++runs,
   };
-  if (plan.table) {
-    e.zob = zobristFor(sim);
-    e.hash = keyOf(sim, e.zob, 0);
-    e.check = keyOf(sim, e.zob, 1);
-  }
+  e.hash = keyOf(sim, e.zob, 0);
+  e.check = keyOf(sim, e.zob, 1);
   const rootBuf = new Int32Array(sim.nPawn * 6);
   const n = generate(e, me, rootBuf);
   if (!n) return null;
@@ -934,20 +962,20 @@ export function chooseSlide(s: TState, me: number, rng: Rng, plan: Plan): { pawn
 // rich ground; counting it in full, with shared land trimmed to match, lifted the average
 // 4-player finish from 2.41 to 1.92 against the untuned version (320 games).
 const WEIGHTS: Weights = { stand: 1, sealed: 0.5, claim: 0.35, pawn: 0.5, focus: 0.5 };
-// Steady judges the board its move leaves; Sharp searches. 12,000 positions is about 22ms
-// a move on a laptop, 41ms at worst in 95 moves of 100 — in line with Quoridor's Sharp.
+// Steady judges the board its move leaves; Sharp searches. 12,000 positions is about 11ms
+// a move on a laptop, 22ms at worst in 95 moves of 100.
 // A third of that, the same bot lost 70% of 2-player games to this one.
 export const STEADY_PLAN: Plan = { budget: Infinity, maxDepth: 1, band: 0.3, w: WEIGHTS };
 export const SHARP_PLAN: Plan = { budget: 12000, maxDepth: 40, band: 0.3, w: WEIGHTS };
 // Master searches five times as far, and always plays the move it rates best — the board
 // is dealt afresh every match, so there is no need to buy variety with strength. About
-// 120ms a move (210ms at worst in 95 of 100). Against Sharp it wins 79% of 2-player games
+// 50ms a move (95ms at worst in 95 of 100). Against Sharp it wins 79% of 2-player games
 // (160, ±3); one Master among three Sharps wins a third of 4-player games (60, fair share
 // a quarter), finishing 2.08th on average.
 export const MASTER_PLAN: Plan = { budget: 60000, maxDepth: 40, band: 0, w: WEIGHTS };
 // Grandmaster remembers what it has searched (see TTEntry). At Master's own budget that
 // alone won 67.5% of 2-player games against it (120); with two and a half times the
-// budget it wins 78% (120, ±4). About 270ms a move, 530ms at worst in 95 of 100.
+// budget it wins 78% (120, ±4). About 150ms a move, 300ms at worst in 95 of 100.
 export const GRANDMASTER_PLAN: Plan = { budget: 150000, maxDepth: 40, band: 0, w: WEIGHTS, table: true };
 
 function botMove(s: TState, seat: number, rng: Rng): Record<string, unknown> | null {

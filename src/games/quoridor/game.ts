@@ -42,6 +42,7 @@ export interface QState {
   order: number[]; // seat per player-index 0..np-1
   np: number;
   pawns: Cell[]; // by player-index
+  cameFrom: (Cell | null)[]; // by player-index: the square each pawn last stepped off, so a bot can tell a step back
   goals: Goal[]; // by player-index
   wallsLeft: number[]; // by player-index
   walls: Wall[];
@@ -224,6 +225,7 @@ function movePawn(s: QState, pid: number, toCell: unknown): ActionResult {
   if (!Array.isArray(toCell) || toCell.length !== 2) return fail('Bad target.');
   const [tr, tc] = [Number(toCell[0]), Number(toCell[1])];
   if (!legalMoves(s).some((m) => m[0] === tr && m[1] === tc)) return fail('Illegal move.');
+  s.cameFrom[pid] = s.pawns[pid];
   s.pawns[pid] = [tr, tc];
   log(s, `${s.players[s.order[pid]]!.name} moves to (${tr}, ${tc}).`);
   if (isGoal(s.goals[pid], tr, tc)) {
@@ -442,12 +444,73 @@ for (let slot = 0; slot < SLOTS; slot++) {
 }
 const wallOf = (w: number): Wall => ({ r: ((w >> 1) / (N - 1)) | 0, c: (w >> 1) % (N - 1), o: w & 1 ? 'V' : 'H' });
 
+// --- The board as bits ------------------------------------------------------------
+// The path searches are nearly all of the bot's time, so they run on bitboards: the 81
+// cells as three 27-bit words of three rows each (cell = 27 * word + bit), and one step of
+// a breadth-first search moves the whole frontier at once — a few shifts and masks per
+// word instead of a visit to every cell. Four masks say which moves are open from each
+// cell (east, west, up a row, down a row); a wall clears the bits of the edges it blocks.
+const M27 = (1 << 27) - 1;
+const ROW0 = (1 << N) - 1; // the first row of a word
+const MOVE_E = 0; // offsets into QBoard.open, three words each
+const MOVE_W = 3;
+const MOVE_U = 6;
+const MOVE_D = 9;
+// edge → the two directed moves across it: [open index, bit] from each side
+const EDGE_SIDE_A = new Int16Array(EDGE_COUNT);
+const EDGE_BIT_A = new Int32Array(EDGE_COUNT);
+const EDGE_SIDE_B = new Int16Array(EDGE_COUNT);
+const EDGE_BIT_B = new Int32Array(EDGE_COUNT);
+const OPEN_ALL = new Int32Array(12); // every move that stays on the board
+for (let r = 0; r < N; r++) {
+  for (let c = 0; c < N; c++) {
+    const cell = r * N + c;
+    const word = (cell / 27) | 0;
+    const bit = 1 << (cell % 27);
+    if (c < N - 1) {
+      const right = cell + 1;
+      const e = V_EDGES + r * (N - 1) + c;
+      EDGE_SIDE_A[e] = MOVE_E + word;
+      EDGE_BIT_A[e] = bit;
+      EDGE_SIDE_B[e] = MOVE_W + ((right / 27) | 0);
+      EDGE_BIT_B[e] = 1 << (right % 27);
+      OPEN_ALL[MOVE_E + word] |= bit;
+      OPEN_ALL[MOVE_W + word] |= 1 << (right % 27);
+    }
+    if (r < N - 1) {
+      const up = cell + N;
+      const e = r * N + c;
+      EDGE_SIDE_A[e] = MOVE_U + word;
+      EDGE_BIT_A[e] = bit;
+      EDGE_SIDE_B[e] = MOVE_D + ((up / 27) | 0);
+      EDGE_BIT_B[e] = 1 << (up % 27);
+      OPEN_ALL[MOVE_U + word] |= bit;
+      OPEN_ALL[MOVE_D + ((up / 27) | 0)] |= 1 << (up % 27);
+    }
+  }
+}
+const GOAL_BITS = GOAL_CELLS.map((cells) => {
+  const out = new Int32Array(3);
+  for (const cell of cells) out[(cell / 27) | 0] |= 1 << (cell % 27);
+  return out;
+});
+
+function closeEdge(open: Int32Array, e: number) {
+  open[EDGE_SIDE_A[e]] &= ~EDGE_BIT_A[e];
+  open[EDGE_SIDE_B[e]] &= ~EDGE_BIT_B[e];
+}
+function openEdge(open: Int32Array, e: number) {
+  open[EDGE_SIDE_A[e]] |= EDGE_BIT_A[e];
+  open[EDGE_SIDE_B[e]] |= EDGE_BIT_B[e];
+}
+
 interface QBoard {
   np: number;
   pawn: Int16Array; // pid → cell
   goal: Uint8Array; // pid → index into GOALS
   left: Int8Array; // pid → walls in hand
   blocked: Uint8Array; // edge → 1 when walled
+  open: Int32Array; // the moves open from each cell, as bits (see MOVE_E)
   slot: Uint8Array; // slot → 0 free, 1 horizontal, 2 vertical
   hash: number; // Zobrist over pawns, walls and supplies; the side to move is added on lookup
 }
@@ -459,9 +522,11 @@ function boardOf(s: { np: number; pawns: Cell[]; goals: Goal[]; wallsLeft: numbe
     goal: Uint8Array.from(s.goals, (g) => GOALS.indexOf(g)),
     left: Int8Array.from(s.wallsLeft),
     blocked: blockedEdges(s.walls),
+    open: OPEN_ALL.slice(),
     slot: new Uint8Array(SLOTS),
     hash: 0,
   };
+  for (let e = 0; e < EDGE_COUNT; e++) if (b.blocked[e]) closeEdge(b.open, e);
   for (const w of s.walls) b.slot[w.r * (N - 1) + w.c] = w.o === 'H' ? 1 : 2;
   for (const w of s.walls) b.hash ^= ZOB_WALL[(w.r * (N - 1) + w.c) * 2 + (w.o === 'H' ? 0 : 1)];
   for (let pid = 0; pid < b.np; pid++) {
@@ -483,6 +548,8 @@ function putWall(b: QBoard, pid: number, w: number) {
   b.slot[w >> 1] = (w & 1) + 1;
   b.blocked[WALL_E1[w]] = 1;
   b.blocked[WALL_E2[w]] = 1;
+  closeEdge(b.open, WALL_E1[w]);
+  closeEdge(b.open, WALL_E2[w]);
   b.hash = (b.hash ^ ZOB_WALL[w] ^ ZOB_LEFT[pid * 32 + b.left[pid]] ^ ZOB_LEFT[pid * 32 + b.left[pid] - 1]) >>> 0;
   b.left[pid] -= 1;
 }
@@ -490,6 +557,8 @@ function takeWall(b: QBoard, pid: number, w: number) {
   b.slot[w >> 1] = 0;
   b.blocked[WALL_E1[w]] = 0;
   b.blocked[WALL_E2[w]] = 0;
+  openEdge(b.open, WALL_E1[w]);
+  openEdge(b.open, WALL_E2[w]);
   b.hash = (b.hash ^ ZOB_WALL[w] ^ ZOB_LEFT[pid * 32 + b.left[pid]] ^ ZOB_LEFT[pid * 32 + b.left[pid] + 1]) >>> 0;
   b.left[pid] += 1;
 }
@@ -498,47 +567,60 @@ function stepPawn(b: QBoard, pid: number, to: number) {
   b.pawn[pid] = to;
 }
 
+// One breadth-first step on the bitboard: every cell one open move from the frontier
+// (f0, f1, f2), written to FRONT. Moving up a row is a shift of 9 within a word, and the
+// top row of one word carries into the bottom row of the next; down is the mirror image.
+const FRONT = new Int32Array(3);
+function expand(o: Int32Array, f0: number, f1: number, f2: number) {
+  const u0 = f0 & o[MOVE_U], u1 = f1 & o[MOVE_U + 1], u2 = f2 & o[MOVE_U + 2];
+  const d0 = f0 & o[MOVE_D], d1 = f1 & o[MOVE_D + 1], d2 = f2 & o[MOVE_D + 2];
+  FRONT[0] = ((f0 & o[MOVE_E]) << 1) | ((f0 & o[MOVE_W]) >>> 1) | ((u0 << 9) & M27) | (d0 >>> 9) | ((d1 & ROW0) << 18);
+  FRONT[1] = ((f1 & o[MOVE_E + 1]) << 1) | ((f1 & o[MOVE_W + 1]) >>> 1) | ((u1 << 9) & M27) | (u0 >>> 18) | (d1 >>> 9) | ((d2 & ROW0) << 18);
+  FRONT[2] = ((f2 & o[MOVE_E + 2]) << 1) | ((f2 & o[MOVE_W + 2]) >>> 1) | ((u2 << 9) & M27) | (u1 >>> 18) | (d2 >>> 9);
+}
+
 /** Every cell's walk to goal `g`, pawns ignored; -1 where there is none. */
-function goalMap(b: QBoard, g: number, out: Int8Array, queue: Int16Array) {
+function goalMap(b: QBoard, g: number, out: Int8Array) {
   out.fill(-1);
-  let tail = 0;
-  for (const cell of GOAL_CELLS[g]) {
-    out[cell] = 0;
-    queue[tail++] = cell;
-  }
-  for (let head = 0; head < tail; head++) {
-    const cell = queue[head];
-    const d = out[cell] + 1;
-    for (let k = cell * 4, end = k + 4; k < end; k++) {
-      const n = NB_CELL[k];
-      if (n < 0 || out[n] >= 0 || b.blocked[NB_EDGE[k]]) continue;
-      out[n] = d;
-      queue[tail++] = n;
-    }
+  const G = GOAL_BITS[g];
+  let f0 = G[0], f1 = G[1], f2 = G[2];
+  let v0 = f0, v1 = f1, v2 = f2;
+  for (const cell of GOAL_CELLS[g]) out[cell] = 0;
+  for (let d = 1; f0 | f1 | f2; d++) {
+    expand(b.open, f0, f1, f2);
+    f0 = FRONT[0] & ~v0;
+    f1 = FRONT[1] & ~v1;
+    f2 = FRONT[2] & ~v2;
+    v0 |= f0;
+    v1 |= f1;
+    v2 |= f2;
+    for (let x = f0; x; x &= x - 1) out[31 - Math.clz32(x & -x)] = d;
+    for (let x = f1; x; x &= x - 1) out[27 + 31 - Math.clz32(x & -x)] = d;
+    for (let x = f2; x; x &= x - 1) out[54 + 31 - Math.clz32(x & -x)] = d;
   }
 }
 
 /** One player's walk home, stopping the moment it is known; -1 if they are walled off. */
-function walk(b: QBoard, pid: number, seen: Int8Array, queue: Int16Array): number {
+function walk(b: QBoard, pid: number): number {
   const start = b.pawn[pid];
-  const g = b.goal[pid] * CELLS;
-  if (IS_GOAL[g + start]) return 0;
-  seen.fill(-1);
-  seen[start] = 0;
-  let tail = 0;
-  queue[tail++] = start;
-  for (let head = 0; head < tail; head++) {
-    const cell = queue[head];
-    const d = seen[cell] + 1;
-    for (let k = cell * 4, end = k + 4; k < end; k++) {
-      const n = NB_CELL[k];
-      if (n < 0 || seen[n] >= 0 || b.blocked[NB_EDGE[k]]) continue;
-      if (IS_GOAL[g + n]) return d;
-      seen[n] = d;
-      queue[tail++] = n;
-    }
+  const g = b.goal[pid];
+  if (IS_GOAL[g * CELLS + start]) return 0;
+  const G = GOAL_BITS[g];
+  const word = (start / 27) | 0;
+  const bit = 1 << (start % 27);
+  let f0 = word === 0 ? bit : 0, f1 = word === 1 ? bit : 0, f2 = word === 2 ? bit : 0;
+  let v0 = f0, v1 = f1, v2 = f2;
+  for (let d = 1; ; d++) {
+    expand(b.open, f0, f1, f2);
+    f0 = FRONT[0] & ~v0;
+    f1 = FRONT[1] & ~v1;
+    f2 = FRONT[2] & ~v2;
+    if (!(f0 | f1 | f2)) return -1;
+    if ((f0 & G[0]) | (f1 & G[1]) | (f2 & G[2])) return d;
+    v0 |= f0;
+    v1 |= f1;
+    v2 |= f2;
   }
-  return -1;
 }
 
 /** Legal pawn steps, jumps included — the same rules as `legalMoves`. */
@@ -621,12 +703,17 @@ function raceValue(b: QBoard, me: number, toMove: number, dist: Int16Array): num
   return ((first - myTime) / np) * STEP + (b.left[me] * mineCount - rivalWalls * theirsCount) * WALL_WORTH;
 }
 
+/** Every player's walk home as the bot measures it, on its bitboards — exposed so the
+ *  tests can hold it to a plain path search. */
+export function shortestWalks(s: QState): number[] {
+  const b = boardOf(s);
+  return Array.from({ length: b.np }, (_, pid) => walk(b, pid));
+}
+
 /** The evaluation, on a real game state — exposed so the position suite can pin it down. */
 export function evaluatePosition(s: QState, me: number, toMove: number): number {
   const b = boardOf(s);
-  const seen = new Int8Array(CELLS);
-  const queue = new Int16Array(CELLS);
-  const dist = Int16Array.from({ length: b.np }, (_, pid) => walk(b, pid, seen, queue));
+  const dist = Int16Array.from({ length: b.np }, (_, pid) => walk(b, pid));
   if (dist[me] === 0) return WIN;
   for (let pid = 0; pid < b.np; pid++) if (pid !== me && dist[pid] === 0) return -WIN;
   return raceValue(b, me, toMove, dist);
@@ -659,8 +746,6 @@ interface QEngine {
     turns: Int32Array;
     steps: Int16Array;
   }[];
-  seen: Int8Array;
-  queue: Int16Array;
   mark: Uint32Array; // wall → stamp, to list each candidate once
   stamp: number;
 }
@@ -675,7 +760,7 @@ function engineFor(b: QBoard, me: number, plan: QPlan): QEngine {
       map: new Int8Array(CELLS), target: new Int8Array(CELLS), dist: new Int16Array(b.np),
       turns: new Int32Array(MAX_TURNS), steps: new Int16Array(8),
     })),
-    seen: new Int8Array(CELLS), queue: new Int16Array(CELLS), mark: new Uint32Array(SLOTS * 2), stamp: 0,
+    mark: new Uint32Array(SLOTS * 2), stamp: 0,
   };
 }
 
@@ -739,7 +824,7 @@ function candidateWallsFor(e: QEngine, target: number, map: Int8Array, out: Int3
 function genTurns(e: QEngine, pid: number, toMove: number, ply: number, dist: Int16Array): number {
   const b = e.b;
   const P = e.ply[ply];
-  goalMap(b, b.goal[pid], P.map, e.queue);
+  goalMap(b, b.goal[pid], P.map);
   const ns = pawnSteps(b, pid, P.steps);
   const steps = P.steps;
   for (let i = 1; i < ns; i++) {
@@ -755,7 +840,7 @@ function genTurns(e: QEngine, pid: number, toMove: number, ply: number, dist: In
   for (let i = 0; i < ns; i++) P.turns[n++] = (steps[i] << 8) | NOWALL;
   if (b.left[pid] > 0) {
     const target = victim(e, pid, toMove, dist);
-    goalMap(b, b.goal[target], P.target, e.queue);
+    goalMap(b, b.goal[target], P.target);
     if (ns) n = candidateWallsFor(e, target, P.target, P.turns, n, steps[0]);
     if (!ns || P.map[steps[0]] >= P.map[b.pawn[pid]]) n = candidateWallsFor(e, target, P.target, P.turns, n, NOMOVE);
   }
@@ -779,7 +864,7 @@ function playTurn(e: QEngine, pid: number, t: number, from: number, map: Int8Arr
   }
   putWall(b, pid, wall);
   for (let q = 0; q < b.np; q++) {
-    after[q] = walk(b, q, e.seen, e.queue);
+    after[q] = walk(b, q);
     if (after[q] < 0) {
       undoTurn(e, pid, t, from);
       return false;
@@ -870,15 +955,15 @@ export interface QPlan {
 function chooseTurn(s: QState, pid: number, rng: Rng, plan: QPlan, spread: number, hurry = false): number | null {
   const b = boardOf(s);
   const e = engineFor(b, pid, plan);
-  const dist = Int16Array.from({ length: b.np }, (_, q) => walk(b, q, e.seen, e.queue));
+  const dist = Int16Array.from({ length: b.np }, (_, q) => walk(b, q));
   const P = e.ply[0];
   let n: number;
   if (s.turnStage === 'moved') {
     // The step is taken; what is left is whether a wall is worth one of ours.
-    goalMap(b, b.goal[pid], P.map, e.queue);
+    goalMap(b, b.goal[pid], P.map);
     P.turns[0] = (NOMOVE << 8) | NOWALL;
     const target = victim(e, pid, pid, dist);
-    goalMap(b, b.goal[target], P.target, e.queue);
+    goalMap(b, b.goal[target], P.target);
     n = candidateWallsFor(e, target, P.target, P.turns, 1, NOMOVE);
   } else n = genTurns(e, pid, pid, 0, dist);
 
@@ -913,6 +998,11 @@ function chooseTurn(s: QState, pid: number, rng: Rng, plan: QPlan, spread: numbe
     const onward = ranked.filter((r) => r.t >> 8 !== NOMOVE && P.map[r.t >> 8] < P.map[from]);
     if (onward.length) ranked = onward;
   }
+  // A step straight back onto the square just left pays BACK_COST. It is charged inside the
+  // search rather than after it, so every other turn is measured against the bar the step
+  // back actually has to clear, and compared exactly rather than as a leftover bound.
+  const back = s.cameFrom?.[pid];
+  const backCell = back ? back[0] * N + back[1] : -1;
   let settled: { t: number; v: number }[] | null = null;
   for (let depth = 1; depth <= Math.min(plan.maxDepth, MAX_PLY - 2); depth++) {
     const done: { t: number; v: number }[] = [];
@@ -920,7 +1010,8 @@ function chooseTurn(s: QState, pid: number, rng: Rng, plan: QPlan, spread: numbe
     for (const r of ranked) {
       playTurn(e, pid, r.t, from, P.map, dist, P.dist);
       const move = r.t >> 8;
-      const v = move !== NOMOVE && IS_GOAL[home + move] ? WIN : search(e, depth - 1, best - spread, Infinity, next, 1, P.dist);
+      const v = (move !== NOMOVE && IS_GOAL[home + move] ? WIN : search(e, depth - 1, best - spread, Infinity, next, 1, P.dist)) -
+        (move === backCell ? BACK_COST : 0);
       undoTurn(e, pid, r.t, from);
       if (e.aborted) break;
       done.push({ t: r.t, v: v + progress(r.t) });
@@ -944,11 +1035,29 @@ function chooseTurn(s: QState, pid: number, rng: Rng, plan: QPlan, spread: numbe
   // guide: it is what catches a favourite that has just been refuted.
   const pool = spread > STEP / 2 && settled ? settled : ranked;
   const top = pool[0].v;
-  const band = pool.filter((r) => r === pool[0] || r.v > top - spread);
+  let band = pool.filter((r) => r === pool[0] || r.v > top - spread);
+  // And never straight back while anything else is as good.
+  const onward = band.filter((r) => r.t >> 8 !== backCell);
+  if (onward.length) band = onward;
+  if (spread <= STEP / 2) {
+    // A narrow band is a tie, not a menu: of the turns the search cannot separate, take one
+    // that makes the most ground. Picking among them blind sent a pawn sideways as often as
+    // forwards — and round in circles once a race was decided either way.
+    const walkAfter = (t: number) => P.map[t >> 8 === NOMOVE ? from : t >> 8];
+    const nearest = Math.min(...band.map((r) => walkAfter(r.t)));
+    band = band.filter((r) => walkAfter(r.t) === nearest);
+  }
   return band[Math.floor(rng() * band.length)].t;
 }
 
 const OPENING_TURNS = 6; // three turns each, while a lost tempo is still recoverable
+// There is no repetition rule, so nothing stops a pawn stepping off a square and straight
+// back onto it, turn after turn — and the search often asks for exactly that, rating the
+// step back half a step better: a tempo it expects to win against walls that may never
+// come. Two turns for no ground at all is not worth a guess that thin, and to a person
+// across the board it looks aimless. A step back now has to be better by more than this.
+// Before it, a tenth of Master's and Grandmaster's moves against Sharp were steps back.
+const BACK_COST = STEP * 0.6;
 // There is no repetition rule in Quoridor, and bots that each prefer to let someone else
 // lead can wait on one another indefinitely — 34 of 400 four-player matches did, even
 // after the fixes above. A match this long (a normal one is 15–30 turns each) is stuck,
@@ -959,21 +1068,23 @@ const LONG_MATCH = 40; // turns each
 // That is still enough to beat the old Sharp bot 74% of the time, because it values walls
 // properly; Sharp beats it 89% of the time in 2-player games.
 export const STEADY_PLAN: QPlan = { budget: 400, maxDepth: 1, wallCap: 3 };
-// Sharp searches as deep as 20,000 positions allow: about 13ms a decision with two players
-// and 18ms with four on a laptop, and its slowest are quicker than the old bot's were.
+// Sharp searches as deep as 20,000 positions allow: about 4ms a decision on a laptop, with
+// two players or four (13ms and 18ms before the path searches moved onto bitboards).
 // With four players, capping it at one round played level against copies of itself but
 // beat three old bots less often (85% against 91%) — the extra depth is what punishes
 // weaker play, and weaker play is what it will meet.
 export const SHARP_PLAN: QPlan = { budget: 20000, maxDepth: 20, wallCap: 18 };
 // Master searches five times as far and plays its best move from the first turn — no
-// tempo spent on variety (see `spread`). About 70ms a decision. Against Sharp it wins
-// 82.5% of 2-player games (240, seats rotated). With four players it does not: one Master
+// tempo spent on variety (see `spread`). About 20ms a decision. Against Sharp it wins
+// 84% of 2-player games (240, seats rotated). With four players it does not: one Master
 // among three Sharps won its fair quarter and no more (80 games), with or without the
 // varied opening. There, whoever leads is walled by everyone else, and that decides more
 // than how far ahead anyone looks.
 export const MASTER_PLAN: QPlan = { budget: 100000, maxDepth: 20, wallCap: 18 };
-// Grandmaster searches four times as far again, about 230ms a decision. The return on depth
-// is flattening: it beats Master in 59% of 2-player games (120, ±4.5).
+// Grandmaster searches four times as far again, about 65ms a decision. Before the step-back
+// cost it beat Master in 59% of 2-player games (120, ±4.5); the cost made Master far
+// stronger (64% against its old self) and Grandmaster hardly at all (52%), and the two
+// now play level (48%, 160 games, ±4). Depth alone has stopped paying here.
 export const GRANDMASTER_PLAN: QPlan = { budget: 400000, maxDepth: 24, wallCap: 18 };
 
 const planFor = (skill: number): QPlan =>
@@ -1014,7 +1125,7 @@ function botMove(s: QState, seat: number, rng: Rng, plan?: QPlan): Record<string
     if (s.turnStage === 'moved') return { type: 'endTurn' };
     const b = boardOf(s);
     const map = new Int8Array(CELLS);
-    goalMap(b, b.goal[pid], map, new Int16Array(CELLS));
+    goalMap(b, b.goal[pid], map);
     const steps = new Int16Array(8);
     const n = pawnSteps(b, pid, steps);
     if (!n) {
@@ -1076,6 +1187,7 @@ export const quoridor: GameDef<QState> = {
       order: [...setup.seats],
       np,
       pawns: cfg.starts.map((cell) => [cell[0], cell[1]] as Cell),
+      cameFrom: new Array(np).fill(null),
       goals: [...cfg.goals],
       wallsLeft: new Array(np).fill(cfg.walls),
       walls: [],
@@ -1128,5 +1240,12 @@ export const quoridor: GameDef<QState> = {
 
   bot(s, seat, ctx) {
     return botMove(s, seat, ctx.rng);
+  },
+
+  // A bot that steps and then decides against a wall ends its turn with nothing to show
+  // for it, so there is nothing to wait for. Without this, every such turn sat still for
+  // a second after the pawn had already moved.
+  botPause(s, msg) {
+    return msg.type === 'endTurn' ? 0 : undefined;
   },
 };

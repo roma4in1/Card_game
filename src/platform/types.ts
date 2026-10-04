@@ -96,6 +96,13 @@ export interface GameDef<S = unknown> {
    * (e.g. after a player leaves). The returned object is an `act` message.
    */
   bot?(state: S, seat: number, ctx: GameContext): Record<string, unknown> | null;
+
+  /**
+   * Optional: how long (ms) the room should wait before playing a bot's action, where the
+   * usual human-like pause would only be dead air — ending a turn with nothing to show,
+   * say. `undefined` means the usual pause.
+   */
+  botPause?(state: S, msg: Record<string, unknown>): number | undefined;
 }
 
 /** A lobby-facing summary of a game (for the host's picker). */
