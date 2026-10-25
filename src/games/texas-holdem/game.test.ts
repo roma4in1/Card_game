@@ -4,7 +4,7 @@
 // created or lost.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { texasHoldem, buildPots, blindsFor, type HState } from './game.ts';
+import { texasHoldem, buildPots, blindsFor, chipSetFor, firstLevel, SMALL_BLINDS, type HState } from './game.ts';
 import { parse } from '../shared/poker.ts';
 import type { GameContext } from '../../platform/types.ts';
 
@@ -213,12 +213,59 @@ test('your own cards are yours: others see backs until a showdown, and folded ha
   assert.equal(after.players.find((p: any) => p.seat === 0).shown, null, 'the folded hand is not');
 });
 
-test('the blinds rise on schedule, in proportion to the starting stack', () => {
+test('the blinds climb level by level, starting about 50 big blinds deep', () => {
   assert.deepEqual(blindsFor(1000, 10, 1), [10, 20]);
   assert.deepEqual(blindsFor(1000, 10, 10), [10, 20]);
-  assert.deepEqual(blindsFor(1000, 10, 11), [20, 40]);
+  assert.deepEqual(blindsFor(1000, 10, 11), [15, 30]);
+  assert.deepEqual(blindsFor(1000, 10, 21), [25, 50]);
   assert.deepEqual(blindsFor(500, 5, 6), [10, 20]);
+  assert.deepEqual(blindsFor(5000, 10, 1), [50, 100], 'a deeper stack starts at bigger blinds');
   assert.deepEqual(blindsFor(1000, 0, 500), [10, 20], '0 = the blinds never rise');
+  for (const stack of [500, 1000, 1500, 2500, 5000]) {
+    const [, bb] = blindsFor(stack, 10, 1);
+    assert.ok(stack / bb >= 40 && stack / bb <= 100, `${stack} chips start ${stack / bb} big blinds deep`);
+  }
+  // Every level is bigger than the last, all the way past the end of the table.
+  let prev = 0;
+  for (let hand = 1; hand <= 400; hand += 10) {
+    const [sb] = blindsFor(1000, 10, hand);
+    assert.ok(sb > prev, `level at hand ${hand}: ${sb} after ${prev}`);
+    prev = sb;
+  }
+  assert.equal(firstLevel(1000), SMALL_BLINDS.indexOf(10));
+});
+
+test('the chips colour up as the blinds rise, and every blind can be paid with them', () => {
+  for (const [stack, players] of [[500, 2], [1000, 2], [1000, 6], [1500, 4], [5000, 8]]) {
+    let smallest = 0;
+    for (let hand = 1; hand <= 300; hand += 10) {
+      const set = chipSetFor(stack, 10, hand, stack * players);
+      const [sb, bb] = blindsFor(stack, 10, hand);
+      assert.ok(set[0] >= smallest, `${stack}×${players}, hand ${hand}: a coloured-up chip never comes back`);
+      smallest = set[0];
+      assert.equal(sb % set[0], 0, `${sb}/${bb} paid exactly in ${set[0]}s`);
+      assert.ok(set.length <= 5 && set.every((d, i) => i === 0 || d > set[i - 1]), 'up to five kinds, smallest first');
+      assert.ok(set.slice(1).every((d) => d <= (stack * players) / 4), 'no chip worth more than a quarter of the table');
+    }
+  }
+  assert.deepEqual(chipSetFor(1000, 10, 1, 2000), [5, 25, 100, 500]);
+  assert.deepEqual(chipSetFor(1000, 10, 51, 2000), [100, 500], 'by 100/200 the 5s and 25s are gone');
+});
+
+test('the table is told the level, the chips in play, and when the blinds go up next', () => {
+  const s = newGame(3, { blindsEvery: 2 });
+  const v = view(s, 0);
+  assert.equal(v.level, 1);
+  assert.deepEqual(v.chipSet, [5, 25, 100, 500]);
+  assert.equal(v.blindsIn, 2);
+  assert.deepEqual(v.nextBlinds, [15, 30]);
+  for (let hand = 0; hand < 2; hand++) {
+    while (!s.hand!.result) act(s, s.hand!.toAct, s.hand!.currentBet - s.players[s.hand!.toAct]!.committed > 0 ? 'call' : 'check');
+    texasHoldem.act(s, 0, { type: 'nextHand' }, ctx());
+  }
+  assert.equal(view(s, 0).level, 2);
+  assert.deepEqual(s.hand!.blinds, [15, 30]);
+  assert.ok(s.log.some((l) => l.includes('Blinds up') && l.includes('level 2')));
 });
 
 test('the timer checks for a stalled player when it can, folds when it cannot, and deals on', () => {

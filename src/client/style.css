@@ -1845,3 +1845,45 @@ button.sv-ship:hover .body { fill: #7b8ba7; }
 .rank-row .ex-cards .pcard { --pc-w: 22px; border-width: 1px; animation: none; box-shadow: none; }
 .rank-row .ex-cards .pcard .pc-pip { display: none; }
 .rank-row .ex-cards .pcard .pc-corner { font-size: calc(var(--pc-w) * 0.36); top: 5%; left: 10%; }
+
+/* Poker chips — casino colours by denomination, value on the top chip */
+.pchip {
+  position: absolute; left: 0; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--chip);
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.4);
+  color: var(--chip-ink); font: 800 5.5px/10px 'Outfit', sans-serif; text-align: center; letter-spacing: -0.02em;
+  overflow: hidden;
+}
+.chip-pile { display: inline-flex; align-items: flex-end; gap: 1px; }
+.chip-stack { position: relative; display: inline-block; width: 14px; }
+.pk-bet { gap: 5px; padding-left: 4px; }
+.pk-bet .chip-pile { margin-bottom: 1px; }
+#hePotChips { display: inline-flex; align-self: center; }
+#hePotChips .chip-pile { margin-right: 2px; }
+.seat-chip {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 3px; vertical-align: -1px;
+  background: var(--chip, var(--gold)); border: 1.5px dashed rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+}
+.pk-level { font-size: 0.66rem; color: rgba(255, 255, 255, 0.78); letter-spacing: 0.03em; }
+.pk-level b { color: var(--gold); }
+.pk-levelup {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.9); z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 18px; border-radius: 16px;
+  background: linear-gradient(135deg, var(--gold), #ffe08a); color: #4a3500; box-shadow: var(--shadow-lg);
+  font-family: 'Outfit', sans-serif; text-align: center; pointer-events: none; opacity: 0;
+}
+.pk-levelup span { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.pk-levelup b { font-size: 1.15rem; font-weight: 900; }
+.pk-levelup.show { animation: level-up 2.8s var(--ease) forwards; }
+@keyframes level-up {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  20%, 78% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}
+.chip-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 2px 0 6px; }
+.chip-key { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.86rem; }
+.chip-key .pchip { position: relative; width: 22px; height: 22px; font-size: 7px; line-height: 18px; }
+.pk-chip-title { margin: 14px 0 6px; }

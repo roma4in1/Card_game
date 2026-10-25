@@ -129,13 +129,15 @@
           <div class="felt-oval">
             <div class="felt-rail"></div>
             <div class="table-center">
-              <div class="pot-pill"><span class="pot-label">POT</span><b id="hePot">0</b></div>
+              <div class="pot-pill"><span class="pot-label">POT</span><span id="hePotChips"></span><b id="hePot">0</b></div>
               <div class="pk-board" id="heBoard"></div>
               <div class="turn-banner" id="heTurn"></div>
+              <div class="pk-level" id="heLevel"></div>
               <div class="pk-blinds" id="heBlinds"></div>
             </div>
           </div>
           <div class="seats" id="heSeats"></div>
+          <div class="pk-levelup" id="heLevelUp" aria-live="polite"></div>
         </div>
         <div class="your-hand pk-hand" id="heHand"></div>
         <div class="pk-made" id="heMade"></div>
@@ -157,11 +159,13 @@
         </div>
         <p class="sheet-sub">Your best <b>five</b> cards from your two and the five on the board. Highest first.</p>
         <div id="heRanksList" class="ranks-list"></div>
+        <p class="sheet-sub pk-chip-title"><b>Chips in play</b> — the small ones are coloured up as the blinds rise.</p>
+        <div id="heChipLegend" class="chip-legend"></div>
         <div class="rules-body pk-rules">
           <p><b>A hand:</b> the two players left of the dealer post the small and big blinds, everyone gets two cards, and there is a round of betting. Then come the <b>flop</b> (three cards), the <b>turn</b> and the <b>river</b> (one each), with a round of betting after each.</p>
           <p><b>On your turn:</b> fold, check if nobody has bet, call the bet, or raise. A raise must be at least as big as the last one. You can always go all-in.</p>
           <p><b>Showdown:</b> the best hand wins the pot. Someone all-in can only win what they matched — the rest is a side pot for the others.</p>
-          <p>The blinds rise as the game goes on. Run out of chips and you are out; the last player with chips wins.</p>
+          <p><b>The blinds rise</b> every few hands (the host sets how many), level after level — 10/20, 15/30, 25/50, 50/100… — so the pressure keeps building. Run out of chips and you are out; the last player with chips wins.</p>
         </div>
       </div>
     </div>

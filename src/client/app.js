@@ -3492,6 +3492,64 @@ function pkWinningFive(s) {
   return r.reveals.find((x) => x.seat === first)?.best || null;
 }
 
+// Poker chips, in casino colours by denomination: [face, ink].
+const CHIP_COLORS = {
+  1: ['#f1f1f4', '#2b5fc4'], 5: ['#d23b3b', '#fff'], 25: ['#2f9a58', '#fff'], 100: ['#202027', '#fff'],
+  500: ['#7a42c2', '#fff'], 1000: ['#e5b52a', '#3a2a00'], 5000: ['#e8792f', '#fff'], 25000: ['#d65b9a', '#fff'],
+  100000: ['#3f9fd6', '#fff'], 500000: ['#8a6a3a', '#fff'], 1000000: ['#c9cad6', '#222'],
+};
+const chipLabel = (d) => (d >= 1e6 ? `${d / 1e6}M` : d >= 1000 ? `${d / 1000}K` : String(d));
+
+/** An amount as chips of the denominations in play, biggest first. Anything the smallest
+ *  chip cannot make exactly rounds up to one more of it — it is a picture, not a ledger. */
+function chipBreakdown(amount, set) {
+  const out = [];
+  let left = amount;
+  for (const d of [...set].sort((a, b) => b - a)) {
+    const n = Math.floor(left / d);
+    if (n) out.push([d, n]);
+    left -= n * d;
+  }
+  if (left > 0) {
+    const small = Math.min(...set);
+    const have = out.find(([d]) => d === small);
+    if (have) have[1]++;
+    else out.push([small, 1]);
+  }
+  return out;
+}
+
+function chipEl(d) {
+  const c = document.createElement('span');
+  const [face, ink] = CHIP_COLORS[d] || ['#888', '#fff'];
+  c.className = 'pchip';
+  c.style.setProperty('--chip', face);
+  c.style.setProperty('--chip-ink', ink);
+  return c;
+}
+
+/** A small pile for an amount: a stack per denomination (the top few kinds), up to five
+ *  chips tall, the value printed on the top chip. */
+function chipPileEl(amount, set, kinds = 3) {
+  const pile = document.createElement('span');
+  pile.className = 'chip-pile';
+  for (const [d, n] of chipBreakdown(amount, set).slice(0, kinds)) {
+    const stack = document.createElement('span');
+    stack.className = 'chip-stack';
+    stack.title = `${n} × ${d}`;
+    const tall = Math.min(n, 5);
+    for (let i = 0; i < tall; i++) {
+      const c = chipEl(d);
+      c.style.bottom = `${i * 2.5}px`;
+      if (i === tall - 1) c.textContent = chipLabel(d);
+      stack.appendChild(c);
+    }
+    stack.style.height = `${14 + (tall - 1) * 2.5}px`;
+    pile.appendChild(stack);
+  }
+  return pile;
+}
+
 /** Players around the oval, you at the bottom — the Win or Die table, with real cards. */
 function pkSeats(boxId, s, opts) {
   const players = (s.players || []).filter((p) => !p.out || p.seat === s.seat);
@@ -3499,7 +3557,7 @@ function pkSeats(boxId, s, opts) {
   const list = yi < 0 ? players : [...players.slice(yi), ...players.slice(0, yi)];
   const bots = botSeatSet(s);
   const best = pkWinningFive(s);
-  const sig = JSON.stringify([list, [...bots], best]);
+  const sig = JSON.stringify([list, [...bots], best, s.chipSet || null]);
   if (pkSig[boxId] === sig) return;
   pkSig[boxId] = sig;
 
@@ -3531,7 +3589,15 @@ function pkSeats(boxId, s, opts) {
     body.innerHTML =
       `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
       `<span class="pseat-meta"><span class="pseat-name">${escapeHtml(isYou ? 'You' : p.name)}${bots.has(p.seat) ? ' 🤖' : ''}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
-      `<span class="pseat-chips">${opts.chips ? `🪙 ${p.chips}` : p.ready ? '<b class="pk-ready">✓ ready</b>' : p.folded ? 'folded' : 'not ready'}</span></span>`;
+      `<span class="pseat-chips">${opts.chips ? `<i class="seat-chip"></i>${p.chips}` : p.ready ? '<b class="pk-ready">✓ ready</b>' : p.folded ? 'folded' : 'not ready'}</span></span>`;
+    if (opts.chips && s.chipSet) {
+      // The chip beside a stack is the biggest denomination in it.
+      const top = chipBreakdown(Math.max(p.chips, 1), s.chipSet)[0][0];
+      const [face, ink] = CHIP_COLORS[top] || ['#888', '#fff'];
+      const dot = body.querySelector('.seat-chip');
+      dot.style.setProperty('--chip', face);
+      dot.style.setProperty('--chip-ink', ink);
+    }
     tile.appendChild(body);
 
     const badges = [];
@@ -3560,8 +3626,10 @@ function pkSeats(boxId, s, opts) {
     if (p.committed) {
       const bpos = posAt(theta, SEAT_RX * 0.72, SEAT_RY * 0.68); // clear of the five-card board
       const bet = document.createElement('div');
-      bet.className = 'felt-bet';
-      bet.innerHTML = `<span class="chip-dot"></span>${p.committed}`;
+      bet.className = 'felt-bet pk-bet';
+      if (s.chipSet) bet.appendChild(chipPileEl(p.committed, s.chipSet, 2));
+      else bet.innerHTML = '<span class="chip-dot"></span>';
+      bet.appendChild(document.createTextNode(String(p.committed)));
       bet.style.left = `${bpos.left}%`;
       bet.style.top = `${bpos.top}%`;
       box.appendChild(bet);
@@ -3616,9 +3684,18 @@ function renderHoldem(s) {
   $('heCopy').onclick = copyInvite;
   $('hePhase').textContent = HE_PHASE[s.phase] || '';
   animateNumber($('hePot'), s.pot);
+  const potSig = `${s.pot}|${(s.chipSet || []).join()}`;
+  if (pkSig.hePotChips !== potSig) {
+    pkSig.hePotChips = potSig;
+    $('hePotChips').replaceChildren(...(s.pot && s.chipSet ? [chipPileEl(s.pot, s.chipSet, 3)] : []));
+  }
   pkCards('heBoard', s.board, { slots: 5, best: pkWinningFive(s) });
-  $('heBlinds').textContent = `Hand ${s.handNo} · blinds ${s.blinds[0]}/${s.blinds[1]}` +
-    (s.blindsIn && !s.over ? ` · ${s.nextBlinds[0]}/${s.nextBlinds[1]} in ${s.blindsIn}` : '');
+  $('heLevel').innerHTML = `<b>Level ${s.level}</b> · blinds ${s.blinds[0]}/${s.blinds[1]}`;
+  $('heBlinds').textContent = s.over ? `Hand ${s.handNo}` : s.blindsIn
+    ? `Hand ${s.handNo} · ${s.nextBlinds[0]}/${s.nextBlinds[1]} in ${s.blindsIn} hand${s.blindsIn === 1 ? '' : 's'}`
+    : `Hand ${s.handNo} · blinds never rise`;
+  heAnnounceLevel(s);
+  heChipLegend(s);
   const turn = $('heTurn');
   const actor = s.players.find((p) => p.isTurn);
   turn.textContent = !actor ? '' : actor.seat === s.seat ? 'Your turn' : `${nameOf(s, actor.seat)} to act`;
@@ -3634,6 +3711,37 @@ function renderHoldem(s) {
   $('heMade').textContent = you.made || '';
   renderHeActions(s);
   duelLog('heLog', s);
+}
+
+// A banner across the table when the blinds go up, so nobody misses it.
+let heSeenLevel = { room: null, level: 0 };
+function heAnnounceLevel(s) {
+  const fresh = heSeenLevel.room !== s.room || s.level < heSeenLevel.level;
+  const up = !fresh && s.level > heSeenLevel.level;
+  heSeenLevel = { room: s.room, level: s.level };
+  if (!up) return;
+  const el = $('heLevelUp');
+  el.innerHTML = `<span>⬆️ Blinds up</span><b>Level ${s.level} · ${s.blinds[0]}/${s.blinds[1]}</b>`;
+  el.classList.remove('show');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('show');
+}
+
+/** The chips in play, with their values, in the rules sheet. */
+function heChipLegend(s) {
+  const box = $('heChipLegend');
+  const sig = (s.chipSet || []).join();
+  if (!box || box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = '';
+  for (const d of s.chipSet || []) {
+    const item = document.createElement('span');
+    item.className = 'chip-key';
+    const c = chipEl(d);
+    c.textContent = chipLabel(d);
+    item.append(c, document.createTextNode(String(d)));
+    box.appendChild(item);
+  }
 }
 
 function renderHeActions(s) {
