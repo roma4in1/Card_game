@@ -30,6 +30,9 @@ export interface GameOption {
   /** Optional names for each step, from `min` upward — the client shows these instead of
    *  the raw number, so a 1-to-3 setting can read "Casual / Steady / Sharp". */
   labels?: string[];
+  /** A number the host types (any whole value from min to max), rather than one picked
+   *  by stepping — for amounts like a starting stack. − and + still nudge it by `step`. */
+  input?: boolean;
 }
 
 /** Result of a game once it finishes. */
@@ -96,6 +99,10 @@ export interface GameDef<S = unknown> {
    * (e.g. after a player leaves). The returned object is an `act` message.
    */
   bot?(state: S, seat: number, ctx: GameContext): Record<string, unknown> | null;
+
+  /** Optional: one line for the lobby on what the chosen settings add up to (or what
+   *  will be adjusted), e.g. "1,000 chips each — 50 big blinds". */
+  describeOptions?(options: Record<string, number>): string | null;
 
   /**
    * Optional: how long (ms) the room should wait before playing a bot's action, where the

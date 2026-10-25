@@ -23,17 +23,36 @@ import { holdemBot, type BotView } from './bot.ts';
 
 export const MAX_SEATS = 8;
 
-export const STACK_OPTION: GameOption = { key: 'stack', label: 'Starting chips', min: 500, max: 5000, step: 500, default: 1000 };
+// What the host sets before the game: how many chips each player starts with, the blinds
+// the first hands are played at, and how often they go up. Amounts are typed in.
+export const STACK_OPTION: GameOption = { key: 'stack', label: 'Starting chips (each)', min: 20, max: 1000000, step: 100, default: 1000, input: true };
+export const SB_OPTION: GameOption = { key: 'sb', label: 'Small blind (to start)', min: 1, max: 100000, step: 5, default: 10, input: true };
+export const BB_OPTION: GameOption = { key: 'bb', label: 'Big blind (to start)', min: 2, max: 200000, step: 10, default: 20, input: true };
 export const BLINDS_OPTION: GameOption = { key: 'blindsEvery', label: 'Blinds rise every (hands, 0 = never)', min: 0, max: 30, step: 1, default: 10 };
 
-// The small blinds, level by level, the way tournament structures are laid out: each step a
-// third to double the last, and every value a round multiple of the chips in play at that
-// point (the big blind is always twice the small). A game starts at the level that puts
-// about 50 big blinds in front of everyone, whatever the starting stack, and climbs from
-// there. Past the end of the table, the blinds keep doubling.
-export const SMALL_BLINDS = [
-  5, 10, 15, 25, 50, 75, 100, 200, 300, 400, 500, 1000, 1500, 2000, 3000, 4000, 5000, 10000, 15000, 20000, 30000, 40000, 50000,
-];
+/** The host's settings made consistent: the big blind is at least the small, and no blind
+ *  is more than a whole starting stack. `notes` says what had to give. */
+export function tableSettings(o: Record<string, number> = {}) {
+  const num = (v: unknown, spec: GameOption) => {
+    const n = Math.round(Number(v ?? spec.default));
+    return Number.isFinite(n) ? Math.max(spec.min, Math.min(spec.max, n)) : spec.default;
+  };
+  const stack = num(o.stack, STACK_OPTION);
+  let sb = num(o.sb, SB_OPTION);
+  let bb = num(o.bb, BB_OPTION);
+  const blindsEvery = num(o.blindsEvery, BLINDS_OPTION);
+  const notes: string[] = [];
+  if (bb < sb) {
+    bb = sb;
+    notes.push(`the big blind can't be smaller than the small, so it will be ${bb}`);
+  }
+  if (bb > stack) {
+    bb = stack;
+    sb = Math.min(sb, bb);
+    notes.push(`no blind can be more than a whole stack, so they will be ${sb}/${bb}`);
+  }
+  return { stack, start: [sb, bb] as [number, number], blindsEvery, notes };
+}
 
 export type Street = 'preflop' | 'flop' | 'turn' | 'river';
 
@@ -114,6 +133,7 @@ export interface HState {
   hand: Hand | null;
   handNo: number;
   stack: number;
+  startBlinds: [number, number]; // the blinds the host chose for the first level
   blindsEvery: number;
   over: boolean;
   winner: number | null;
@@ -147,24 +167,39 @@ function nextSeat(s: HState, from: number, ok: (seat: number) => boolean): numbe
 /** The blind level a hand is played at, counting from 0. */
 export const levelOf = (blindsEvery: number, handNo: number) => (blindsEvery > 0 ? Math.floor((Math.max(1, handNo) - 1) / blindsEvery) : 0);
 
-/** The small blind at an index into the schedule, doubling past its end. */
-function smallBlindAt(i: number): number {
-  const last = SMALL_BLINDS.length - 1;
-  return i <= last ? SMALL_BLINDS[i] : SMALL_BLINDS[last] * 2 ** (i - last);
+// How much bigger each level's blinds are than the first's: the classic tournament climb —
+// from 10/20 it runs 15/30, 25/50, 50/100, 75/150, 100/200, 200/400 … — applied to whatever
+// blinds the host starts at. Each step is a third to double the last; past the end of the
+// table they keep doubling.
+const CLIMB = [1, 1.5, 2.5, 5, 7.5, 10, 20, 30, 40, 50, 100, 150, 200, 300, 400, 500, 1000, 1500, 2000, 3000, 4000, 5000];
+const climbAt = (level: number) => (level < CLIMB.length ? CLIMB[level] : CLIMB[CLIMB.length - 1] * 2 ** (level - CLIMB.length + 1));
+
+/** A blind rounded to a figure a dealer would ask for: whole chips, and above ten a round
+ *  value — 12, 15, 20, 25, 30, 40, 50, 60, 75, 80, 100, 120, 125, 150 … */
+export function roundBlind(x: number): number {
+  if (x < 10) return Math.max(1, Math.round(x));
+  const unit = 10 ** Math.floor(Math.log10(x));
+  let best = unit;
+  for (const m of [1, 1.2, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10]) {
+    const v = m * unit;
+    if (Number.isInteger(v) && Math.abs(v - x) < Math.abs(best - x)) best = v;
+  }
+  return best;
 }
 
-/** Where a game with this starting stack begins: the deepest level that still leaves
- *  everyone with no more than about 50 big blinds. */
-export function firstLevel(stack: number): number {
-  let i = 0;
-  while (i + 1 < SMALL_BLINDS.length && smallBlindAt(i + 1) * 2 * 50 <= stack) i++;
-  return i;
+/** The blinds at a level: the first level is exactly what the host chose; each one after
+ *  climbs from there, always bigger than the one before. */
+export function levelBlinds(start: [number, number], level: number): [number, number] {
+  let [sb, bb] = start;
+  for (let l = 1; l <= level; l++) {
+    const nsb = Math.max(sb + 1, roundBlind(start[0] * climbAt(l)));
+    bb = Math.max(bb + 1, nsb, roundBlind(start[1] * climbAt(l)));
+    sb = nsb;
+  }
+  return [sb, bb];
 }
 
-export function blindsFor(stack: number, blindsEvery: number, handNo: number): [number, number] {
-  const sb = smallBlindAt(firstLevel(stack) + levelOf(blindsEvery, handNo));
-  return [sb, sb * 2];
-}
+export const blindsFor = (start: [number, number], blindsEvery: number, handNo: number) => levelBlinds(start, levelOf(blindsEvery, handNo));
 
 // The chips on the table, in the usual casino denominations. As the blinds climb, the small
 // chips are coloured up and bigger ones brought in — as at a real tournament — and once a
@@ -173,15 +208,14 @@ export function blindsFor(stack: number, blindsEvery: number, handNo: number): [
 // chips there are at the table, so nobody is handed a chip worth half the game.
 export const DENOMINATIONS = [1, 5, 25, 100, 500, 1000, 5000, 25000, 100000, 500000, 1000000];
 
-export function chipSetFor(stack: number, blindsEvery: number, handNo: number, inPlay: number): number[] {
-  const start = firstLevel(stack);
+export function chipSetFor(start: [number, number], blindsEvery: number, handNo: number, inPlay: number): number[] {
   const level = levelOf(blindsEvery, handNo);
   // The smallest chip each level up to this one needs, never going back down.
   let smallest = 1;
   for (let l = 0; l <= level; l++) {
-    const coming = [0, 1, 2].map((k) => smallBlindAt(start + l + k));
+    const coming = [0, 1, 2].flatMap((k) => levelBlinds(start, l + k));
     let d = smallest;
-    for (const x of DENOMINATIONS) if (x >= smallest && coming.every((sb) => sb % x === 0)) d = x;
+    for (const x of DENOMINATIONS) if (x >= smallest && coming.every((b) => b % x === 0)) d = x;
     smallest = d;
   }
   const set = [smallest];
@@ -220,7 +254,7 @@ function startHand(s: HState, rng: Rng) {
   }
 
   s.handNo += 1;
-  const blinds = blindsFor(s.stack, s.blindsEvery, s.handNo);
+  const blinds = blindsFor(s.startBlinds, s.blindsEvery, s.handNo);
   const prev = s.hand;
   if (prev && blinds[1] !== prev.blinds[1]) log(s, `⬆️ Blinds up — level ${levelOf(s.blindsEvery, s.handNo) + 1}: ${blinds[0]}/${blinds[1]}.`);
 
@@ -510,7 +544,7 @@ function view(s: HState, seat: number | null): Record<string, unknown> {
   const me = seat !== null ? s.players[seat] : null;
   const shown = new Map((h?.result?.reveals ?? []).map((r) => [r.seat, r.hole]));
   const pot = h ? h.participants.reduce((a, x) => a + s.players[x]!.contributed, 0) : 0;
-  const blinds = h ? h.blinds : blindsFor(s.stack, s.blindsEvery, 1);
+  const blinds = h ? h.blinds : blindsFor(s.startBlinds, s.blindsEvery, 1);
   const players = seated(s).map((x) => {
     const p = s.players[x]!;
     const dealt = !!h && h.participants.includes(x);
@@ -541,8 +575,8 @@ function view(s: HState, seat: number | null): Record<string, unknown> {
     handNo: s.handNo,
     level: levelOf(s.blindsEvery, s.handNo) + 1,
     blinds,
-    chipSet: chipSetFor(s.stack, s.blindsEvery, s.handNo, s.stack * seated(s).length),
-    nextBlinds: s.blindsEvery > 0 ? blindsFor(s.stack, s.blindsEvery, s.handNo + s.blindsEvery - ((s.handNo - 1) % s.blindsEvery)) : null,
+    chipSet: chipSetFor(s.startBlinds, s.blindsEvery, s.handNo, s.stack * seated(s).length),
+    nextBlinds: s.blindsEvery > 0 ? blindsFor(s.startBlinds, s.blindsEvery, s.handNo + s.blindsEvery - ((s.handNo - 1) % s.blindsEvery)) : null,
     blindsIn: s.blindsEvery > 0 ? s.blindsEvery - ((s.handNo - 1) % s.blindsEvery) : null,
     pot,
     board: h ? h.board.map(code) : [],
@@ -618,11 +652,21 @@ export const texasHoldem: GameDef<HState> = {
   blurb: 'No-limit poker: two cards each, five on the board, blinds rising. Last player with chips wins.',
   minPlayers: 2,
   maxPlayers: MAX_SEATS,
-  options: [SKILL_OPTION, STACK_OPTION, BLINDS_OPTION, TIMER_OPTION],
+  options: [STACK_OPTION, SB_OPTION, BB_OPTION, BLINDS_OPTION, SKILL_OPTION, TIMER_OPTION],
+
+  describeOptions(o) {
+    const t = tableSettings(o);
+    const [sb, bb] = t.start;
+    const depth = Math.floor(t.stack / bb);
+    const climb = t.blindsEvery > 0
+      ? `then ${[1, 2, 3].map((l) => levelBlinds(t.start, l).join('/')).join(', ')} … every ${t.blindsEvery} hand${t.blindsEvery === 1 ? '' : 's'}`
+      : 'and they never go up';
+    const note = t.notes.length ? ` (${t.notes.join('; ')})` : '';
+    return `${t.stack.toLocaleString('en')} chips each — ${depth} big blind${depth === 1 ? '' : 's'}. Blinds ${sb}/${bb}, ${climb}.${note}`;
+  },
 
   create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): HState {
-    const stack = Math.max(STACK_OPTION.min, Math.min(STACK_OPTION.max, Math.round(Number(setup.options?.stack) || STACK_OPTION.default)));
-    const every = Math.max(0, Math.min(BLINDS_OPTION.max, Math.round(Number(setup.options?.blindsEvery ?? BLINDS_OPTION.default))));
+    const { stack, start, blindsEvery } = tableSettings(setup.options);
     const players: (HPlayer | null)[] = new Array(MAX_SEATS).fill(null);
     const nameBySeat = new Map(setup.players.map((p) => [p.seat, p.name]));
     for (const seat of setup.seats) {
@@ -633,10 +677,10 @@ export const texasHoldem: GameDef<HState> = {
       };
     }
     const s: HState = {
-      players, hand: null, handNo: 0, stack, blindsEvery: Number.isFinite(every) ? every : BLINDS_OPTION.default,
+      players, hand: null, handNo: 0, stack, startBlinds: start, blindsEvery,
       over: false, winner: null, timer: initTimer(setup.options?.timer), skill: initSkill(setup.options?.skill), log: [],
     };
-    log(s, `Texas Hold'em — ${setup.seats.length} players, ${stack} chips each.`);
+    log(s, `Texas Hold'em — ${setup.seats.length} players, ${stack} chips each, blinds ${start[0]}/${start[1]}.`);
     startHand(s, ctx.rng);
     return s;
   },

@@ -1887,3 +1887,14 @@ button.sv-ship:hover .body { fill: #7b8ba7; }
 .chip-key { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.86rem; }
 .chip-key .pchip { position: relative; width: 22px; height: 22px; font-size: 7px; line-height: 18px; }
 .pk-chip-title { margin: 14px 0 6px; }
+
+/* Typed lobby settings (amounts such as a starting stack) */
+.gp-optinput {
+  width: 92px; text-align: center; font: 700 1rem 'Outfit', sans-serif; color: var(--ink);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line-strong); border-radius: 10px;
+  padding: 6px 4px; -moz-appearance: textfield;
+}
+.gp-optinput::-webkit-outer-spin-button, .gp-optinput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.gp-optinput:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.gp-note { margin: 2px 2px 0; font-size: 0.8rem; line-height: 1.4; color: var(--muted); }
+.gp-settings { display: flex; flex-direction: column; gap: 8px; margin: -2px 0 4px 8px; padding-left: 10px; border-left: 2px solid var(--gold); }

@@ -424,6 +424,7 @@ export function viewFor(room: Room, seat: number): Record<string, unknown> {
         selectedGame: room.gameId,
         games: GAME_SUMMARIES,
         options: room.options,
+        optionsNote: GAMES[room.gameId]?.describeOptions?.(room.options) ?? null,
       },
       log: room.log.slice(-15),
       matchWinner: null,

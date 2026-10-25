@@ -686,6 +686,11 @@ function renderGamePicker(s) {
   const box = $('gamePicker');
   const lob = s.lobby || {};
   const games = lob.games || [];
+  // A typed setting survives the lobby redrawing under it (someone joins, a bot is added):
+  // keep what is being typed, and where, and put it back afterwards.
+  const typing = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.option
+    ? { key: document.activeElement.dataset.option, value: document.activeElement.value }
+    : null;
   box.innerHTML = '';
   if (games.length <= 1) {
     box.style.display = 'none';
@@ -696,6 +701,7 @@ function renderGamePicker(s) {
   title.className = 'gp-title';
   title.textContent = s.youAreHost ? 'Choose a game' : 'Game';
   box.appendChild(title);
+  let selCard = null;
   games.forEach((g) => {
     const card = document.createElement('button');
     card.className = 'gp-card' + (g.id === lob.selectedGame ? ' sel' : '');
@@ -705,8 +711,13 @@ function renderGamePicker(s) {
       `<div class="gp-meta">${g.minPlayers}–${g.maxPlayers} players</div>`;
     if (s.youAreHost) card.onclick = () => send({ type: 'selectGame', gameId: g.id });
     else card.disabled = true;
+    if (g.id === lob.selectedGame) selCard = card;
     box.appendChild(card);
   });
+
+  // The selected game's settings sit right under its card, not after the whole list.
+  const settings = document.createElement('div');
+  settings.className = 'gp-settings';
 
   // Settings for the selected game (host can adjust; others see them read-only).
   const sel = games.find((g) => g.id === lob.selectedGame);
@@ -727,9 +738,30 @@ function renderGamePicker(s) {
       const inc = actBtn('+', 'gp-step', () => send({ type: 'setOption', key: opt.key, value: Math.min(opt.max, cur + step) }));
       dec.disabled = cur <= opt.min;
       inc.disabled = cur >= opt.max;
-      const val = document.createElement('span');
-      val.className = 'gp-optval';
-      val.textContent = shown(cur);
+      let val;
+      if (opt.input) {
+        // An amount to type: sent when it is confirmed (Enter, or leaving the box).
+        val = document.createElement('input');
+        val.type = 'number';
+        val.inputMode = 'numeric';
+        val.className = 'gp-optinput';
+        val.min = String(opt.min);
+        val.max = String(opt.max);
+        val.step = '1';
+        val.value = String(cur);
+        val.dataset.option = opt.key;
+        val.setAttribute('aria-label', opt.label);
+        val.onchange = () => {
+          const v = Math.round(Number(val.value));
+          if (val.value === '' || !Number.isFinite(v)) val.value = String(cur);
+          else if (v !== cur) send({ type: 'setOption', key: opt.key, value: v });
+        };
+        val.onkeydown = (e) => { if (e.key === 'Enter') val.blur(); };
+      } else {
+        val = document.createElement('span');
+        val.className = 'gp-optval';
+        val.textContent = shown(cur);
+      }
       stepper.append(dec, val, inc);
       row.appendChild(stepper);
     } else {
@@ -738,8 +770,22 @@ function renderGamePicker(s) {
       val.textContent = shown(cur);
       row.appendChild(val);
     }
-    box.appendChild(row);
+    settings.appendChild(row);
   });
+  if (lob.optionsNote) {
+    const note = document.createElement('p');
+    note.className = 'gp-note';
+    note.textContent = lob.optionsNote;
+    settings.appendChild(note);
+  }
+  if (settings.children.length) (selCard ? selCard.after(settings) : box.appendChild(settings));
+  if (typing) {
+    const again = box.querySelector(`[data-option="${typing.key}"]`);
+    if (again) {
+      again.value = typing.value;
+      again.focus();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
