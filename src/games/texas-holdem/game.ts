@@ -18,6 +18,8 @@
 import type { GameContext, GameDef, GameOption, GameOutcome, PlayerInfo, Rng } from '../../platform/types.ts';
 import { initTimer, runTimer, timerView, TIMER_OPTION, type Timer } from '../../platform/turn-timer.ts';
 import { shuffledDeck, score, describe, bestFive, code } from '../shared/poker.ts';
+import { initSkill, SKILL_OPTION } from '../../platform/skill.ts';
+import { holdemBot, type BotView } from './bot.ts';
 
 export const MAX_SEATS = 8;
 
@@ -46,7 +48,21 @@ interface HPlayer {
   acted: boolean; // has acted since the last full raise
   canRaise: boolean; // false after a short all-in, for players who had already acted
   said: string | null; // their last action this street, for the table to show
+  stats: Stats; // how they have played so far — public: anyone at the table could keep it
 }
+
+/** Tallies of a player's play over the match, the kind any player at a real table keeps
+ *  in their head. The Sharp bot reads them to adapt to how each opponent plays. */
+export interface Stats {
+  hands: number; // dealt in
+  vpip: number; // hands they put chips in before the flop by choice
+  pfr: number; // hands they raised before the flop
+  faced: number; // times they faced a bet after the flop
+  folded: number; // ...and folded to it
+  aggressive: number; // bets and raises after the flop
+  passive: number; // calls after the flop
+}
+const newStats = (): Stats => ({ hands: 0, vpip: 0, pfr: 0, faced: 0, folded: 0, aggressive: 0, passive: 0 });
 
 interface Award {
   seat: number;
@@ -77,7 +93,17 @@ export interface Hand {
   currentBet: number; // the most anyone has committed this street
   minRaise: number; // the size of the last full raise this street
   participants: number[]; // seats dealt in
+  history: Move[]; // every action this hand, in order — all of it seen by the table
   result: HandResult | null; // set once the hand is over
+}
+
+/** One action, as the whole table saw it. `to` is what the player had in on the street
+ *  afterwards. */
+export interface Move {
+  seat: number;
+  street: Street;
+  act: 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
+  to: number;
 }
 
 export interface HState {
@@ -89,6 +115,7 @@ export interface HState {
   over: boolean;
   winner: number | null;
   timer: Timer;
+  skill: number; // how the bots play (1 casual … 3 sharp)
   log: string[];
 }
 
@@ -169,11 +196,12 @@ function startHand(s: HState, rng: Rng) {
       hole: [], folded: false, allIn: false, committed: 0, contributed: 0, acted: false, canRaise: true, said: null,
     });
   }
+  for (const seat of live) s.players[seat]!.stats.hands++;
   const hand: Hand = {
     no: s.handNo, dealer, sb, bb, blinds,
     deck: shuffledDeck(rng), board: [], street: 'preflop',
     toAct: -1, currentBet: blinds[1], minRaise: blinds[1],
-    participants: live, result: null,
+    participants: live, history: [], result: null,
   };
   s.hand = hand;
 
@@ -408,6 +436,20 @@ export function act(s: HState, seat: number, action: string, to: number): Action
     default:
       return fail('Unknown action.');
   }
+  // The table's tallies: by choice before the flop (once a hand), and how they meet bets after it.
+  const mine = h.history.filter((m) => m.seat === seat && m.street === 'preflop');
+  if (h.street === 'preflop') {
+    if ((action === 'call' || action === 'raise') && !mine.some((m) => m.act !== 'check' && m.act !== 'fold')) p.stats.vpip++;
+    if (action === 'raise' && !mine.some((m) => m.act === 'raise' || m.act === 'allin')) p.stats.pfr++;
+  } else {
+    if (toCall > 0) p.stats.faced++;
+    if (toCall > 0 && action === 'fold') p.stats.folded++;
+    if (action === 'raise') p.stats.aggressive++;
+    if (action === 'call') p.stats.passive++;
+  }
+  const opened = h.history.every((m) => m.street !== h.street || (m.act !== 'bet' && m.act !== 'raise' && m.act !== 'allin'));
+  const kind = action === 'raise' ? (p.allIn ? 'allin' : opened && h.street !== 'preflop' ? 'bet' : 'raise') : p.allIn && action === 'call' ? 'allin' : action;
+  h.history.push({ seat, street: h.street, act: kind as Move['act'], to: p.committed });
   afterAction(s, seat);
   return ok;
 }
@@ -448,6 +490,7 @@ function view(s: HState, seat: number | null): Record<string, unknown> {
       isTurn: !!h && !h.result && h.toAct === x,
       dealer: h?.dealer === x,
       blind: h?.sb === x ? 'SB' : h?.bb === x ? 'BB' : null,
+      stats: p.stats,
     };
   });
 
@@ -463,6 +506,8 @@ function view(s: HState, seat: number | null): Record<string, unknown> {
     board: h ? h.board.map(code) : [],
     players,
     activeSeat: h && !h.result && h.toAct >= 0 ? h.toAct : null,
+    history: h ? h.history : [],
+    dealer: h ? h.dealer : -1,
     result: h?.result ?? null,
     timer: timerView(s.timer),
     log: s.log.slice(-15),
@@ -503,19 +548,9 @@ function view(s: HState, seat: number | null): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Bot — a placeholder that keeps a seat moving: checks when it can, calls small bets,
-// folds to big ones. It never starts the next hand; a person does that.
+// Bot — see bot.ts. It decides from its seat's view, exactly what a person in that chair
+// can see. It never starts the next hand; a person does that.
 // ---------------------------------------------------------------------------
-
-function botMove(s: HState, seat: number): Record<string, unknown> | null {
-  const h = s.hand;
-  if (s.over || !h || h.result || h.toAct !== seat) return null;
-  const p = s.players[seat]!;
-  const toCall = h.currentBet - p.committed;
-  if (toCall <= 0) return { type: 'action', action: 'check' };
-  if (toCall <= Math.max(h.blinds[1] * 2, p.chips * 0.1)) return { type: 'action', action: 'call' };
-  return { type: 'action', action: 'fold' };
-}
 
 // --- turn timer: a stalled player checks if they can, and folds if they cannot ---
 const turnKey = (s: HState) => {
@@ -541,7 +576,7 @@ export const texasHoldem: GameDef<HState> = {
   blurb: 'No-limit poker: two cards each, five on the board, blinds rising. Last player with chips wins.',
   minPlayers: 2,
   maxPlayers: MAX_SEATS,
-  options: [STACK_OPTION, BLINDS_OPTION, TIMER_OPTION],
+  options: [SKILL_OPTION, STACK_OPTION, BLINDS_OPTION, TIMER_OPTION],
 
   create(setup: { seats: number[]; players: PlayerInfo[]; options?: Record<string, number> }, ctx: GameContext): HState {
     const stack = Math.max(STACK_OPTION.min, Math.min(STACK_OPTION.max, Math.round(Number(setup.options?.stack) || STACK_OPTION.default)));
@@ -552,11 +587,12 @@ export const texasHoldem: GameDef<HState> = {
       players[seat] = {
         name: nameBySeat.get(seat) ?? `Seat ${seat + 1}`, connected: true, chips: stack, out: false,
         hole: [], folded: false, allIn: false, committed: 0, contributed: 0, acted: false, canRaise: true, said: null,
+        stats: newStats(),
       };
     }
     const s: HState = {
       players, hand: null, handNo: 0, stack, blindsEvery: Number.isFinite(every) ? every : BLINDS_OPTION.default,
-      over: false, winner: null, timer: initTimer(setup.options?.timer), log: [],
+      over: false, winner: null, timer: initTimer(setup.options?.timer), skill: initSkill(setup.options?.skill), log: [],
     };
     log(s, `Texas Hold'em — ${setup.seats.length} players, ${stack} chips each.`);
     startHand(s, ctx.rng);
@@ -588,7 +624,9 @@ export const texasHoldem: GameDef<HState> = {
     return { over: s.over, winners: s.over && s.winner !== null ? [s.winner] : [] };
   },
 
-  bot(s, seat) {
-    return botMove(s, seat);
+  bot(s, seat, ctx) {
+    const h = s.hand;
+    if (s.over || !h || h.result || h.toAct !== seat) return null;
+    return holdemBot(view(s, seat) as unknown as BotView, s.skill, ctx.rng);
   },
 };
