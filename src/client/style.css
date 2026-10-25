@@ -1792,3 +1792,56 @@ button.sv-ship:hover .body { fill: #7b8ba7; }
 @media (min-width: 560px) {
   .vf-boards { flex-direction: row; align-items: flex-start; justify-content: center; }
 }
+
+/* ===========================================================================
+   Playing cards — Texas Hold'em and Half a Game (on the Win or Die table)
+   =========================================================================== */
+.pcard {
+  --pc-w: 54px;
+  width: var(--pc-w); height: calc(var(--pc-w) * 1.42); flex: none;
+  border-radius: calc(var(--pc-w) * 0.14);
+  background: linear-gradient(160deg, #ffffff, #eef0f6);
+  border: 1.5px solid #c9ccd6;
+  color: #1d2233;
+  position: relative; overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  font-family: 'Outfit', sans-serif; font-weight: 800;
+  animation: deal 0.4s var(--ease) backwards;
+}
+.pcard.red { color: #d22f4a; }
+.pcard .pc-corner { position: absolute; top: 6%; left: 9%; font-size: calc(var(--pc-w) * 0.27); line-height: 0.95; text-align: center; }
+.pcard .pc-pip { position: absolute; right: 8%; bottom: 2%; font-size: calc(var(--pc-w) * 0.58); line-height: 1; }
+.pcard.back {
+  background: repeating-linear-gradient(45deg, #2b3350 0 6px, #343e63 6px 12px);
+  border: 1.5px solid #46527d;
+}
+.pcard.slot {
+  background: rgba(0, 0, 0, 0.22); border: 1.5px dashed rgba(255, 255, 255, 0.2); box-shadow: none; animation: none;
+}
+.pcard.win { box-shadow: 0 0 0 2.5px var(--gold), 0 0 18px rgba(245, 196, 81, 0.5); }
+.pcard.dim { filter: brightness(0.62) saturate(0.6); }
+
+.pk-board { display: flex; gap: 4px; justify-content: center; }
+.pk-board .pcard { --pc-w: 34px; }
+.pk-blinds { font-size: 0.6rem; font-weight: 700; color: rgba(255, 255, 255, 0.55); letter-spacing: 0.04em; }
+.pk-hand { gap: 10px; margin-top: 26px; } /* clear of your seat, which hangs over the table's edge */
+.holdem .poker-table, .halfgame .poker-table { margin-top: 38px; } /* room for a seat at the very top */
+.pk-seat .pseat-chips { white-space: nowrap; }
+/* cards sit on the table side of a seat: below the name for the seats along the top */
+.pk-seat.upper .pseat-cards { order: 3; }
+.pk-seat.upper .pseat-badges { order: 2; }
+.pk-hand .pcard { --pc-w: 58px; }
+.pk-made { text-align: center; font-weight: 800; color: var(--gold); font-size: 0.86rem; min-height: 1.2em; }
+.pk-seat .pseat-cards .pcard { --pc-w: 17px; border-width: 1px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45); animation: none; }
+.pk-seat .pseat-cards.shown .pcard { --pc-w: 27px; }
+.pk-seat .pseat-cards .pcard .pc-pip { display: none; }
+.pk-seat .pseat-cards .pcard .pc-corner { top: 4%; left: 8%; font-size: calc(var(--pc-w) * 0.36); }
+.b-blind { background: rgba(245, 196, 81, 0.22); color: var(--gold); }
+.b-said { background: rgba(255, 255, 255, 0.1); color: var(--ink); text-transform: none; letter-spacing: 0; }
+.pk-ready { color: var(--good); font-weight: 800; }
+.pk-presets .btn { padding: 8px 4px; font-size: 0.78rem; }
+.pk-result .hand .cards .pcard { --pc-w: 38px; }
+.pk-rules { margin-top: 14px; }
+.rank-row .ex-cards .pcard { --pc-w: 22px; border-width: 1px; animation: none; box-shadow: none; }
+.rank-row .ex-cards .pcard .pc-pip { display: none; }
+.rank-row .ex-cards .pcard .pc-corner { font-size: calc(var(--pc-w) * 0.36); top: 5%; left: 10%; }

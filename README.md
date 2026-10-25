@@ -1,7 +1,7 @@
 # Game Hub 🎲🃏⚽
 
 A multiplayer party-game hub you play from your phone browser — no app install.
-One person creates a room, everyone opens the link, and the host picks any of **ten**
+One person creates a room, everyone opens the link, and the host picks any of **nineteen**
 games. The server is the authoritative referee: it owns every secret (decks, hidden
 cards, secret players) so no client can ever peek.
 
@@ -16,6 +16,8 @@ stripping.
 | Game | Players | What it is |
 | --- | --- | --- |
 | **Win or Die** | 2–8 | Poker-style betting & bluffing with rock-paper-scissors hands. Last player standing. |
+| **Texas Hold'em** | 2–8 | No-limit poker as a tournament: two cards each, five on the board, blinds rising. Last player with chips wins. |
+| **Half a Game** | 2–8 | Hold'em cards without the chips — bring real ones. Deal, flop, turn, river and showdown, each when everyone taps Ready. |
 | **Lock In** | 2–8 | Press-your-luck with 9 dice — lock a number, set one aside per roll, bank before you bust. |
 | **Yahtzee** | 1–8 | Roll five dice up to three times, fill all 13 categories. Highest total wins. |
 | **Spy Game** | 3–8 | Hidden-role football clues: everyone shares a secret player — except the spy (two spies at 6+). |

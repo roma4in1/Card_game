@@ -507,6 +507,16 @@ function render() {
     renderLobby(s);
     return;
   }
+  if (s.gameId === 'texas-holdem') {
+    ensureScreen('holdem');
+    renderHoldem(s);
+    return;
+  }
+  if (s.gameId === 'half-game') {
+    ensureScreen('halfgame');
+    renderHalfGame(s);
+    return;
+  }
   if (s.gameId === 'lock-in') {
     ensureScreen('lockin');
     renderLockIn(s);
@@ -3433,6 +3443,358 @@ function renderTurnFlag(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Playing cards — Texas Hold'em and Half a Game
+// ---------------------------------------------------------------------------
+
+const PK_SUIT = { c: '♣', d: '♦', h: '♥', s: '♠' };
+const PK_RANK = { T: '10' };
+
+/** A playing card from its code ("Ah", "Td"), a face-down card (null), or an empty slot. */
+function pcardEl(code, opts = {}) {
+  const el = document.createElement('div');
+  el.className = 'pcard';
+  if (opts.slot) {
+    el.classList.add('slot');
+    return el;
+  }
+  if (!code) {
+    el.classList.add('back');
+    return el;
+  }
+  const rank = PK_RANK[code[0]] || code[0];
+  const suit = PK_SUIT[code[1]];
+  if (code[1] === 'h' || code[1] === 'd') el.classList.add('red');
+  if (opts.win) el.classList.add('win');
+  if (opts.dim) el.classList.add('dim');
+  el.innerHTML = `<span class="pc-corner">${rank}<br>${suit}</span><span class="pc-pip">${suit}</span>`;
+  el.title = code;
+  return el;
+}
+
+const pkSig = {};
+/** Rebuild a card row only when what it shows has changed, so cards animate in once. */
+function pkCards(boxId, cards, opts = {}) {
+  const sig = JSON.stringify([cards, opts.best || null, opts.slots || 0, opts.dim || false]);
+  if (pkSig[boxId] === sig) return;
+  pkSig[boxId] = sig;
+  const box = $(boxId);
+  box.innerHTML = '';
+  const best = opts.best ? new Set(opts.best) : null;
+  cards.forEach((c) => box.appendChild(pcardEl(c, { win: best && best.has(c), dim: opts.dim || (best && !best.has(c)) })));
+  for (let i = cards.length; i < (opts.slots || 0); i++) box.appendChild(pcardEl(null, { slot: true }));
+}
+
+/** The winning five, for highlighting: the first winner's, when the hand was shown down. */
+function pkWinningFive(s) {
+  const r = s.result;
+  if (!r || r.kind !== 'showdown') return null;
+  const first = r.awards ? r.awards[0]?.seat : r.winners?.[0];
+  return r.reveals.find((x) => x.seat === first)?.best || null;
+}
+
+/** Players around the oval, you at the bottom — the Win or Die table, with real cards. */
+function pkSeats(boxId, s, opts) {
+  const players = (s.players || []).filter((p) => !p.out || p.seat === s.seat);
+  const yi = players.findIndex((p) => p.seat === s.seat);
+  const list = yi < 0 ? players : [...players.slice(yi), ...players.slice(0, yi)];
+  const bots = botSeatSet(s);
+  const best = pkWinningFive(s);
+  const sig = JSON.stringify([list, [...bots], best]);
+  if (pkSig[boxId] === sig) return;
+  pkSig[boxId] = sig;
+
+  const box = $(boxId);
+  box.innerHTML = '';
+  const n = list.length;
+  list.forEach((p, i) => {
+    const isYou = p.seat === s.seat;
+    const theta = seatAngle(i, n);
+    const pos = posAt(theta, SEAT_RX, SEAT_RY);
+    const tile = document.createElement('div');
+    tile.className = 'pseat pk-seat' + (isYou ? ' is-you' : '') + (pos.top < 50 ? ' upper' : '');
+    if (p.isTurn) tile.classList.add('acting');
+    if (p.folded || p.out) tile.classList.add('dim');
+    tile.style.left = `${pos.left}%`;
+    tile.style.top = `${pos.top}%`;
+
+    if (!isYou && (p.holeCount || p.shown)) {
+      const cards = document.createElement('div');
+      cards.className = 'pseat-cards';
+      if (p.shown) p.shown.forEach((c) => cards.appendChild(pcardEl(c, { win: best && best.includes(c) })));
+      else for (let k = 0; k < p.holeCount; k++) cards.appendChild(pcardEl(null));
+      if (p.shown) cards.classList.add('shown');
+      tile.appendChild(cards);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'pseat-body';
+    body.innerHTML =
+      `<span class="avatar sm" style="background:${seatColor(p.seat)}">${initial(p.name)}</span>` +
+      `<span class="pseat-meta"><span class="pseat-name">${escapeHtml(isYou ? 'You' : p.name)}${bots.has(p.seat) ? ' 🤖' : ''}<i class="dot ${p.connected ? 'on' : ''}"></i></span>` +
+      `<span class="pseat-chips">${opts.chips ? `🪙 ${p.chips}` : p.ready ? '<b class="pk-ready">✓ ready</b>' : p.folded ? 'folded' : 'not ready'}</span></span>`;
+    tile.appendChild(body);
+
+    const badges = [];
+    if (p.blind) badges.push(`<span class="badge b-blind">${p.blind}</span>`);
+    if (p.allIn) badges.push('<span class="badge b-allin">all-in</span>');
+    else if (p.folded) badges.push('<span class="badge b-fold">fold</span>');
+    else if (p.said) badges.push(`<span class="badge b-said">${escapeHtml(p.said)}</span>`);
+    if (badges.length) {
+      const bd = document.createElement('div');
+      bd.className = 'pseat-badges';
+      bd.innerHTML = badges.join('');
+      tile.appendChild(bd);
+    }
+    box.appendChild(tile);
+
+    // The dealer button and any bet sit on the felt, along the seat's line to the middle.
+    if (p.dealer) {
+      const dpos = posAt(theta + 0.32, SEAT_RX * 0.72, SEAT_RY * 0.7);
+      const d = document.createElement('div');
+      d.className = 'felt-dealer';
+      d.textContent = 'D';
+      d.style.left = `${dpos.left}%`;
+      d.style.top = `${dpos.top}%`;
+      box.appendChild(d);
+    }
+    if (p.committed) {
+      const bpos = posAt(theta, SEAT_RX * 0.72, SEAT_RY * 0.68); // clear of the five-card board
+      const bet = document.createElement('div');
+      bet.className = 'felt-bet';
+      bet.innerHTML = `<span class="chip-dot"></span>${p.committed}`;
+      bet.style.left = `${bpos.left}%`;
+      bet.style.top = `${bpos.top}%`;
+      box.appendChild(bet);
+    }
+  });
+}
+
+function pkShowdown(s, opts) {
+  const r = s.result;
+  const box = document.createElement('div');
+  box.className = 'result pk-result';
+  const winners = r.awards ? r.awards.map((a) => a.seat) : r.winners;
+  const amount = (seat) => (r.awards ? r.awards.find((a) => a.seat === seat)?.amount : null);
+  const h = document.createElement('h3');
+  const youWon = winners.includes(s.seat);
+  const names = winners.map((w) => nameOf(s, w)).join(' & ');
+  if (r.kind === 'fold') h.textContent = youWon ? `🎉 Everyone folded — you win${amount(s.seat) ? ` ${amount(s.seat)}` : ''}` : `${names} wins — everyone else folded`;
+  else if (winners.length > 1) h.textContent = `🤝 Split pot: ${names}`;
+  else h.textContent = youWon ? `🎉 You win${amount(s.seat) ? ` ${amount(s.seat)}` : ''}` : `${names} wins${amount(winners[0]) ? ` ${amount(winners[0])}` : ''}`;
+  h.className = youWon ? 'verdict-win' : winners.length > 1 ? 'verdict-draw' : 'verdict-lose';
+  box.appendChild(h);
+
+  if (r.reveals.length) {
+    const hands = document.createElement('div');
+    hands.className = 'hands';
+    for (const rv of r.reveals) {
+      const col = document.createElement('div');
+      col.className = 'hand' + (winners.includes(rv.seat) ? ' winner' : '');
+      const won = amount(rv.seat);
+      col.innerHTML = `<div class="who">${escapeHtml(rv.seat === s.seat ? 'You' : nameOf(s, rv.seat))}${won ? ` +${won}` : ''}</div>`;
+      const cards = document.createElement('div');
+      cards.className = 'cards';
+      rv.hole.forEach((c) => cards.appendChild(pcardEl(c, { win: winners.includes(rv.seat) && rv.best.includes(c) })));
+      const name = document.createElement('div');
+      name.className = 'rankname';
+      name.textContent = rv.hand;
+      col.append(cards, name);
+      hands.appendChild(col);
+    }
+    box.appendChild(hands);
+  }
+  if (opts.button) box.appendChild(opts.button);
+  return box;
+}
+
+// --- Texas Hold'em ---------------------------------------------------------
+
+const HE_PHASE = { preflop: 'Pre-flop', flop: 'Flop', turn: 'Turn', river: 'River', handover: 'Hand over', over: 'Game over' };
+
+function renderHoldem(s) {
+  $('heRoom').textContent = s.room;
+  $('heCopy').onclick = copyInvite;
+  $('hePhase').textContent = HE_PHASE[s.phase] || '';
+  animateNumber($('hePot'), s.pot);
+  pkCards('heBoard', s.board, { slots: 5, best: pkWinningFive(s) });
+  $('heBlinds').textContent = `Hand ${s.handNo} · blinds ${s.blinds[0]}/${s.blinds[1]}` +
+    (s.blindsIn && !s.over ? ` · ${s.nextBlinds[0]}/${s.nextBlinds[1]} in ${s.blindsIn}` : '');
+  const turn = $('heTurn');
+  const actor = s.players.find((p) => p.isTurn);
+  turn.textContent = !actor ? '' : actor.seat === s.seat ? 'Your turn' : `${nameOf(s, actor.seat)} to act`;
+  turn.className = 'turn-banner' + (actor ? (actor.seat === s.seat ? ' you' : ' wait') : '');
+  document.body.classList.toggle('your-turn', !!(s.betting && s.betting.yourTurn));
+
+  pkSeats('heSeats', s, { chips: true });
+  const you = s.you || {};
+  if (you.folded) {
+    pkSig.heHand = 'folded';
+    $('heHand').innerHTML = '<span class="folded-note">You folded this hand</span>';
+  } else pkCards('heHand', you.hole || [], { best: you.hole?.length && s.result?.kind === 'showdown' ? pkWinningFive(s) : null });
+  $('heMade').textContent = you.made || '';
+  renderHeActions(s);
+  duelLog('heLog', s);
+}
+
+function renderHeActions(s) {
+  const area = $('heActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+  if (s.over) {
+    const win = s.matchWinner === s.seat;
+    area.appendChild(banner(win ? '🏆 You win the tournament!' : `🏆 ${nameOf(s, s.matchWinner)} wins the tournament`, win ? 'win' : 'lose'));
+    if (s.result) area.appendChild(pkShowdown(s, {}));
+    appendEndButtons(area, s);
+    return;
+  }
+  if (s.result) {
+    area.appendChild(pkShowdown(s, { button: actBtn('Next hand →', 'btn btn-primary btn-lg', () => send({ type: 'nextHand' })) }));
+    return;
+  }
+  if (you.spectator || you.out) {
+    area.appendChild(callout('You are out of chips — watching the rest', true));
+    return;
+  }
+  if (!s.betting) {
+    const actor = s.players.find((p) => p.isTurn);
+    area.appendChild(callout(you.folded ? 'You folded — watching the hand' : actor ? `Waiting for ${escapeHtml(nameOf(s, actor.seat))}` : 'Dealing', true));
+    return;
+  }
+  renderHeBetting(area, s.betting);
+}
+
+function renderHeBetting(area, b) {
+  area.appendChild(prompt(b.canCheck ? 'No bet to you — <b>check or bet</b>.' : `<b>${b.toCall}</b> to call`));
+  const row = document.createElement('div');
+  row.className = 'btn-row';
+  row.appendChild(actBtn('Fold', 'btn btn-bad', () => send({ type: 'action', action: 'fold' })));
+  if (b.canCheck) row.appendChild(actBtn('Check', 'btn btn-neutral', () => send({ type: 'action', action: 'check' })));
+  else row.appendChild(actBtn(b.toCall >= b.maxTo - b.committed ? `Call ${b.toCall} · all-in` : `Call ${b.toCall}`, 'btn btn-good', () => send({ type: 'action', action: 'call' })));
+  area.appendChild(row);
+  if (!b.canRaise) return;
+
+  // Raise to an amount: the slider runs from the smallest legal raise to all-in, with the
+  // usual shortcuts. Pot-sized means calling first, then raising by the whole pot.
+  const opening = b.currentBet === 0;
+  const clamp = (v) => Math.max(b.minTo, Math.min(b.maxTo, Math.round(v)));
+  const potRaise = b.currentBet + b.pot + b.toCall;
+  const controls = document.createElement('div');
+  controls.className = 'bet-controls';
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-row';
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.min = String(b.minTo);
+  range.max = String(b.maxTo);
+  range.step = '1';
+  range.value = String(b.minTo);
+  const badge = document.createElement('span');
+  badge.className = 'amount-badge';
+  const go = actBtn('', 'btn btn-gold', () => send({ type: 'action', action: 'raise', to: Number(range.value) }));
+  const sync = () => {
+    const v = Number(range.value);
+    badge.textContent = String(v);
+    go.textContent = v >= b.maxTo ? 'All-in' : opening ? `Bet ${v}` : `Raise to ${v}`;
+  };
+  range.oninput = sync;
+  sync();
+  wrap.append(range, badge, go);
+  const presets = document.createElement('div');
+  presets.className = 'btn-row pk-presets';
+  for (const [label, to] of [['Min', b.minTo], ['½ pot', b.currentBet + (b.pot + b.toCall) / 2], ['Pot', potRaise], ['All-in', b.maxTo]]) {
+    presets.appendChild(actBtn(label, 'btn btn-quiet', () => { range.value = String(clamp(to)); sync(); }));
+  }
+  controls.append(wrap, presets);
+  area.appendChild(controls);
+}
+
+// --- Half a Game -----------------------------------------------------------
+
+const HG_STAGE = { preflop: 'Deal', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Showdown' };
+const HG_NEXT = { preflop: 'Ready — deal the flop', flop: 'Ready — deal the turn', turn: 'Ready — deal the river', river: 'Ready — show down', showdown: 'Ready — next hand' };
+
+function renderHalfGame(s) {
+  $('hgRoom').textContent = s.room;
+  $('hgCopy').onclick = copyInvite;
+  $('hgPhase').textContent = s.over ? 'Game over' : `Hand ${s.handNo}`;
+  $('hgStage').textContent = HG_STAGE[s.stage];
+  pkCards('hgBoard', s.board, { slots: 5, best: pkWinningFive(s) });
+  $('hgWaiting').textContent = s.over ? '' : s.waiting ? `Waiting for ${s.waiting} to be ready` : '';
+  $('hgWaiting').className = 'turn-banner wait';
+  pkSeats('hgSeats', s, { chips: false });
+  const you = s.you || {};
+  if (you.folded && s.stage !== 'showdown') {
+    pkSig.hgHand = 'folded';
+    $('hgHand').innerHTML = '<span class="folded-note">You folded this hand</span>';
+  } else pkCards('hgHand', you.hole || [], { best: s.result?.kind === 'showdown' && s.result.winners.includes(s.seat) ? pkWinningFive(s) : null });
+  $('hgMade').textContent = you.made || '';
+  renderHgActions(s);
+  duelLog('hgLog', s);
+}
+
+function renderHgActions(s) {
+  const area = $('hgActions');
+  area.innerHTML = '';
+  const you = s.you || {};
+  if (s.over) {
+    area.appendChild(banner('Game over — thanks for playing', 'lose'));
+    appendEndButtons(area, s);
+    return;
+  }
+  if (s.result) area.appendChild(pkShowdown(s, {}));
+  if (you.spectator) {
+    area.appendChild(callout('Watching', true));
+    return;
+  }
+  if (you.folded && s.stage !== 'showdown') {
+    area.appendChild(callout('You folded — waiting for the others', true));
+  } else {
+    const row = document.createElement('div');
+    row.className = 'btn-row';
+    const ready = actBtn(you.ready ? 'Ready ✓ — tap to undo' : HG_NEXT[s.stage], you.ready ? 'btn btn-neutral' : 'btn btn-primary btn-lg', () =>
+      send({ type: 'ready', ready: !you.ready }));
+    row.appendChild(ready);
+    if (s.stage !== 'showdown') row.appendChild(actBtn('Fold', 'btn btn-bad', () => send({ type: 'fold' })));
+    area.appendChild(row);
+  }
+  if (s.youAreHost) {
+    area.appendChild(actBtn('End game', 'btn btn-quiet', () => { if (confirm('End the game for everyone?')) send({ type: 'endGame' }); }));
+  }
+}
+
+// Hand rankings, with an example of each — shared by both poker games.
+const PK_GUIDE = [
+  ['Royal flush', 'A K Q J 10, one suit', ['As', 'Ks', 'Qs', 'Js', 'Ts']],
+  ['Straight flush', 'Five in a row, one suit', ['9h', '8h', '7h', '6h', '5h']],
+  ['Four of a kind', 'Four of one rank', ['Qc', 'Qd', 'Qh', 'Qs', '4d']],
+  ['Full house', 'Three of one rank, two of another', ['Jc', 'Jd', 'Jh', '6s', '6d']],
+  ['Flush', 'Five of one suit', ['Ad', 'Jd', '8d', '5d', '2d']],
+  ['Straight', 'Five in a row (A can be low)', ['Tc', '9d', '8s', '7h', '6c']],
+  ['Three of a kind', 'Three of one rank', ['7c', '7d', '7s', 'Kh', '2d']],
+  ['Two pair', 'Two pairs', ['Ac', 'Ad', '9s', '9h', '5c']],
+  ['Pair', 'Two of one rank', ['Kc', 'Kd', 'Qs', '8h', '3c']],
+  ['High card', 'None of the above', ['Ah', 'Jd', '8s', '6c', '3h']],
+];
+let pkRanksBuilt = false;
+function openPkRanks() {
+  if (!pkRanksBuilt) {
+    pkRanksBuilt = true;
+    const list = $('heRanksList');
+    PK_GUIDE.forEach(([name, desc, cards], i) => {
+      const row = document.createElement('div');
+      row.className = 'rank-row';
+      row.innerHTML = `<div class="rank-badge">#${i + 1}</div><div class="rank-info"><div class="rname">${name}</div><div class="rdesc">${desc}</div></div>`;
+      const ex = document.createElement('div');
+      ex.className = 'ex-cards';
+      cards.forEach((c) => ex.appendChild(pcardEl(c)));
+      row.appendChild(ex);
+      list.appendChild(row);
+    });
+  }
+  $('heRulesSheet').classList.remove('hidden');
+}
+
+// ---------------------------------------------------------------------------
 // Who Am I? (football 20 questions)
 // ---------------------------------------------------------------------------
 
@@ -5101,6 +5463,8 @@ $('playersSheet').addEventListener('click', (e) => {
 // The lobby's button fully exits the room; in-game buttons return you to this room's lobby.
 $('leaveLobbyBtn').onclick = leaveRoom;
 $('leaveBtn').onclick = backToLobby;
+$('heLeaveBtn').onclick = backToLobby;
+$('hgLeaveBtn').onclick = backToLobby;
 $('liLeaveBtn').onclick = backToLobby;
 $('yzLeaveBtn').onclick = backToLobby;
 $('sgLeaveBtn').onclick = backToLobby;
@@ -5139,6 +5503,14 @@ $('waRulesSheet').addEventListener('click', (e) => {
 $('gpRulesClose').onclick = () => $('gpRulesSheet').classList.add('hidden');
 $('gpRulesSheet').addEventListener('click', (e) => {
   if (e.target.id === 'gpRulesSheet') $('gpRulesSheet').classList.add('hidden');
+});
+
+// Poker hand rankings (Texas Hold'em and Half a Game share one sheet)
+$('heRulesBtn').onclick = openPkRanks;
+$('hgRulesBtn').onclick = openPkRanks;
+$('heRulesClose').onclick = () => $('heRulesSheet').classList.add('hidden');
+$('heRulesSheet').addEventListener('click', (e) => {
+  if (e.target.id === 'heRulesSheet') $('heRulesSheet').classList.add('hidden');
 });
 
 // Lock In rules sheet

@@ -113,6 +113,93 @@
       </div>
     </section>
 
+    <!-- Texas Hold'em — the Win or Die table, with real playing cards and a five-card board -->
+    <section id="holdem" class="screen game holdem hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="heRoom">····</b></div>
+        <div class="phase-pill" id="hePhase">—</div>
+        <button id="heRulesBtn" class="rank-pill" title="Hand rankings and rules">Ranks</button>
+        <button id="heLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="heCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="table">
+        <div class="poker-table">
+          <div class="felt-oval">
+            <div class="felt-rail"></div>
+            <div class="table-center">
+              <div class="pot-pill"><span class="pot-label">POT</span><b id="hePot">0</b></div>
+              <div class="pk-board" id="heBoard"></div>
+              <div class="turn-banner" id="heTurn"></div>
+              <div class="pk-blinds" id="heBlinds"></div>
+            </div>
+          </div>
+          <div class="seats" id="heSeats"></div>
+        </div>
+        <div class="your-hand pk-hand" id="heHand"></div>
+        <div class="pk-made" id="heMade"></div>
+      </main>
+
+      <div class="action-area" id="heActions"></div>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="heLog"></ul></details>
+      </div>
+    </section>
+
+    <!-- Texas Hold'em: hand rankings and rules (shared by Half a Game) -->
+    <div id="heRulesSheet" class="sheet hidden">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h3>Poker hands</h3>
+          <button id="heRulesClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <p class="sheet-sub">Your best <b>five</b> cards from your two and the five on the board. Highest first.</p>
+        <div id="heRanksList" class="ranks-list"></div>
+        <div class="rules-body pk-rules">
+          <p><b>A hand:</b> the two players left of the dealer post the small and big blinds, everyone gets two cards, and there is a round of betting. Then come the <b>flop</b> (three cards), the <b>turn</b> and the <b>river</b> (one each), with a round of betting after each.</p>
+          <p><b>On your turn:</b> fold, check if nobody has bet, call the bet, or raise. A raise must be at least as big as the last one. You can always go all-in.</p>
+          <p><b>Showdown:</b> the best hand wins the pot. Someone all-in can only win what they matched — the rest is a side pot for the others.</p>
+          <p>The blinds rise as the game goes on. Run out of chips and you are out; the last player with chips wins.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Half a Game — Hold'em cards, real chips -->
+    <section id="halfgame" class="screen game halfgame hidden">
+      <header class="topbar">
+        <div class="room-pill">ROOM&nbsp;<b id="hgRoom">····</b></div>
+        <div class="phase-pill" id="hgPhase">—</div>
+        <button id="hgRulesBtn" class="rank-pill" title="Hand rankings and how it works">Ranks</button>
+        <button id="hgLeaveBtn" class="rank-pill leave-pill" title="Leave game">Leave</button>
+        <button class="icon-btn players-btn" title="Players" aria-label="Show players">👥</button>
+        <button id="hgCopy" class="icon-btn" title="Copy invite link" aria-label="Copy invite link">⧉</button>
+      </header>
+
+      <main class="table">
+        <div class="poker-table">
+          <div class="felt-oval">
+            <div class="felt-rail"></div>
+            <div class="table-center">
+              <div class="pot-pill"><span class="pot-label">REAL CHIPS</span><b id="hgStage">Deal</b></div>
+              <div class="pk-board" id="hgBoard"></div>
+              <div class="turn-banner" id="hgWaiting"></div>
+            </div>
+          </div>
+          <div class="seats" id="hgSeats"></div>
+        </div>
+        <div class="your-hand pk-hand" id="hgHand"></div>
+        <div class="pk-made" id="hgMade"></div>
+      </main>
+
+      <div class="action-area" id="hgActions"></div>
+
+      <div class="dock">
+        <details class="feed"><summary>Game log</summary><ul id="hgLog"></ul></details>
+      </div>
+    </section>
+
     <!-- Lock In (press-your-luck dice game) -->
     <section id="lockin" class="screen lockin hidden">
       <header class="topbar">
